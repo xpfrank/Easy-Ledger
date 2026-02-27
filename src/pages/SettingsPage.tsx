@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
@@ -46,16 +46,77 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     window.location.reload();
   };
 
-  const handleExport = () => {
+  const [showExportSuccess, setShowExportSuccess] = useState(false);
+  const [exportedData, setExportedData] = useState('');
+  const [copied, setCopied] = useState(false);
+  const exportTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 检测是否在 Capacitor Android 环境中
+  const isCapacitorAndroid = () => {
+    return typeof (window as any).Capacitor !== 'undefined' && 
+           (window as any).Capacitor.getPlatform() === 'android';
+  };
+
+  const handleExport = async () => {
     const data = exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
+    const fileName = `记账数据_${exportStartYear}${exportStartMonth.toString().padStart(2, '0')}-${exportEndYear}${exportEndMonth.toString().padStart(2, '0')}.json`;
+    
+    // 尝试使用 Web Share API（在 Android Chrome 中可用）
+    if (navigator.share && navigator.canShare && isCapacitorAndroid()) {
+      try {
+        const blob = new Blob([data], { type: 'application/json' });
+        const file = new File([blob], fileName, { type: 'application/json' });
+        
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: '记账数据导出',
+            text: `记账数据 (${exportStartYear}年${exportStartMonth}月 - ${exportEndYear}年${exportEndMonth}月)`
+          });
+          setShowExportDialog(false);
+          return;
+        }
+      } catch (error) {
+        // 用户取消分享或分享失败，继续尝试其他方式
+        console.log('Share API failed:', error);
+      }
+    }
+    
+    // 标准浏览器下载方式
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `记账数据_${exportStartYear}${exportStartMonth.toString().padStart(2, '0')}-${exportEndYear}${exportEndMonth.toString().padStart(2, '0')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setShowExportDialog(false);
+    a.download = fileName;
+    
+    // 对于 Android WebView，尝试使用 intent 方式
+    if (isCapacitorAndroid()) {
+      // 显示数据复制对话框作为备选方案
+      setExportedData(data);
+      setShowExportSuccess(true);
+      setShowExportDialog(false);
+    } else {
+      // 标准浏览器
+      a.click();
+      URL.revokeObjectURL(url);
+      setShowExportDialog(false);
+    }
+  };
+
+  const handleCopyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(exportedData);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      // 如果 clipboard API 失败，使用传统的选择复制方式
+      if (exportTextareaRef.current) {
+        exportTextareaRef.current.select();
+        document.execCommand('copy');
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    }
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -500,6 +561,54 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导出成功 - 复制数据对话框（Android 备选方案） */}
+      <Dialog open={showExportSuccess} onOpenChange={setShowExportSuccess}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>数据导出成功</DialogTitle>
+            <DialogDescription>
+              请复制下方 JSON 数据并保存到文件
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="relative">
+              <textarea
+                ref={exportTextareaRef}
+                value={exportedData}
+                readOnly
+                className="w-full h-48 p-3 text-xs font-mono bg-gray-50 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <Button
+                size="sm"
+                className="absolute top-2 right-2"
+                style={{ backgroundColor: copied ? '#10b981' : themeConfig.primary }}
+                onClick={handleCopyToClipboard}
+              >
+                {copied ? (
+                  <>
+                    <Check size={14} className="mr-1" />
+                    已复制
+                  </>
+                ) : (
+                  <>
+                    <Copy size={14} className="mr-1" />
+                    复制
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              提示：点击"复制"按钮后，可将数据粘贴到文件管理器或备忘录中保存为 .json 文件
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowExportSuccess(false)}>
+              完成
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

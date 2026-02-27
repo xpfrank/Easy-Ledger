@@ -269,18 +269,23 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
               <Card key={group.type} className="bg-white overflow-hidden">
                 {/* 分组标题 */}
                 <div 
-                  className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer select-none border-b border-gray-100"
+                  className="flex items-center justify-between p-3.5 bg-gradient-to-r from-gray-100 to-gray-50 cursor-pointer select-none border-b-2 border-gray-200 shadow-sm"
                   onClick={() => toggleGroup(group.type)}
                 >
-                  <div className="flex items-center gap-2">
-                    <Icon 
-                      name={getAccountTypeIcon(group.type)} 
-                      size={18} 
-                      className={group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''}
-                      color={group.type === 'credit' || group.type === 'debt' ? undefined : themeConfig.primary}
-                    />
-                    <span className="font-medium text-sm text-gray-700">{group.label}</span>
-                    <span className="text-xs text-gray-400">({group.accounts.length})</span>
+                  <div className="flex items-center gap-2.5">
+                    <div 
+                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-white shadow-sm"
+                      style={{ 
+                        color: group.type === 'credit' || group.type === 'debt' ? '#ef4444' : themeConfig.primary 
+                      }}
+                    >
+                      <Icon 
+                        name={getAccountTypeIcon(group.type)} 
+                        size={16} 
+                      />
+                    </div>
+                    <span className="font-semibold text-sm text-gray-800">{group.label}</span>
+                    <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full shadow-sm">{group.accounts.length}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-sm font-medium ${
@@ -295,12 +300,12 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                         e.stopPropagation();
                         toggleGroup(group.type);
                       }}
-                      className="p-1 rounded-full hover:bg-gray-200 transition-colors text-gray-400"
+                      className="p-1.5 rounded-full bg-white hover:bg-gray-100 transition-colors text-gray-500 shadow-sm"
                     >
                       {group.isExpanded ? (
-                        <ChevronUp size={18} />
+                        <ChevronUp size={16} />
                       ) : (
-                        <ChevronDown size={18} />
+                        <ChevronDown size={16} />
                       )}
                     </button>
                   </div>
