@@ -197,8 +197,8 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
         {/* 借出借入卡片 */}
         <div className="grid grid-cols-2 gap-3">
           <Card className="bg-white">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
+            <CardContent className="p-4 text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
                 <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
                   <Handshake size={16} className="text-orange-500" />
                 </div>
@@ -210,8 +210,8 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
             </CardContent>
           </Card>
           <Card className="bg-white">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
+            <CardContent className="p-4 text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
                 <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
                   <ClipboardList size={16} className="text-purple-500" />
                 </div>
@@ -276,10 +276,11 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-sm font-medium ${
-                      group.totalBalance < 0 ? 'text-green-600' : 
+                      group.type === 'credit' && group.totalBalance < 0 ? 'text-green-600' : 
                       group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
                     }`}>
-                      ¥{formatHiddenAmount(group.totalBalance, hideBalance)}
+                      {group.type === 'credit' ? (group.totalBalance > 0 ? '欠款' : '溢缴') : ''}
+                      ¥{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(group.totalBalance) : group.totalBalance, hideBalance)}
                     </span>
                     {group.isExpanded ? (
                       <ChevronUp size={16} className="text-gray-400" />
@@ -331,7 +332,7 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                               isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') : 
                               isDebt ? 'text-red-500' : ''
                             }`}>
-                              {isCredit && balance > 0 ? '欠款' : isCredit && balance < 0 ? '溢缴' : ''}
+                              {isCredit ? (balance > 0 ? '欠款' : '溢缴') : ''}
                               ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
                             </span>
                             <ChevronRight size={16} className="text-gray-300" />
