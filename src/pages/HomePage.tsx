@@ -77,8 +77,6 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
     const liabilities = calculateTotalLiabilities(currentYear, currentMonth);
     const worth = assets - liabilities;
     
-    // setTotalAssets(assets);
-    // setTotalLiabilities(liabilities);
     setNetWorth(worth);
 
     let lastYear = currentYear;
@@ -96,28 +94,32 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
     const accounts = getAllAccounts().filter(a => !a.isHidden);
     const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
 
-    const groups: AccountGroup[] = [];
-    for (const typeConfig of ACCOUNT_TYPES) {
-      const typeAccounts = accounts.filter(a => a.type === typeConfig.type);
-      if (typeAccounts.length === 0) continue;
+    setAccountGroups(prevGroups => {
+      const groups: AccountGroup[] = [];
+      for (const typeConfig of ACCOUNT_TYPES) {
+        const typeAccounts = accounts.filter(a => a.type === typeConfig.type);
+        if (typeAccounts.length === 0) continue;
 
-      let totalBalance = 0;
-      for (const account of typeAccounts) {
-        const record = records.find(r => r.accountId === account.id);
-        const balance = record ? record.balance : account.balance;
-        totalBalance += balance;
+        let totalBalance = 0;
+        for (const account of typeAccounts) {
+          const record = records.find(r => r.accountId === account.id);
+          const balance = record ? record.balance : account.balance;
+          totalBalance += balance;
+        }
+
+        // 保留之前的展开状态，如果是新分组则默认展开
+        const prevGroup = prevGroups.find(g => g.type === typeConfig.type);
+        
+        groups.push({
+          type: typeConfig.type,
+          label: typeConfig.label,
+          accounts: typeAccounts,
+          totalBalance,
+          isExpanded: prevGroup ? prevGroup.isExpanded : true,
+        });
       }
-
-      groups.push({
-        type: typeConfig.type,
-        label: typeConfig.label,
-        accounts: typeAccounts,
-        totalBalance,
-        isExpanded: true,
-      });
-    }
-
-    setAccountGroups(groups);
+      return groups;
+    });
   };
 
   const toggleHideBalance = () => {
@@ -267,7 +269,7 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
               <Card key={group.type} className="bg-white overflow-hidden">
                 {/* 分组标题 */}
                 <div 
-                  className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer"
+                  className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer select-none border-b border-gray-100"
                   onClick={() => toggleGroup(group.type)}
                 >
                   <div className="flex items-center gap-2">
@@ -277,7 +279,7 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                       className={group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''}
                       color={group.type === 'credit' || group.type === 'debt' ? undefined : themeConfig.primary}
                     />
-                    <span className="font-medium text-sm">{group.label}</span>
+                    <span className="font-medium text-sm text-gray-700">{group.label}</span>
                     <span className="text-xs text-gray-400">({group.accounts.length})</span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -288,11 +290,19 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                       {group.type === 'credit' ? (group.totalBalance > 0 ? '欠款' : '溢缴') : ''}
                       ¥{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(group.totalBalance) : group.totalBalance, hideBalance)}
                     </span>
-                    {group.isExpanded ? (
-                      <ChevronUp size={16} className="text-gray-400" />
-                    ) : (
-                      <ChevronDown size={16} className="text-gray-400" />
-                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleGroup(group.type);
+                      }}
+                      className="p-1 rounded-full hover:bg-gray-200 transition-colors text-gray-400"
+                    >
+                      {group.isExpanded ? (
+                        <ChevronUp size={18} />
+                      ) : (
+                        <ChevronDown size={18} />
+                      )}
+                    </button>
                   </div>
                 </div>
 
