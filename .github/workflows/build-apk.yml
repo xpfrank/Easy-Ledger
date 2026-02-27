@@ -17,10 +17,9 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
-        
+
     - name: Install dependencies
-      run: npm ci
+      run: npm install
       
     - name: Build web app
       run: npm run build
@@ -34,28 +33,62 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       
-    # 仅同步 Web 代码到 Android 项目（无需 init/add，因为 android 目录已存在）
-    - name: Sync Capacitor with Android
-      run: npx cap sync android
-        
-    - name: Fix Android SDK versions (optional)
+    - name: Check and Setup Android
       run: |
-        # 修改 variables.gradle
-        cat android/variables.gradle
+        if [ -d "android" ] && [ -f "android/build.gradle" ]; then
+          echo "Android 项目已存在，直接使用"
+          npx cap sync android
+        else
+          echo "Android 项目不存在，创建新项目"
+          npx cap init "极简记账" "com.ledger.app" --web-dir dist
+          npx cap add android
+        fi
         
-        # 将 compileSdkVersion 改为 35
+    - name: Fix Kotlin Conflict
+      run: |
+        # 修复 Kotlin 依赖冲突
+        cat > android/build.gradle << 'GRADLEEOF'
+        buildscript {
+            ext.kotlin_version = '1.8.22'
+            
+            repositories {
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:8.7.2'
+                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+                classpath 'com.google.gms:google-services:4.4.2'
+            }
+        }
+
+        apply from: "variables.gradle"
+
+        allprojects {
+            repositories {
+                google()
+                mavenCentral()
+            }
+            
+            configurations.all {
+                resolutionStrategy {
+                    force "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+                    force "org.jetbrains.kotlin:kotlin-stdlib-common:$kotlin_version"
+                    force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+                    force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+                }
+            }
+        }
+
+        task clean(type: Delete) {
+            delete rootProject.buildDir
+        }
+        GRADLEEOF
+        
+    - name: Fix Android SDK versions
+      run: |
         sed -i 's/compileSdkVersion = .*/compileSdkVersion = 35/' android/variables.gradle
         sed -i 's/targetSdkVersion = .*/targetSdkVersion = 35/' android/variables.gradle
-        
-        echo "=== Modified variables.gradle ==="
-        cat android/variables.gradle
-        
-        # 同时修改 app/build.gradle
-        sed -i 's/compileSdkVersion .*/compileSdkVersion 35/' android/app/build.gradle
-        sed -i 's/targetSdkVersion .*/targetSdkVersion 35/' android/app/build.gradle
-        
-        echo "=== Modified app/build.gradle ==="
-        cat android/app/build.gradle
         
     - name: Build Debug APK
       run: |
@@ -66,7 +99,7 @@ jobs:
     - name: Upload APK to Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: 记账本-Debug-APK
+        name: 极简记账-Debug-APK
         path: android/app/build/outputs/apk/debug/app-debug.apk
         
     - name: Create Release
@@ -74,7 +107,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ github.run_number }}
-        name: 记账本 v${{ github.run_number }}
+        name: 极简记账 v${{ github.run_number }}
         body: |
           自动构建的测试版本
           
