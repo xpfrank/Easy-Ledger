@@ -5,12 +5,11 @@ import { inspectAttr } from 'kimi-plugin-inspect-react'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  base: '/Easy-Ledger/',  // GitHub Pages 仓库路径
   plugins: [inspectAttr(), react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-
-});
+})
