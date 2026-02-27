@@ -199,8 +199,11 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
           <Card className="bg-white">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
-                  <Handshake size={16} className="text-orange-500" />
+                <div 
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: `${themeConfig.primary}15` }}
+                >
+                  <Handshake size={16} style={{ color: themeConfig.primary }} />
                 </div>
                 <div className="text-sm text-gray-500">借出</div>
               </div>
@@ -212,8 +215,11 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
           <Card className="bg-white">
             <CardContent className="p-4 text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
-                <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
-                  <ClipboardList size={16} className="text-purple-500" />
+                <div 
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: `${themeConfig.primary}15` }}
+                >
+                  <ClipboardList size={16} style={{ color: themeConfig.primary }} />
                 </div>
                 <div className="text-sm text-gray-500">借入</div>
               </div>
