@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, ChevronUp, Wallet, Eye, EyeOff, Plus } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, Wallet, Eye, EyeOff, Plus, Handshake, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
@@ -197,16 +197,26 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
         {/* 借出借入卡片 */}
         <div className="grid grid-cols-2 gap-3">
           <Card className="bg-white">
-            <CardContent className="p-4 text-center">
-              <div className="text-sm text-gray-500 mb-1">借出</div>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
+                  <Handshake size={16} className="text-orange-500" />
+                </div>
+                <div className="text-sm text-gray-500">借出</div>
+              </div>
               <div className="text-lg font-semibold text-gray-800">
                 ¥{formatHiddenAmount(loanOut, hideBalance)}
               </div>
             </CardContent>
           </Card>
           <Card className="bg-white">
-            <CardContent className="p-4 text-center">
-              <div className="text-sm text-gray-500 mb-1">借入</div>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+                  <ClipboardList size={16} className="text-purple-500" />
+                </div>
+                <div className="text-sm text-gray-500">借入</div>
+              </div>
               <div className="text-lg font-semibold text-gray-800">
                 ¥{formatHiddenAmount(debtIn, hideBalance)}
               </div>
@@ -321,8 +331,8 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                               isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') : 
                               isDebt ? 'text-red-500' : ''
                             }`}>
-                              {isCredit && balance > 0 ? '欠' : ''}
-                              ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : balance, hideBalance)}
+                              {isCredit && balance > 0 ? '欠款' : isCredit && balance < 0 ? '溢缴' : ''}
+                              ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
                             </span>
                             <ChevronRight size={16} className="text-gray-300" />
                           </div>

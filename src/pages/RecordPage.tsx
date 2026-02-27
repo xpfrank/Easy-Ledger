@@ -605,7 +605,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                               {getAccountTypeLabel(account.type)}
                               {isCredit && (
                                 <span className={balance > 0 ? 'text-red-500' : 'text-green-600'}>
-                                  {balance > 0 ? ' · 欠款' : ' · 溢缴款'}
+                                  {balance > 0 ? ' · 欠款' : balance < 0 ? ' · 溢缴' : ''}
                                 </span>
                               )}
                             </div>
@@ -647,8 +647,8 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                             }`}
                           >
                             <div className="text-sm font-medium">
-                              {isCredit && balance > 0 ? '欠' : ''}
-                              ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : balance, hideBalance)}
+                              {isCredit && balance > 0 ? '欠款' : isCredit && balance < 0 ? '溢缴' : ''}
+                              ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
                             </div>
                             <div className="text-xs text-gray-400">点击编辑</div>
                           </button>
