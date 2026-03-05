@@ -28,6 +28,7 @@ export function getAccountTypeIcon(type: AccountType): string {
 
 // 计算某月总资产（不含信用卡欠款）
 // 总资产 = 所有账户余额之和，不包含信用卡欠款（信用卡余额为正时不计入，为负时计入其绝对值）
+// 只统计计入总资产的账户 (includeInTotal === true)
 export function calculateTotalAssets(year: number, month: number): number {
   const accounts = getAllAccounts();
   const records = getMonthlyRecordsByMonth(year, month);
@@ -35,7 +36,8 @@ export function calculateTotalAssets(year: number, month: number): number {
   let total = 0;
 
   for (const account of accounts) {
-    if (account.isHidden) continue;
+    // 不计入总资产 或 隐藏的账户都跳过
+    if (!account.includeInTotal || account.isHidden) continue;
 
     const record = records.find(r => r.accountId === account.id);
     const balance = record ? record.balance : account.balance;
@@ -61,6 +63,7 @@ export function calculateTotalAssets(year: number, month: number): number {
 
 // 计算某月负资产
 // 负资产 = 信用卡欠款（所有信用卡账户余额为正的部分）+ 借入的钱
+// 只统计计入总资产的账户 (includeInTotal === true)
 export function calculateTotalLiabilities(year: number, month: number): number {
   const accounts = getAllAccounts();
   const records = getMonthlyRecordsByMonth(year, month);
@@ -68,7 +71,8 @@ export function calculateTotalLiabilities(year: number, month: number): number {
   let total = 0;
 
   for (const account of accounts) {
-    if (account.isHidden) continue;
+    // 不计入总资产 或 隐藏的账户都跳过
+    if (!account.includeInTotal || account.isHidden) continue;
 
     const record = records.find(r => r.accountId === account.id);
     const balance = record ? record.balance : account.balance;
@@ -92,6 +96,91 @@ export function calculateNetWorth(year: number, month: number): number {
   const totalAssets = calculateTotalAssets(year, month);
   const totalLiabilities = calculateTotalLiabilities(year, month);
   return totalAssets - totalLiabilities;
+}
+
+// 计算某月总资产（仅非隐藏账户，用于趋势展示）
+// 与 calculateTotalAssets 不同，此函数只排除隐藏账户，不排除 includeInTotal=false 的账户
+export function calculateVisibleTotalAssets(year: number, month: number): number {
+  const accounts = getAllAccounts();
+  const records = getMonthlyRecordsByMonth(year, month);
+  
+  let total = 0;
+
+  for (const account of accounts) {
+    // 只跳过隐藏的账户（用于趋势页面展示）
+    if (account.isHidden) continue;
+
+    const record = records.find(r => r.accountId === account.id);
+    const balance = record ? record.balance : account.balance;
+
+    // 信用卡特殊处理
+    if (account.type === 'credit') {
+      if (balance < 0) {
+        total += Math.abs(balance);
+      }
+    } else if (account.type === 'debt') {
+      continue;
+    } else {
+      total += balance;
+    }
+  }
+
+  return total;
+}
+
+// 计算某月负资产（仅非隐藏账户，用于趋势展示）
+export function calculateVisibleTotalLiabilities(year: number, month: number): number {
+  const accounts = getAllAccounts();
+  const records = getMonthlyRecordsByMonth(year, month);
+  
+  let total = 0;
+
+  for (const account of accounts) {
+    // 只跳过隐藏的账户（用于趋势页面展示）
+    if (account.isHidden) continue;
+
+    const record = records.find(r => r.accountId === account.id);
+    const balance = record ? record.balance : account.balance;
+
+    // 信用卡欠款（正数部分）
+    if (account.type === 'credit' && balance > 0) {
+      total += balance;
+    }
+    // 借入
+    if (account.type === 'debt') {
+      total += Math.abs(balance);
+    }
+  }
+
+  return total;
+}
+
+// 获取月度完整数据（仅非隐藏账户，用于趋势展示）
+export function getVisibleMonthlyNetWorth(year: number, month: number): MonthlyNetWorth {
+  const totalAssets = calculateVisibleTotalAssets(year, month);
+  const totalLiabilities = calculateVisibleTotalLiabilities(year, month);
+  const netWorth = totalAssets - totalLiabilities;
+  
+  // 计算上月数据用于对比
+  let lastYear = year;
+  let lastMonth = month - 1;
+  if (lastMonth === 0) {
+    lastYear--;
+    lastMonth = 12;
+  }
+  const lastNetWorth = calculateVisibleTotalAssets(lastYear, lastMonth) - calculateVisibleTotalLiabilities(lastYear, lastMonth);
+  const change = netWorth - lastNetWorth;
+  const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
+
+  return {
+    year,
+    month,
+    netWorth,
+    totalAssets,
+    totalLiabilities,
+    change,
+    changePercent,
+  };
 }
 
 // 获取月度完整数据（包含总资产、负资产、净资产）
@@ -247,7 +336,8 @@ export function getAccountGroups(): AccountGroup[] {
 
 // ========== 趋势图表数据 ==========
 
-// 获取月度净资产历史
+// 获取月度净资产历史（仅非隐藏账户，用于趋势页面）
+// months: 获取最近几个月的数据，传入 0 或负数表示获取全部
 export function getNetWorthHistory(months: number = 12): MonthlyNetWorth[] {
   const data = loadData();
   const records = data.records;
@@ -262,14 +352,18 @@ export function getNetWorthHistory(months: number = 12): MonthlyNetWorth[] {
   const now = new Date();
   monthSet.add(`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`);
 
-  // 排序并取最近N个月
-  const sortedMonths = Array.from(monthSet).sort().slice(-months);
+  // 排序
+  const sortedMonths = Array.from(monthSet).sort();
+  
+  // 如果 months > 0，取最近N个月；否则取全部
+  const filteredMonths = months > 0 ? sortedMonths.slice(-months) : sortedMonths;
 
   const history: MonthlyNetWorth[] = [];
 
-  for (const monthKey of sortedMonths) {
+  for (const monthKey of filteredMonths) {
     const [year, month] = monthKey.split('-').map(Number);
-    const monthlyData = getMonthlyNetWorth(year, month);
+    // 使用 getVisibleMonthlyNetWorth 只统计非隐藏账户
+    const monthlyData = getVisibleMonthlyNetWorth(year, month);
     history.push(monthlyData);
   }
 
@@ -290,7 +384,34 @@ export function getAccountHistory(accountId: string, months: number = 12): Month
   return records;
 }
 
-// 获取年度净资产历史（用于年度趋势图表）
+// 获取年度净资产数据（仅非隐藏账户，用于趋势展示）
+export function getVisibleYearlyNetWorth(year: number): YearlyNetWorth {
+  // 获取该年度最后一个有记录的月份，如果没有则默认12月
+  const lastMonth = getLastRecordedMonth(year) || 12;
+  
+  const totalAssets = calculateVisibleTotalAssets(year, lastMonth);
+  const totalLiabilities = calculateVisibleTotalLiabilities(year, lastMonth);
+  const netWorth = totalAssets - totalLiabilities;
+  
+  // 计算上一年度数据用于对比（也使用仅可见账户）
+  const lastYearAssets = calculateVisibleTotalAssets(year - 1, 12);
+  const lastYearLiabilities = calculateVisibleTotalLiabilities(year - 1, 12);
+  const lastYearNetWorth = lastYearAssets - lastYearLiabilities;
+  const change = netWorth - lastYearNetWorth;
+  const changePercent = lastYearNetWorth !== 0 ? (change / Math.abs(lastYearNetWorth)) * 100 : 0;
+
+  return {
+    year,
+    netWorth,
+    totalAssets,
+    totalLiabilities,
+    lastRecordedMonth: lastMonth,
+    change,
+    changePercent,
+  };
+}
+
+// 获取年度净资产历史（用于年度趋势图表，仅非隐藏账户）
 export function getYearlyNetWorthHistory(): { year: number; netWorth: number; totalAssets: number; totalLiabilities: number; change: number; changePercent: number }[] {
   const data = loadData();
   const records = data.records;
@@ -312,7 +433,8 @@ export function getYearlyNetWorthHistory(): { year: number; netWorth: number; to
 
   for (let i = 0; i < sortedYears.length; i++) {
     const year = sortedYears[i];
-    const yearlyData = getYearlyNetWorth(year);
+    // 使用 getVisibleYearlyNetWorth 只统计非隐藏账户
+    const yearlyData = getVisibleYearlyNetWorth(year);
     
     history.push({
       year: yearlyData.year,
