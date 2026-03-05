@@ -33,15 +33,26 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [yearlyHistory, setYearlyHistory] = useState<YearlyNetWorth[]>([]);
   const [selectedData, setSelectedData] = useState<any | null>(null);
   const [theme, setTheme] = useState<ThemeType>('blue');
+  const [hideBalance, setHideBalance] = useState(false);
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: any } | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
 
   const themeConfig = THEMES[theme];
 
+  // 格式化金额，支持隐藏显示
+  const formatBalance = (amount: number): string => {
+    if (hideBalance) {
+      return '******';
+    }
+    return formatAmountNoSymbol(amount);
+  };
+
   useEffect(() => {
     const settings = getSettings();
     setTheme(settings.theme || 'blue');
-    const months = timeRange === 'all' ? 999 : parseInt(timeRange);
+    setHideBalance(settings.hideBalance || false);
+    // 当选择"全部"时，传入 0 表示获取所有数据
+    const months = timeRange === 'all' ? 0 : parseInt(timeRange);
     setMonthlyHistory(getNetWorthHistory(months));
     setYearlyHistory(getYearlyNetWorthHistory());
   }, [timeRange]);
@@ -380,7 +391,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           }
                         </div>
                         <div className="text-gray-300">
-                          余额: {formatAmountNoSymbol(hoveredPoint.data.netWorth)}
+                          余额: {formatBalance(hoveredPoint.data.netWorth)}
                         </div>
                       </div>
                     )}
@@ -435,7 +446,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                       <TrendingUp size={16} className="text-green-500" />
                       <span className="text-xs text-gray-500">最高净资产</span>
                     </div>
-                    <div className="text-lg font-semibold">{formatAmountNoSymbol(stats.maxNetWorth)}</div>
+                    <div className="text-lg font-semibold">{formatBalance(stats.maxNetWorth)}</div>
                   </CardContent>
                 </Card>
                 <Card className="bg-white">
@@ -444,7 +455,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                       <TrendingDown size={16} className="text-red-500" />
                       <span className="text-xs text-gray-500">最低净资产</span>
                     </div>
-                    <div className="text-lg font-semibold">{formatAmountNoSymbol(stats.minNetWorth)}</div>
+                    <div className="text-lg font-semibold">{formatBalance(stats.minNetWorth)}</div>
                   </CardContent>
                 </Card>
                 <Card className="bg-white">
@@ -453,7 +464,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                       <Calendar size={16} className="text-blue-500" />
                       <span className="text-xs text-gray-500">平均净资产</span>
                     </div>
-                    <div className="text-lg font-semibold">{formatAmountNoSymbol(stats.avgNetWorth)}</div>
+                    <div className="text-lg font-semibold">{formatBalance(stats.avgNetWorth)}</div>
                   </CardContent>
                 </Card>
                 <Card className="bg-white">
@@ -467,7 +478,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                       <span className="text-xs text-gray-500">总变化</span>
                     </div>
                     <div className={`text-lg font-semibold ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                      {stats.totalChange >= 0 ? '+' : ''}{formatAmountNoSymbol(stats.totalChange)}
+                      {stats.totalChange >= 0 ? '+' : ''}{formatBalance(stats.totalChange)}
                     </div>
                   </CardContent>
                 </Card>
@@ -514,7 +525,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 <div className="text-center">
                   <div className="text-xs text-gray-400 mb-1">环比变化</div>
                   <div className={`text-lg font-medium ${selectedData.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {selectedData.change >= 0 ? '+' : ''}{formatAmountNoSymbol(selectedData.change)}
+                    {selectedData.change >= 0 ? '+' : ''}{formatBalance(selectedData.change)}
                   </div>
                 </div>
                 <div className="text-center">
