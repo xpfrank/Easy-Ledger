@@ -92,7 +92,7 @@ function App() {
         return (
           <AccountEditPage
             onPageChange={handlePageChange}
-            accountId={pageParams?.accountId}
+            params={pageParams}
           />
         );
       case 'record':
