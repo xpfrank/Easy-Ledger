@@ -92,7 +92,7 @@ function App() {
         return (
           <AccountEditPage
             onPageChange={handlePageChange}
-            params={pageParams}
+            accountId={pageParams?.accountId}
           />
         );
       case 'record':
@@ -105,6 +105,9 @@ function App() {
         return (
           <RecordLogsPage
             onPageChange={handlePageChange}
+            year={pageParams?.year}
+            month={pageParams?.month}
+            mode={pageParams?.mode}
           />
         );
       case 'trend':
