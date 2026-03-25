@@ -5,11 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
-import {
-  getAllAccounts,
-  deleteAccount,
-  updateAccount,
-  importData,
+import { 
+  getAllAccounts, 
+  deleteAccount, 
+  updateAccount, 
+  importData, 
   formatAmountNoSymbol,
   getMonthlyRecordsByMonth,
 } from '@/lib/storage';
@@ -34,13 +34,13 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   const loadAccounts = () => {
     const allAccounts = getAllAccounts();
     setAccounts(allAccounts);
-
+    
     // 获取当前月份的余额（优先显示月度记录中的余额）
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
     const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
-
+    
     const balances: Record<string, number> = {};
     for (const account of allAccounts) {
       const record = records.find(r => r.accountId === account.id);
@@ -97,120 +97,136 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   })).filter(g => g.accounts.length > 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* 固定标题栏 - 使用 sticky 定位 */}
-      <div className="sticky top-0 z-10 bg-white border-b shadow-sm">
-        <div className="flex items-center gap-3 p-4">
-          <button onClick={() => onPageChange('home')}>
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          <h1 className="text-xl font-bold">账户管理</h1>
-        </div>
-      </div>
-
-      {/* 操作按钮区域 */}
-      <div className="p-4 flex justify-end">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setImportDialogOpen(true)}
-        >
-          <Upload className="w-4 h-4 mr-1" />
-          导入
-        </Button>
-      </div>
-
-      {groupedAccounts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-          <p className="mb-4">还没有账户</p>
-          <Button onClick={() => onPageChange('account-edit')}>
-            <Plus className="w-4 h-4 mr-1" />
-            添加账户
+    <div className="pb-24 bg-gray-50 min-h-screen">
+      {/* 标题栏 */}
+      <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+            <ArrowLeft size={20} />
           </Button>
+          <h1 className="text-lg font-semibold">账户管理</h1>
         </div>
-      ) : (
-        <div className="px-4 space-y-4">
-          {groupedAccounts.map((group) => (
-            <div key={group.type}>
-              {/* 分组标题 */}
-              <div className="text-sm text-gray-500 font-medium mb-2">
-                {group.label}
-              </div>
+        <Button variant="ghost" size="icon" onClick={() => setImportDialogOpen(true)}>
+          <Upload size={20} />
+        </Button>
+      </header>
 
-              {/* 账户卡片列表 */}
-              {group.accounts.map((account) => (
-                <Card key={account.id} className="mb-3">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Icon name={getAccountTypeIcon(account.type)} className="w-6 h-6 text-gray-600" />
-                        <div>
-                          <p className="font-medium">{account.name}</p>
-                          <p className="text-sm text-gray-500">
-                            余额: {formatAmountNoSymbol(currentBalances[account.id] ?? account.balance)}
-                          </p>
+      <div className="p-4 space-y-4">
+        {groupedAccounts.length === 0 ? (
+          <Card className="bg-white">
+            <CardContent className="p-8 text-center">
+              <p className="text-gray-500 mb-4">还没有账户</p>
+              <Button 
+                className="bg-sky-500 hover:bg-sky-600"
+                onClick={() => onPageChange('account-edit')}
+              >
+                <Plus size={18} className="mr-1" />
+                添加账户
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          groupedAccounts.map((group) => (
+            <div key={group.type} className="space-y-2">
+              <h2 className="text-sm font-medium text-gray-500 px-1">
+                {group.label}
+              </h2>
+              <Card className="bg-white overflow-hidden">
+                <div className="divide-y divide-gray-100">
+                  {group.accounts.map((account) => (
+                    <div 
+                      key={account.id}
+                      className="p-3 hover:bg-gray-50"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                            account.type === 'credit' || account.type === 'debt' 
+                              ? 'bg-red-50' 
+                              : 'bg-sky-50'
+                          }`}>
+                            <Icon 
+                              name={account.icon} 
+                              size={18} 
+                              className={account.type === 'credit' || account.type === 'debt' 
+                                ? 'text-red-500' 
+                                : 'text-sky-500'
+                              } 
+                            />
+                          </div>
+                          <div>
+                            <div className="font-medium text-sm">{account.name}</div>
+                            <div className="text-xs text-gray-400">
+                              余额: {formatAmountNoSymbol(currentBalances[account.id] ?? account.balance)}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => onPageChange('account-edit', { accountId: account.id })}
+                          >
+                            <Edit3 size={16} className="text-gray-400" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => handleDelete(account)}
+                          >
+                            <Trash2 size={16} className="text-red-400" />
+                          </Button>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => onPageChange('account-edit', { accountId: account.id })}
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(account)}
-                        >
-                          <Trash2 className="w-4 h-4 text-red-500" />
-                        </Button>
+                      
+                      {/* 设置项 */}
+                      <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-50">
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Switch 
+                              checked={account.includeInTotal}
+                              onCheckedChange={() => toggleIncludeInTotal(account)}
+                              className="data-[state=checked]:bg-sky-500"
+                            />
+                            <span className="text-xs text-gray-500">计入总资产</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2"
+                              onClick={() => toggleHidden(account)}
+                            >
+                              {account.isHidden ? (
+                                <EyeOff size={14} className="text-gray-400 mr-1" />
+                              ) : (
+                                <Eye size={14} className="text-sky-500 mr-1" />
+                              )}
+                              <span className="text-xs">
+                                {account.isHidden ? '已隐藏' : '显示'}
+                              </span>
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-
-                    {/* 设置项 */}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={account.includeInTotal}
-                          onCheckedChange={() => toggleIncludeInTotal(account)}
-                          className="data-[state=checked]:bg-sky-500"
-                        />
-                        <span className="text-sm">计入总资产</span>
-                      </div>
-
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleHidden(account)}
-                      >
-                        {account.isHidden ? (
-                          <>
-                            <Eye className="w-4 h-4 mr-1" />
-                            显示
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="w-4 h-4 mr-1" />
-                            隐藏
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                  ))}
+                </div>
+              </Card>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
       {/* 添加按钮 */}
-      <div className="fixed bottom-20 left-0 right-0 p-4 flex justify-center">
-        <Button onClick={() => onPageChange('account-edit')}>
-          <Plus className="w-4 h-4 mr-1" />
+      <div className="fixed bottom-6 left-4 right-4">
+        <Button 
+          className="w-full bg-sky-500 hover:bg-sky-600 h-12"
+          onClick={() => onPageChange('account-edit')}
+        >
+          <Plus size={20} className="mr-2" />
           添加账户
         </Button>
       </div>
@@ -228,7 +244,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
             <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={confirmDelete} className="bg-red-500 hover:bg-red-600">
+            <Button variant="destructive" onClick={confirmDelete}>
               删除
             </Button>
           </DialogFooter>
@@ -244,12 +260,12 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
               选择之前导出的 JSON 文件进行恢复。导入将覆盖当前所有数据。
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4">
+          <div className="py-4">
             <input
               type="file"
               accept=".json"
               onChange={handleImport}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              className="w-full"
             />
           </div>
           <DialogFooter>
@@ -261,17 +277,4 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
       </Dialog>
     </div>
   );
-}
-
-function getAccountTypeIcon(type: string): string {
-  const iconMap: Record<string, string> = {
-    'cash': 'Banknote',
-    'debit': 'CreditCard',
-    'credit': 'CreditCard',
-    'digital': 'Wallet',
-    'investment': 'TrendingUp',
-    'loan': 'Handshake',
-    'debt': 'ClipboardList',
-  };
-  return iconMap[type] || 'Circle';
 }
