@@ -311,7 +311,7 @@ export function getNetWorthHistory(months: number = 12): MonthlyNetWorth[] {
   const data = loadData();
   const records = data.records;
   // 获取所有有记录的月份
-  const monthSet = new Set();
+  const monthSet = new Set<string>();
   records.forEach(r => {
     monthSet.add(`${r.year}-${r.month.toString().padStart(2, '0')}`);
   });
@@ -374,7 +374,7 @@ export function getYearlyNetWorthHistory(): { year: number; netWorth: number; to
   const data = loadData();
   const records = data.records;
   // 获取所有有记录的年份
-  const yearSet = new Set();
+  const yearSet = new Set<number>();
   records.forEach(r => {
     yearSet.add(r.year);
   });
