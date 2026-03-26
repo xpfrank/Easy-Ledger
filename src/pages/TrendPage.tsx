@@ -3,235 +3,656 @@ import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown } from 'luci
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PageRoute, MonthlyNetWorth, ThemeType } from '@/types';
+import type { PageRoute, ThemeType, MonthlyNetWorth } from '@/types';
 import { formatAmountNoSymbol, getSettings } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
 interface TrendPageProps {
-  navigate: (route: PageRoute) => void;
+  onPageChange: (page: PageRoute, params?: any) => void;
 }
 
-const TrendPage = ({ navigate }: TrendPageProps) => {
-  const [records, setRecords] = useState<any[]>([]);
-  const [theme, setTheme] = useState<ThemeType>('light');
-  const [isMounted, setIsMounted] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [showMonthDialog, setShowMonthDialog] = useState(false);
-  const [timeRange, setTimeRange] = useState<'6' | '12' | 'all'>('6');
+type TimeRange = '6' | '12' | 'all';
+type TrendType = 'monthly' | 'yearly';
 
-  useEffect(() => {
-    setIsMounted(true);
-    loadSettings();
-    loadRecords();
-  }, []);
+interface YearlyNetWorth {
+  year: number;
+  netWorth: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  change: number;
+  changePercent: number;
+}
 
-  const loadSettings = async () => {
-    const settings = await getSettings();
-    setTheme(settings.theme);
-  };
+export function TrendPage({ onPageChange }: TrendPageProps) {
+  const [timeRange, setTimeRange] = useState<TimeRange>('12');
+  const [trendType, setTrendType] = useState<TrendType>('monthly');
+  const [showTrendDropdown, setShowTrendDropdown] = useState(false);
+  const [monthlyHistory, setMonthlyHistory] = useState<MonthlyNetWorth[]>([]);
+  const [yearlyHistory, setYearlyHistory] = useState<YearlyNetWorth[]>([]);
+  const [selectedData, setSelectedData] = useState<any | null>(null);
+  const [theme, setTheme] = useState<ThemeType>('blue');
+  const [hideBalance, setHideBalance] = useState(false);
+  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: any } | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
 
-  const loadRecords = () => {
-    const saved = localStorage.getItem('monthly_records');
-    if (saved) {
-      setRecords(JSON.parse(saved));
+  const themeConfig = THEMES[theme] || THEMES.blue;
+
+  // 格式化金额，支持隐藏显示
+  const formatBalance = (amount: number): string => {
+    if (hideBalance) {
+      return '******';
     }
+    return formatAmountNoSymbol(amount);
   };
 
-  // 处理月度净资产数据（修复：排除借出资产，与首页保持一致）
-  const monthlyData = useMemo(() => {
-    const grouped: Record<string, any[]> = {};
-    
-    records.forEach(record => {
-      if (!grouped[record.month]) {
-        grouped[record.month] = [];
-      }
-      grouped[record.month].push(record);
+  // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
+  const getConsistentNetWorthHistory = (months: number): MonthlyNetWorth[] => {
+    const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
+    const records = data.records || [];
+
+    // 获取所有有记录的月份
+    const monthSet = new Set<string>([]);
+    records.forEach((r: any) => {
+      monthSet.add(`${r.year}-${r.month.toString().padStart(2, '0')}`);
     });
 
-    const months = Object.keys(grouped).sort();
-    return months.map(month => {
-      const monthRecords = grouped[month];
-      const totalAssets = calculateTotalAssets(monthRecords);
-      const totalLiabilities = calculateTotalLiabilities(monthRecords);
+    // 添加当前月份
+    const now = new Date();
+    monthSet.add(`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`);
+
+    // 排序
+    const sortedMonths = Array.from(monthSet).sort();
+
+    // 如果 months > 0，取最近N个月；否则取全部
+    const filteredMonths = months > 0 ? sortedMonths.slice(-months) : sortedMonths;
+
+    const history: MonthlyNetWorth[] = [];
+
+    for (const monthKey of filteredMonths) {
+      const [year, month] = monthKey.split('-').map(Number);
+      // 使用与首页一致的计算函数
+      const totalAssets = calculateTotalAssets(year, month);
+      const totalLiabilities = calculateTotalLiabilities(year, month);
       const netWorth = totalAssets - totalLiabilities;
 
-      return {
+      // 计算上月数据用于对比
+      let lastYear = year;
+      let lastMonth = month - 1;
+      if (lastMonth === 0) {
+        lastYear--;
+        lastMonth = 12;
+      }
+      const lastNetWorth = calculateNetWorth(lastYear, lastMonth);
+      const change = netWorth - lastNetWorth;
+      const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
+
+      history.push({
+        year,
         month,
         netWorth,
         totalAssets,
         totalLiabilities,
-        records: monthRecords,
-      };
-    });
-  }, [records]);
-
-  // 根据时间范围筛选
-  const filteredData = useMemo(() => {
-    const reversed = [...monthlyData].reverse();
-    
-    switch (timeRange) {
-      case '6':
-        return reversed.slice(0, 6).reverse();
-      case '12':
-        return reversed.slice(0, 12).reverse();
-      default:
-        return reversed.reverse();
+        change,
+        changePercent,
+      });
     }
-  }, [monthlyData, timeRange]);
 
-  // 趋势变化计算
-  const trendData = useMemo(() => {
-    if (filteredData.length < 2) return null;
+    return history;
+  };
 
-    const first = filteredData[0];
-    const last = filteredData[filteredData.length - 1];
-    const change = last.netWorth - first.netWorth;
-    const changePercent = first.netWorth !== 0 
-      ? (change / Math.abs(first.netWorth)) * 100 
-      : 0;
+  // 获取年度净资产历史（与首页逻辑一致）
+  const getConsistentYearlyNetWorthHistory = (): YearlyNetWorth[] => {
+    const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
+    const records = data.records || [];
+
+    // 获取所有有记录的年份
+    const yearSet = new Set<number>([]);
+    records.forEach((r: any) => {
+      yearSet.add(r.year);
+    });
+
+    // 添加当前年份
+    const now = new Date();
+    yearSet.add(now.getFullYear());
+
+    // 排序
+    const sortedYears = Array.from(yearSet).sort();
+
+    const history: YearlyNetWorth[] = [];
+
+    for (let i = 0; i < sortedYears.length; i++) {
+      const year = sortedYears[i];
+
+      // 获取该年度最后一个有记录的月份
+      const yearRecords = records.filter((r: any) => r.year === year);
+      let lastMonth = 12;
+      if (yearRecords.length > 0) {
+        lastMonth = Math.max(...yearRecords.map((r: any) => r.month));
+      }
+
+      // 使用与首页一致的计算函数
+      const totalAssets = calculateTotalAssets(year, lastMonth);
+      const totalLiabilities = calculateTotalLiabilities(year, lastMonth);
+      const netWorth = totalAssets - totalLiabilities;
+
+      // 计算上一年度数据用于对比
+      const lastYearNetWorth = calculateNetWorth(year - 1, 12);
+      const change = netWorth - lastYearNetWorth;
+      const changePercent = lastYearNetWorth !== 0 ? (change / Math.abs(lastYearNetWorth)) * 100 : 0;
+
+      history.push({
+        year,
+        netWorth,
+        totalAssets,
+        totalLiabilities,
+        change,
+        changePercent,
+      });
+    }
+
+    return history;
+  };
+
+  useEffect(() => {
+    const settings = getSettings();
+    const validThemes: ThemeType[] = ['blue', 'green', 'orange', 'dark', 'purple'];
+    const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
+    setTheme(themeValue as ThemeType);
+    setHideBalance(settings.hideBalance || false);
+    // 当选择"全部"时，传入 0 表示获取所有数据
+    const months = timeRange === 'all' ? 0 : parseInt(timeRange);
+    // 使用与首页一致的计算逻辑
+    setMonthlyHistory(getConsistentNetWorthHistory(months));
+    setYearlyHistory(getConsistentYearlyNetWorthHistory());
+  }, [timeRange]);
+
+  // 当前显示的历史数据
+  const history = trendType === 'monthly' ? monthlyHistory : yearlyHistory;
+
+  const stats = useMemo(() => {
+    if (history.length === 0) return null;
+    
+    const netWorths = history.map(h => h.netWorth);
+    const maxNetWorth = Math.max(...netWorths);
+    const minNetWorth = Math.min(...netWorths);
+    const avgNetWorth = netWorths.reduce((a, b) => a + b, 0) / netWorths.length;
+    
+    const firstNetWorth = netWorths[0];
+    const lastNetWorth = netWorths[netWorths.length - 1];
+    const totalChange = lastNetWorth - firstNetWorth;
+    const totalChangePercent = firstNetWorth !== 0 ? (totalChange / Math.abs(firstNetWorth)) * 100 : 0;
 
     return {
-      startValue: first.netWorth,
-      endValue: last.netWorth,
-      change,
-      changePercent,
-      isPositive: change >= 0,
+      maxNetWorth,
+      minNetWorth,
+      avgNetWorth,
+      totalChange,
+      totalChangePercent,
     };
-  }, [filteredData]);
+  }, [history]);
 
-  if (!isMounted) return null;
+  // 计算图表数据
+  const chartData = useMemo(() => {
+    if (history.length === 0) return null;
+
+    const netWorths = history.map(h => h.netWorth);
+    const max = Math.max(...netWorths, 0);
+    const min = Math.min(...netWorths, 0);
+    const range = max - min || 1;
+
+    // 计算坐标点
+    const points = history.map((h, index) => {
+      const x = (index / (history.length - 1 || 1)) * 100;
+      const y = max === min ? 50 : 100 - ((h.netWorth - min) / range) * 80 - 10;
+      return { x, y, data: h };
+    });
+
+    // 生成 SVG 路径
+    const pathD = points.length > 0 
+      ? `M ${points[0].x} ${points[0].y} ` + 
+        points.slice(1).map((p, i) => {
+          const prev = points[i];
+          const cp1x = prev.x + (p.x - prev.x) / 3;
+          const cp1y = prev.y;
+          const cp2x = prev.x + (p.x - prev.x) * 2 / 3;
+          const cp2y = p.y;
+          return `C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p.x} ${p.y}`;
+        }).join(' ')
+      : '';
+
+    // 生成填充区域路径
+    const fillD = pathD + ` L ${points[points.length - 1]?.x || 0} 100 L ${points[0]?.x || 0} 100 Z`;
+
+    return { points, pathD, fillD, max, min, range };
+  }, [history, trendType]);
+
+  // 判断是否需要显示年份分隔（跨年度时，仅月度趋势）
+  const showYearSeparators = useMemo(() => {
+    if (trendType === 'yearly') return false;
+    if (history.length < 2) return false;
+    const firstYear = history[0].year;
+    const lastYear = history[history.length - 1].year;
+    return firstYear !== lastYear;
+  }, [history, trendType]);
+
+  const formatMonthLabel = (year: number, month: number) => {
+    return `${year}年${month.toString().padStart(2, '0')}月`;
+  };
+
+  // 智能金额格式化 - 根据数值大小自动选择合适的单位和精度
+  const formatSmartAmount = (amount: number, useUnit: string): string => {
+    const absValue = Math.abs(amount);
+    
+    if (useUnit === 'w') {
+      // 万为单位：显示1位小数（如 1.5w）
+      return (amount / 10000).toFixed(1) + 'w';
+    } else if (useUnit === 'k') {
+      // 千为单位：根据大小决定是否显示小数
+      if (absValue >= 10000) {
+        // 大于1万时显示整数（如 12k）
+        return Math.round(amount / 1000) + 'k';
+      } else {
+        // 1千到1万之间显示1位小数（如 3.4k）
+        return (amount / 1000).toFixed(1) + 'k';
+      }
+    } else {
+      // 元为单位：显示整数
+      return Math.round(amount).toString();
+    }
+  };
+
+  // 计算规整的刻度间隔
+  const getNiceStep = (range: number, tickCount: number): number => {
+    if (range <= 0) return 1;
+    const roughStep = range / (tickCount - 1);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const normalized = roughStep / magnitude;
+    
+    // 选择规整的刻度间隔：1, 2, 5, 10 的倍数
+    let niceNormalized: number;
+    if (normalized <= 1) niceNormalized = 1;
+    else if (normalized <= 2) niceNormalized = 2;
+    else if (normalized <= 5) niceNormalized = 5;
+    else niceNormalized = 10;
+    
+    return niceNormalized * magnitude;
+  };
+
+  // 计算Y轴刻度 - 智能生成等距、规整的刻度
+  const yAxisConfig = useMemo(() => {
+    if (!chartData) return { ticks: [], unit: '元' };
+    
+    const { max, min } = chartData;
+    const range = max - min;
+    const tickCount = 7; // 生成7个刻度
+    
+    // 确定使用什么单位
+    const absMax = Math.max(Math.abs(max), Math.abs(min));
+    let unit: '元' | 'k' | 'w';
+    if (absMax >= 1000000) {
+      unit = 'w'; // 大于100万使用万为单位
+    } else if (absMax >= 10000) {
+      unit = 'k'; // 大于1万使用千为单位
+    } else {
+      unit = '元'; // 否则使用元
+    }
+    
+    // 计算规整的刻度步长
+    const step = getNiceStep(range, tickCount);
+    
+    // 计算规整的最小值和最大值
+    const niceMin = Math.floor(min / step) * step;
+    const niceMax = Math.ceil(max / step) * step;
+    
+    // 生成刻度
+    const ticks = [];
+    for (let value = niceMax; value >= niceMin - step / 2; value -= step) {
+      if (ticks.length >= tickCount) break;
+      ticks.push({ 
+        value, 
+        label: formatSmartAmount(value, unit),
+        rawValue: value
+      });
+    }
+    
+    return { ticks, unit };
+  }, [chartData]);
 
   return (
-    <div className={`min-h-screen bg-gray-50 dark:bg-gray-900 ${theme === 'dark' ? 'dark' : ''}`}>
-      {/* 顶部导航栏 */}
-      <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 shadow-sm">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate('home')}
-                className="hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-              <h1 className="text-xl font-bold text-gray-800 dark:text-white">资产趋势</h1>
-            </div>
-          </div>
+    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
+      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+            <ArrowLeft size={20} />
+          </Button>
+          <h1 className="text-lg font-semibold">资产趋势</h1>
         </div>
-      </div>
+      </header>
 
-      <div className="container mx-auto px-4 py-6">
-        {/* 时间范围选择 */}
-        <div className="mb-6">
-          <Tabs
-            value={timeRange}
-            onValueChange={(v) => setTimeRange(v as any)}
-            className="w-full"
-          >
-            <TabsList className="w-full grid grid-cols-3">
-              <TabsTrigger value="6">近6个月</TabsTrigger>
-              <TabsTrigger value="12">近12个月</TabsTrigger>
-              <TabsTrigger value="all">全部</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
+      <div className="h-14"></div>
 
-        {/* 趋势概览 */}
-        {trendData && (
-          <Card className="mb-6">
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {filteredData[0]?.month} - {filteredData[filteredData.length - 1]?.month}
-                </p>
-                <p className="text-3xl font-bold mt-2 text-gray-800 dark:text-white">
-                  ¥{formatAmountNoSymbol(trendData.endValue)}
-                </p>
-                <div className={`flex items-center gap-1 mt-2 ${
-                  trendData.isPositive ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {trendData.isPositive ? (
-                    <TrendingUp className="w-4 h-4" />
-                  ) : (
-                    <TrendingDown className="w-4 h-4" />
-                  )}
-                  <span className="text-sm font-medium">
-                    {trendData.isPositive ? '+' : ''}
-                    ¥{formatAmountNoSymbol(trendData.change)} 
-                    ({trendData.isPositive ? '+' : ''}{trendData.changePercent.toFixed(1)}%)
-                  </span>
-                </div>
+      <div className="p-4 space-y-4">
+        {/* 趋势类型切换 + 时间范围选择 */}
+        <div className="flex gap-2">
+          {/* 趋势类型下拉 */}
+          <div className="relative">
+            <button 
+              className="flex items-center gap-1 px-4 py-2 bg-white rounded-lg border border-gray-200 text-sm font-medium"
+              onClick={() => setShowTrendDropdown(!showTrendDropdown)}
+            >
+              {trendType === 'monthly' ? '月度趋势' : '年度趋势'}
+              <ChevronDown size={16} className="text-gray-400" />
+            </button>
+            
+            {showTrendDropdown && (
+              <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[120px]">
+                <button
+                  className={`w-full px-4 py-2 text-left text-sm ${trendType === 'monthly' ? 'text-white' : 'hover:bg-gray-50'}`}
+                  style={{ backgroundColor: trendType === 'monthly' ? themeConfig.primary : undefined }}
+                  onClick={() => {
+                    setTrendType('monthly');
+                    setShowTrendDropdown(false);
+                  }}
+                >
+                  月度趋势
+                </button>
+                <button
+                  className={`w-full px-4 py-2 text-left text-sm ${trendType === 'yearly' ? 'text-white' : 'hover:bg-gray-50'}`}
+                  style={{ backgroundColor: trendType === 'yearly' ? themeConfig.primary : undefined }}
+                  onClick={() => {
+                    setTrendType('yearly');
+                    setShowTrendDropdown(false);
+                  }}
+                >
+                  年度趋势
+                </button>
               </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 月度趋势列表 */}
-        <div className="space-y-3">
-          {filteredData.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <p>暂无趋势数据</p>
-            </div>
-          ) : (
-            filteredData.map((item, index) => (
-              <Card 
-                key={item.month}
-                className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => {
-                  setSelectedMonth(item.month);
-                  setShowMonthDialog(true);
-                }}
-              >
-                <CardContent className="py-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-gray-500" />
-                        <span className="font-medium text-gray-800 dark:text-white">
-                          {item.month}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        净资产：¥{formatAmountNoSymbol(item.netWorth)}
-                      </p>
-                    </div>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+            )}
+          </div>
+          
+          {/* 时间范围选择（仅月度趋势显示） */}
+          {trendType === 'monthly' && (
+            <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)} className="flex-1">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="6">近6个月</TabsTrigger>
+                <TabsTrigger value="12">近1年</TabsTrigger>
+                <TabsTrigger value="all">全部</TabsTrigger>
+              </TabsList>
+            </Tabs>
           )}
         </div>
+
+        {history.length === 0 ? (
+          <Card className="bg-white">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                <TrendingUp size={28} className="text-gray-400" />
+              </div>
+              <p className="text-gray-500">还没有足够的数据</p>
+              <p className="text-sm text-gray-400 mt-1">请至少记录两个月的余额数据</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {/* 折线图 - 优化样式参考图7 */}
+            <Card className="bg-white">
+              <CardContent className="p-4">
+                <div className="relative h-64 w-full" ref={chartRef}>
+                  {/* Y轴标签 - 智能单位 */}
+                  <div className="absolute left-0 top-0 bottom-12 w-14 flex flex-col justify-between text-xs text-gray-400">
+                    {yAxisConfig.ticks.map((tick, index) => (
+                      <span key={index}>{tick.label}</span>
+                    ))}
+                  </div>
+
+                  {/* 图表区域 */}
+                  <div className="absolute left-14 right-0 top-0 bottom-12">
+                    <svg 
+                      viewBox="0 0 100 100" 
+                      preserveAspectRatio="none" 
+                      className="w-full h-full"
+                      onMouseLeave={() => setHoveredPoint(null)}
+                    >
+                      {/* 网格线 */}
+                      <line x1="0" y1="10" x2="100" y2="10" stroke="#f0f0f0" strokeWidth="0.5" />
+                      <line x1="0" y1="50" x2="100" y2="50" stroke="#f0f0f0" strokeWidth="0.5" />
+                      <line x1="0" y1="90" x2="100" y2="90" stroke="#f0f0f0" strokeWidth="0.5" />
+
+                      {/* 填充区域 */}
+                      {chartData?.fillD && (
+                        <defs>
+                          <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={themeConfig.primary} stopOpacity="0.4" />
+                            <stop offset="100%" stopColor={themeConfig.primary} stopOpacity="0.05" />
+                          </linearGradient>
+                        </defs>
+                      )}
+                      {chartData?.fillD && (
+                        <path d={chartData.fillD} fill="url(#areaGradient)" />
+                      )}
+
+                      {/* 折线 */}
+                      {chartData?.pathD && (
+                        <path 
+                          d={chartData.pathD} 
+                          fill="none" 
+                          stroke={themeConfig.primary}
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {/* 数据点 - 带悬停效果 */}
+                      {chartData?.points.map((point, index) => (
+                        <g key={index}>
+                          {/* 悬停区域（更大，便于触摸） */}
+                          <circle
+                            cx={point.x}
+                            cy={point.y}
+                            r="8"
+                            fill="transparent"
+                            className="cursor-pointer"
+                            onMouseEnter={() => setHoveredPoint(point)}
+                            onClick={() => setSelectedData(point.data)}
+                          />
+                          {/* 可见的数据点 */}
+                          <circle
+                            cx={point.x}
+                            cy={point.y}
+                            r={hoveredPoint?.data === point.data ? "5" : "3"}
+                            fill={themeConfig.primary}
+                            stroke="white"
+                            strokeWidth="2"
+                            className="cursor-pointer transition-all duration-200"
+                            onMouseEnter={() => setHoveredPoint(point)}
+                            onClick={() => setSelectedData(point.data)}
+                          />
+                          {/* 悬停时的外圈 */}
+                          {hoveredPoint?.data === point.data && (
+                            <circle
+                              cx={point.x}
+                              cy={point.y}
+                              r="8"
+                              fill="none"
+                              stroke={themeConfig.primary}
+                              strokeWidth="1"
+                              strokeOpacity="0.5"
+                            />
+                          )}
+                        </g>
+                      ))}
+                    </svg>
+
+                    {/* 悬停提示 */}
+                    {hoveredPoint && (
+                      <div 
+                        className="absolute bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none z-10"
+                        style={{
+                          left: `${Math.min(Math.max(hoveredPoint.x, 15), 85)}%`,
+                          top: `${Math.max(hoveredPoint.y - 15, 5)}%`,
+                          transform: 'translate(-50%, -100%)',
+                        }}
+                      >
+                        <div className="font-medium">
+                          {trendType === 'yearly' 
+                            ? `${hoveredPoint.data.year}年` 
+                            : `${hoveredPoint.data.year}年${hoveredPoint.data.month?.toString().padStart(2, '0') || '01'}月`
+                          }
+                        </div>
+                        <div className="text-gray-300">
+                          余额: {formatBalance(hoveredPoint.data.netWorth)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* X轴标签 */}
+                  <div className="absolute left-14 right-0 bottom-0 h-10 flex justify-between items-end text-xs text-gray-400">
+                    {trendType === 'yearly' ? (
+                      // 年度趋势：显示年份
+                      (history as YearlyNetWorth[]).map((h, i) => (
+                        <span key={i}>{h.year}年</span>
+                      ))
+                    ) : (
+                      // 月度趋势
+                      (history as MonthlyNetWorth[]).length <= 6 ? (
+                        (history as MonthlyNetWorth[]).map((h, i) => (
+                          <span key={i}>{h.month}月</span>
+                        ))
+                      ) : (
+                        <>
+                          <span>{(history as MonthlyNetWorth[])[0]?.month}月</span>
+                          {showYearSeparators && history.length > 3 && (
+                            <span style={{ color: themeConfig.primary }} className="font-medium">{history[0]?.year}</span>
+                          )}
+                          {history.length > 4 && (
+                            <span>{(history as MonthlyNetWorth[])[Math.floor(history.length / 2)]?.month}月</span>
+                          )}
+                          {showYearSeparators && (
+                            <span style={{ color: themeConfig.primary }} className="font-medium">
+                              {history[history.length - 1]?.year}
+                            </span>
+                          )}
+                          <span>{(history as MonthlyNetWorth[])[history.length - 1]?.month}月</span>
+                        </>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-center text-xs text-gray-400 mt-2">
+                  点击图表节点查看详情
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* 数据摘要 */}
+            {stats && (
+              <div className="grid grid-cols-2 gap-3">
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp size={16} className="text-green-500" />
+                      <span className="text-xs text-gray-500">最高净资产</span>
+                    </div>
+                    <div className="text-lg font-semibold">{formatBalance(stats.maxNetWorth)}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingDown size={16} className="text-red-500" />
+                      <span className="text-xs text-gray-500">最低净资产</span>
+                    </div>
+                    <div className="text-lg font-semibold">{formatBalance(stats.minNetWorth)}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Calendar size={16} className="text-blue-500" />
+                      <span className="text-xs text-gray-500">平均净资产</span>
+                    </div>
+                    <div className="text-lg font-semibold">{formatBalance(stats.avgNetWorth)}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      {stats.totalChange >= 0 ? (
+                        <TrendingUp size={16} className="text-green-500" />
+                      ) : (
+                        <TrendingDown size={16} className="text-red-500" />
+                      )}
+                      <span className="text-xs text-gray-500">总变化</span>
+                    </div>
+                    <div className={`text-lg font-semibold ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      {stats.totalChange >= 0 ? '+' : ''}{formatBalance(stats.totalChange)}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* 月度详情弹窗 */}
-      <Dialog open={showMonthDialog} onOpenChange={setShowMonthDialog}>
+      {/* 详情弹窗 - 显示完整年月信息 */}
+      <Dialog open={!!selectedData} onOpenChange={() => setSelectedData(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{selectedMonth} 资产详情</DialogTitle>
+            <DialogTitle>
+              {selectedData && (selectedData.month 
+                ? formatMonthLabel(selectedData.year, selectedData.month)
+                : `${selectedData.year}年`
+              )}
+            </DialogTitle>
           </DialogHeader>
-          {selectedMonth && (
-            <div className="space-y-4 mt-2">
-              {filteredData.find(d => d.month === selectedMonth)?.records.map((record, idx) => (
-                <div key={idx} className="flex justify-between py-2 border-b last:border-0">
-                  <span className="text-gray-600 dark:text-gray-300">{record.accountName}</span>
-                  <span className={`font-medium ${
-                    Number(record.balance) >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    ¥{formatAmountNoSymbol(Number(record.balance))}
-                  </span>
+          {selectedData && (
+            <div className="space-y-4 py-4">
+              <div className="text-center">
+                <div className="text-sm text-gray-500 mb-1">净资产</div>
+                <div className="text-3xl font-bold text-sky-600">
+                  {formatBalance(selectedData.netWorth)}
                 </div>
-              ))}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-xs text-gray-400 mb-1">总资产</div>
+                  <div className="text-lg font-medium">
+                    {formatBalance(selectedData.totalAssets)}
+                  </div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-xs text-gray-400 mb-1">负资产</div>
+                  <div className="text-lg font-medium text-red-500">
+                    {formatBalance(selectedData.totalLiabilities)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-center items-center gap-4">
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">环比变化</div>
+                  <div className={`text-lg font-medium ${selectedData.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {formatBalance(selectedData.change)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">变化率</div>
+                  <div className={`text-lg font-medium ${selectedData.changePercent >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {hideBalance ? '******' : `${selectedData.changePercent >= 0 ? '+' : ''}${selectedData.changePercent.toFixed(2)}%`}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
     </div>
   );
-};
-
-export default TrendPage;
+}
