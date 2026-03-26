@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, MonthlyNetWorth, ThemeType } from '@/types';
 import { formatAmount, formatAmountNoSymbol, getSettings } from '@/lib/storage';
-import { getNetWorthHistory, getYearlyNetWorthHistory, calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
+// 修复：删除未使用的导入
+import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
