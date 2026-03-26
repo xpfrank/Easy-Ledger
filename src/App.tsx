@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { PageRoute } from '@/types';
 import { BottomNav } from '@/components/BottomNav';
 import { HomePage } from '@/pages/HomePage';
@@ -15,6 +15,9 @@ function App() {
   const [pageParams, setPageParams] = useState<any>(null);
   // 页面历史栈，用于返回逻辑
   const [pageHistory, setPageHistory] = useState<{ page: PageRoute; params: any }[]>([{ page: 'home', params: null }]);
+  // 使用 ref 存储最新的 pageHistory，确保返回键回调获取最新值
+  const pageHistoryRef = useRef(pageHistory);
+  pageHistoryRef.current = pageHistory;
 
   // 处理页面切换
   const handlePageChange = useCallback((page: PageRoute, params?: any) => {
@@ -44,41 +47,57 @@ function App() {
   useEffect(() => {
     // 检查是否在 Capacitor 环境中
     const isCapacitor = typeof (window as any).Capacitor !== 'undefined';
-    
+
+    let removeListener: (() => void) | undefined;
+
     if (isCapacitor) {
-      // 使用 Capacitor 的 App 插件（添加类型处理）
+      // 使用 Capacitor 的 App 插件
       import('@capacitor/app').then((module: any) => {
         const AppPlugin = module.App;
-        // 修复：移除未使用的 canGoBack 参数，或用 _ 前缀标记
-        AppPlugin.addListener('backButton', () => {
-          if (pageHistory.length > 1) {
+        // 使用 ref 获取最新的 pageHistory，解决闭包问题
+        const backButtonHandler = () => {
+          if (pageHistoryRef.current.length > 1) {
             handleBack();
           } else {
             // 在首页，允许退出应用
             AppPlugin.exitApp?.();
           }
+        };
+
+        // 添加返回键监听器
+        AppPlugin.addListener('backButton', backButtonHandler).then((result: any) => {
+          removeListener = result.remove;
+        }).catch((err: any) => {
+          console.warn('Failed to add backButton listener:', err);
         });
       }).catch(err => {
         console.warn('Capacitor App plugin not found:', err);
       });
+
+      return () => {
+        // 清理监听器
+        if (removeListener) {
+          removeListener();
+        }
+      };
     } else {
       // 浏览器环境：监听 popstate
       const handlePopState = () => {
-        if (pageHistory.length > 1) {
+        if (pageHistoryRef.current.length > 1) {
           handleBack();
           // 阻止默认的返回行为
           window.history.pushState(null, '', window.location.href);
         }
       };
-      
+
       window.history.pushState(null, '', window.location.href);
       window.addEventListener('popstate', handlePopState);
-      
+
       return () => {
         window.removeEventListener('popstate', handlePopState);
       };
     }
-  }, [pageHistory.length, handleBack]);
+  }, [handleBack]);
 
   // 渲染当前页面
   const renderPage = () => {
