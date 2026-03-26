@@ -186,10 +186,10 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
               <div className="flex items-center text-xs mt-2">
                 <span className="text-white/70">较上月</span>
                 <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                  {netWorthChange >= 0 ? '+' : ''}{formatAmountNoSymbol(netWorthChange)}
+                  {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
                 </span>
                 <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                  ({netWorthChange >= 0 ? '+' : ''}{netWorthChangePercent.toFixed(1)}%)
+                  {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
                 </span>
               </div>
             </div>
