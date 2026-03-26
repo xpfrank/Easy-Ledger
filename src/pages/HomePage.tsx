@@ -4,12 +4,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
 import type { Account, AccountType, PageRoute, ThemeType } from '@/types';
-import { 
-  getAllAccounts, 
-  getMonthlyRecordsByMonth, 
+import {
+  getAllAccounts,
+  getMonthlyRecordsByMonth,
   formatAmountNoSymbol,
   getSettings,
   updateSettings,
+  getExpandedGroups,
+  saveExpandedGroups,
 } from '@/lib/storage';
 import { 
   calculateNetWorth, 
@@ -76,7 +78,7 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
     const assets = calculateTotalAssets(currentYear, currentMonth);
     const liabilities = calculateTotalLiabilities(currentYear, currentMonth);
     const worth = assets - liabilities;
-    
+
     setNetWorth(worth);
 
     let lastYear = currentYear;
@@ -94,7 +96,10 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
     const accounts = getAllAccounts().filter(a => !a.isHidden);
     const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
 
-    setAccountGroups(prevGroups => {
+    // 获取保存的展开状态
+    const savedExpandedGroups = getExpandedGroups();
+
+    setAccountGroups(() => {
       const groups: AccountGroup[] = [];
       for (const typeConfig of ACCOUNT_TYPES) {
         const typeAccounts = accounts.filter(a => a.type === typeConfig.type);
@@ -107,15 +112,17 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
           totalBalance += balance;
         }
 
-        // 保留之前的展开状态，如果是新分组则默认展开
-        const prevGroup = prevGroups.find(g => g.type === typeConfig.type);
-        
+        // 使用保存的展开状态，如果没保存过则默认展开
+        const isExpanded = savedExpandedGroups[typeConfig.type] !== undefined
+          ? savedExpandedGroups[typeConfig.type]
+          : true;
+
         groups.push({
           type: typeConfig.type,
           label: typeConfig.label,
           accounts: typeAccounts,
           totalBalance,
-          isExpanded: prevGroup ? prevGroup.isExpanded : true,
+          isExpanded,
         });
       }
       return groups;
@@ -129,11 +136,21 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
   };
 
   const toggleGroup = (type: AccountType) => {
-    setAccountGroups(prev => 
-      prev.map(g => 
+    // 获取当前状态并更新
+    setAccountGroups(prev => {
+      const newGroups = prev.map(g =>
         g.type === type ? { ...g, isExpanded: !g.isExpanded } : g
-      )
-    );
+      );
+
+      // 保存展开状态到本地存储
+      const expandedState: Record<string, boolean> = {};
+      newGroups.forEach(g => {
+        expandedState[g.type] = g.isExpanded;
+      });
+      saveExpandedGroups(expandedState);
+
+      return newGroups;
+    });
   };
 
   const netWorthChange = netWorth - lastMonthNetWorth;
