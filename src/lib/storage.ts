@@ -1,6 +1,7 @@
 import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
+const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
 const CURRENT_VERSION = '1.2';
 
 // 默认数据
@@ -11,7 +12,6 @@ const defaultState: AppState = {
   settings: {
     hideBalance: false,
     theme: 'blue',
-    expandedGroups: {}, // 新增：分组展开状态
   },
   version: CURRENT_VERSION,
 };
@@ -88,8 +88,6 @@ export function loadData(): AppState {
         settings: {
           ...defaultState.settings,
           ...parsed.settings,
-          // 兼容旧数据，确保expandedGroups存在
-          expandedGroups: parsed.settings?.expandedGroups || {},
         },
         version: CURRENT_VERSION,
       };
@@ -122,17 +120,26 @@ export function updateSettings(settings: Partial<AppSettings>): void {
   saveData(data);
 }
 
-// 新增：获取分组展开状态
+// 获取展开的账户分组状态
 export function getExpandedGroups(): Record<string, boolean> {
-  const data = loadData();
-  return { ...data.settings.expandedGroups }; // 返回副本避免直接修改
+  try {
+    const data = localStorage.getItem(EXPANDED_GROUPS_KEY);
+    if (data) {
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Failed to load expanded groups:', error);
+  }
+  return {};
 }
 
-// 新增：保存分组展开状态
-export function saveExpandedGroups(expandedGroups: Record<string, boolean>): void {
-  const data = loadData();
-  data.settings.expandedGroups = { ...expandedGroups }; // 深拷贝避免引用问题
-  saveData(data);
+// 保存展开的账户分组状态
+export function saveExpandedGroups(groups: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify(groups));
+  } catch (error) {
+    console.error('Failed to save expanded groups:', error);
+  }
 }
 
 // 导出数据为JSON文件
