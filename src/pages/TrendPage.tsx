@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, MonthlyNetWorth, ThemeType } from '@/types';
 import { formatAmount, formatAmountNoSymbol, getSettings } from '@/lib/storage';
-import { getNetWorthHistory, getYearlyNetWorthHistory } from '@/lib/calculator';
+import { getNetWorthHistory, getYearlyNetWorthHistory, calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
@@ -47,14 +47,123 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
+  // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
+  const getConsistentNetWorthHistory = (months: number): MonthlyNetWorth[] => {
+    const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
+    const records = data.records || [];
+
+    // 获取所有有记录的月份
+    const monthSet = new Set<string>();
+    records.forEach((r: any) => {
+      monthSet.add(`${r.year}-${r.month.toString().padStart(2, '0')}`);
+    });
+
+    // 添加当前月份
+    const now = new Date();
+    monthSet.add(`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`);
+
+    // 排序
+    const sortedMonths = Array.from(monthSet).sort();
+
+    // 如果 months > 0，取最近N个月；否则取全部
+    const filteredMonths = months > 0 ? sortedMonths.slice(-months) : sortedMonths;
+
+    const history: MonthlyNetWorth[] = [];
+
+    for (const monthKey of filteredMonths) {
+      const [year, month] = monthKey.split('-').map(Number);
+      // 使用与首页一致的计算函数
+      const totalAssets = calculateTotalAssets(year, month);
+      const totalLiabilities = calculateTotalLiabilities(year, month);
+      const netWorth = totalAssets - totalLiabilities;
+
+      // 计算上月数据用于对比
+      let lastYear = year;
+      let lastMonth = month - 1;
+      if (lastMonth === 0) {
+        lastYear--;
+        lastMonth = 12;
+      }
+      const lastNetWorth = calculateNetWorth(lastYear, lastMonth);
+      const change = netWorth - lastNetWorth;
+      const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
+
+      history.push({
+        year,
+        month,
+        netWorth,
+        totalAssets,
+        totalLiabilities,
+        change,
+        changePercent,
+      });
+    }
+
+    return history;
+  };
+
+  // 获取年度净资产历史（与首页逻辑一致）
+  const getConsistentYearlyNetWorthHistory = (): YearlyNetWorth[] => {
+    const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
+    const records = data.records || [];
+
+    // 获取所有有记录的年份
+    const yearSet = new Set<number>();
+    records.forEach((r: any) => {
+      yearSet.add(r.year);
+    });
+
+    // 添加当前年份
+    const now = new Date();
+    yearSet.add(now.getFullYear());
+
+    // 排序
+    const sortedYears = Array.from(yearSet).sort();
+
+    const history: YearlyNetWorth[] = [];
+
+    for (let i = 0; i < sortedYears.length; i++) {
+      const year = sortedYears[i];
+
+      // 获取该年度最后一个有记录的月份
+      const yearRecords = records.filter((r: any) => r.year === year);
+      let lastMonth = 12;
+      if (yearRecords.length > 0) {
+        lastMonth = Math.max(...yearRecords.map((r: any) => r.month));
+      }
+
+      // 使用与首页一致的计算函数
+      const totalAssets = calculateTotalAssets(year, lastMonth);
+      const totalLiabilities = calculateTotalLiabilities(year, lastMonth);
+      const netWorth = totalAssets - totalLiabilities;
+
+      // 计算上一年度数据用于对比
+      const lastYearNetWorth = calculateNetWorth(year - 1, 12);
+      const change = netWorth - lastYearNetWorth;
+      const changePercent = lastYearNetWorth !== 0 ? (change / Math.abs(lastYearNetWorth)) * 100 : 0;
+
+      history.push({
+        year,
+        netWorth,
+        totalAssets,
+        totalLiabilities,
+        change,
+        changePercent,
+      });
+    }
+
+    return history;
+  };
+
   useEffect(() => {
     const settings = getSettings();
     setTheme(settings.theme || 'blue');
     setHideBalance(settings.hideBalance || false);
     // 当选择"全部"时，传入 0 表示获取所有数据
     const months = timeRange === 'all' ? 0 : parseInt(timeRange);
-    setMonthlyHistory(getNetWorthHistory(months));
-    setYearlyHistory(getYearlyNetWorthHistory());
+    // 使用与首页一致的计算逻辑
+    setMonthlyHistory(getConsistentNetWorthHistory(months));
+    setYearlyHistory(getConsistentYearlyNetWorthHistory());
   }, [timeRange]);
 
   // 当前显示的历史数据
@@ -210,9 +319,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   }, [chartData]);
 
   return (
-    <div className="pb-6 bg-gray-50 min-h-screen">
-      {/* 标题栏 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
+      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
@@ -220,6 +329,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           <h1 className="text-lg font-semibold">资产趋势</h1>
         </div>
       </header>
+
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
+      <div className="h-14"></div>
 
       <div className="p-4 space-y-4">
         {/* 趋势类型切换 + 时间范围选择 */}

@@ -97,9 +97,9 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   })).filter(g => g.accounts.length > 0);
 
   return (
-    <div className="pb-24 bg-gray-50 min-h-screen">
-      {/* 标题栏 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+    <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
+      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
+      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
@@ -110,6 +110,9 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
           <Upload size={20} />
         </Button>
       </header>
+
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
+      <div className="h-14"></div>
 
       <div className="p-4 space-y-4">
         {groupedAccounts.length === 0 ? (

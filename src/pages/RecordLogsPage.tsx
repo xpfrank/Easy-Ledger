@@ -138,8 +138,9 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
   };
 
   return (
-    <div className="pb-6 bg-gray-50 min-h-screen">
-      <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
+      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => onPageChange('record')}>
             <ArrowLeft size={20} />
@@ -149,6 +150,9 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
           </h1>
         </div>
       </header>
+
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
+      <div className="h-14"></div>
 
       <div className="p-4 space-y-4">
         {/* 账户筛选 */}
