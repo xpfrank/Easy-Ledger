@@ -10,12 +10,6 @@ import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import './App.css';
 
-// 定义 Capacitor App 插件的类型
-type CapacitorAppPlugin = {
-  addListener: (eventName: 'backButton', callback: (data: { canGoBack: boolean }) => void) => void;
-  exitApp: () => void;
-};
-
 function App() {
   const [currentPage, setCurrentPage] = useState<PageRoute>('home');
   const [pageParams, setPageParams] = useState<any>(null);
@@ -53,15 +47,15 @@ function App() {
     
     if (isCapacitor) {
       // 使用 Capacitor 的 App 插件（添加类型处理）
-      import('@capacitor/app').then((module) => {
-        const App = module.App as CapacitorAppPlugin;
+      import('@capacitor/app').then((module: any) => {
+        const AppPlugin = module.App;
         // 修复：移除未使用的 canGoBack 参数，或用 _ 前缀标记
-        App.addListener('backButton', () => {
+        AppPlugin.addListener('backButton', () => {
           if (pageHistory.length > 1) {
             handleBack();
           } else {
             // 在首页，允许退出应用
-            App.exitApp();
+            AppPlugin.exitApp?.();
           }
         });
       }).catch(err => {
