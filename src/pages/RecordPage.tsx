@@ -514,10 +514,10 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             <div className="flex items-center text-sm">
               <span className="text-white/70">较{recordMode === 'monthly' ? '上月' : '上年'}</span>
               <span className={`ml-2 font-medium ${change >= 0 ? 'text-white' : 'text-red-200'}`}>
-                {change >= 0 ? '+' : ''}{formatAmountNoSymbol(change)}
+                {hideBalance ? '******' : (change >= 0 ? '+' : '')}{hideBalance ? '' : formatAmountNoSymbol(change)}
               </span>
               <span className={`ml-1 text-xs ${change >= 0 ? 'text-white' : 'text-red-200'}`}>
-                ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                {hideBalance ? '' : `(${change >= 0 ? '+' : ''}${changePercent.toFixed(1)}%)`}
               </span>
             </div>
             

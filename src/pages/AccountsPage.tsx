@@ -5,16 +5,25 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
-import { 
-  getAllAccounts, 
-  deleteAccount, 
-  updateAccount, 
-  importData, 
+import {
+  getAllAccounts,
+  deleteAccount,
+  updateAccount,
+  importData,
   formatAmountNoSymbol,
   getMonthlyRecordsByMonth,
+  getSettings,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+
+// 隐藏金额显示
+function formatHiddenAmount(amount: number, hide: boolean): string {
+  if (hide) {
+    return '******';
+  }
+  return formatAmountNoSymbol(amount);
+}
 
 interface AccountsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -26,8 +35,11 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [hideBalance, setHideBalance] = useState(false);
 
   useEffect(() => {
+    const settings = getSettings();
+    setHideBalance(settings.hideBalance || false);
     loadAccounts();
   }, []);
 
@@ -160,7 +172,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                           <div>
                             <div className="font-medium text-sm">{account.name}</div>
                             <div className="text-xs text-gray-400">
-                              余额: {formatAmountNoSymbol(currentBalances[account.id] ?? account.balance)}
+                              余额: ¥{formatHiddenAmount(currentBalances[account.id] ?? account.balance, hideBalance)}
                             </div>
                           </div>
                         </div>

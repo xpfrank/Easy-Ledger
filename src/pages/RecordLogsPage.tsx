@@ -4,11 +4,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
 import type { PageRoute, RecordLog, RecordMode } from '@/types';
-import { 
-  getRecordLogs, 
-  formatAmountNoSymbol, 
-  formatDate, 
-  getAllAccounts, 
+import {
+  getRecordLogs,
+  formatAmountNoSymbol,
+  formatDate,
+  getAllAccounts,
+  getSettings,
 } from '@/lib/storage';
 import { calculateNetWorth } from '@/lib/calculator';
 
@@ -29,13 +30,24 @@ interface GroupedLogs {
   month?: number;
 }
 
+// 隐藏金额显示
+function formatHiddenAmount(amount: number, hide: boolean): string {
+  if (hide) {
+    return '******';
+  }
+  return formatAmountNoSymbol(amount);
+}
+
 export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPageProps) {
   const [groupedLogs, setGroupedLogs] = useState<GroupedLogs[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [hideBalance, setHideBalance] = useState(false);
   const accounts = getAllAccounts();
 
   useEffect(() => {
+    const settings = getSettings();
+    setHideBalance(settings.hideBalance || false);
     loadLogs();
   }, [year, month, selectedAccount, mode]);
 
@@ -195,7 +207,7 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
                       <span className="font-medium text-sm">{group.label}</span>
                       {mode === 'yearly' && group.totalNetWorth !== undefined && (
                         <span className={`text-sm font-semibold ${group.totalNetWorth >= 0 ? 'text-gray-800' : 'text-red-500'}`}>
-                          ¥{formatAmountNoSymbol(group.totalNetWorth)}
+                          ¥{formatHiddenAmount(group.totalNetWorth, hideBalance)}
                         </span>
                       )}
                     </div>
@@ -223,8 +235,10 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
                     {group.logs.map((log) => {
                       const change = log.newBalance - log.oldBalance;
                       const isIncrease = change > 0;
-                      // 金额变化显示：¥旧余额 → ¥新余额
-                      const changeDisplay = `¥${formatAmountNoSymbol(log.oldBalance)} → ¥${formatAmountNoSymbol(log.newBalance)}`;
+                      // 金额变化显示：¥旧余额 → ¥新余额（隐藏模式）
+                      const changeDisplay = hideBalance
+                        ? '****** → ******'
+                        : `¥${formatAmountNoSymbol(log.oldBalance)} → ¥${formatAmountNoSymbol(log.newBalance)}`;
 
                       return (
                         <div key={log.id} className="p-3">

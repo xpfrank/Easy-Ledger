@@ -617,20 +617,20 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               <div className="text-center">
                 <div className="text-sm text-gray-500 mb-1">净资产</div>
                 <div className="text-3xl font-bold text-sky-600">
-                  {formatAmount(selectedData.netWorth)}
+                  {formatBalance(selectedData.netWorth)}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-3 bg-gray-50 rounded-lg">
                   <div className="text-xs text-gray-400 mb-1">总资产</div>
                   <div className="text-lg font-medium">
-                    {formatAmount(selectedData.totalAssets)}
+                    {formatBalance(selectedData.totalAssets)}
                   </div>
                 </div>
                 <div className="text-center p-3 bg-gray-50 rounded-lg">
                   <div className="text-xs text-gray-400 mb-1">负资产</div>
                   <div className="text-lg font-medium text-red-500">
-                    {formatAmount(selectedData.totalLiabilities)}
+                    {formatBalance(selectedData.totalLiabilities)}
                   </div>
                 </div>
               </div>
@@ -638,13 +638,13 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 <div className="text-center">
                   <div className="text-xs text-gray-400 mb-1">环比变化</div>
                   <div className={`text-lg font-medium ${selectedData.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {selectedData.change >= 0 ? '+' : ''}{formatBalance(selectedData.change)}
+                    {formatBalance(selectedData.change)}
                   </div>
                 </div>
                 <div className="text-center">
                   <div className="text-xs text-gray-400 mb-1">变化率</div>
                   <div className={`text-lg font-medium ${selectedData.changePercent >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                    {selectedData.changePercent >= 0 ? '+' : ''}{selectedData.changePercent.toFixed(2)}%
+                    {hideBalance ? '******' : `${selectedData.changePercent >= 0 ? '+' : ''}${selectedData.changePercent.toFixed(2)}%`}
                   </div>
                 </div>
               </div>
