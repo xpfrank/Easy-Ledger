@@ -10,6 +10,12 @@ import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import './App.css';
 
+// 定义 Capacitor App 插件的类型
+type CapacitorAppPlugin = {
+  addListener: (eventName: 'backButton', callback: (data: { canGoBack: boolean }) => void) => void;
+  exitApp: () => void;
+};
+
 function App() {
   const [currentPage, setCurrentPage] = useState<PageRoute>('home');
   const [pageParams, setPageParams] = useState<any>(null);
@@ -46,9 +52,11 @@ function App() {
     const isCapacitor = typeof (window as any).Capacitor !== 'undefined';
     
     if (isCapacitor) {
-      // 使用 Capacitor 的 App 插件
-      import('@capacitor/app').then(({ App }) => {
-        App.addListener('backButton', ({ canGoBack }) => {
+      // 使用 Capacitor 的 App 插件（添加类型处理）
+      import('@capacitor/app').then((module) => {
+        const App = module.App as CapacitorAppPlugin;
+        // 修复：移除未使用的 canGoBack 参数，或用 _ 前缀标记
+        App.addListener('backButton', () => {
           if (pageHistory.length > 1) {
             handleBack();
           } else {
@@ -56,6 +64,8 @@ function App() {
             App.exitApp();
           }
         });
+      }).catch(err => {
+        console.warn('Capacitor App plugin not found:', err);
       });
     } else {
       // 浏览器环境：监听 popstate
