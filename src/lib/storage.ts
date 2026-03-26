@@ -11,6 +11,7 @@ const defaultState: AppState = {
   settings: {
     hideBalance: false,
     theme: 'blue',
+    expandedGroups: {}, // 新增：分组展开状态
   },
   version: CURRENT_VERSION,
 };
@@ -87,6 +88,8 @@ export function loadData(): AppState {
         settings: {
           ...defaultState.settings,
           ...parsed.settings,
+          // 兼容旧数据，确保expandedGroups存在
+          expandedGroups: parsed.settings?.expandedGroups || {},
         },
         version: CURRENT_VERSION,
       };
@@ -116,6 +119,19 @@ export function getSettings(): AppSettings {
 export function updateSettings(settings: Partial<AppSettings>): void {
   const data = loadData();
   data.settings = { ...data.settings, ...settings };
+  saveData(data);
+}
+
+// 新增：获取分组展开状态
+export function getExpandedGroups(): Record<string, boolean> {
+  const data = loadData();
+  return { ...data.settings.expandedGroups }; // 返回副本避免直接修改
+}
+
+// 新增：保存分组展开状态
+export function saveExpandedGroups(expandedGroups: Record<string, boolean>): void {
+  const data = loadData();
+  data.settings.expandedGroups = { ...expandedGroups }; // 深拷贝避免引用问题
   saveData(data);
 }
 
