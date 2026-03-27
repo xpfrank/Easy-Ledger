@@ -10,6 +10,8 @@ import {
   formatDate,
   getAllAccounts,
   getSettings,
+  getRecordLogsExpandedGroups,
+  saveRecordLogsExpandedGroups,
 } from '@/lib/storage';
 import { calculateNetWorth } from '@/lib/calculator';
 
@@ -43,13 +45,27 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideBalance, setHideBalance] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const accounts = getAllAccounts();
 
+  // 初始化时加载保存的折叠状态
   useEffect(() => {
     const settings = getSettings();
     setHideBalance(settings.hideBalance || false);
-    loadLogs();
-  }, [year, month, selectedAccount, mode]);
+    
+    // 加载保存的折叠状态
+    const savedExpanded = getRecordLogsExpandedGroups(year, month, mode);
+    if (savedExpanded) {
+      setExpandedGroups(new Set(savedExpanded));
+    }
+    setIsInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    if (isInitialized) {
+      loadLogs();
+    }
+  }, [year, month, selectedAccount, mode, isInitialized]);
 
   const loadLogs = () => {
     let allLogs: RecordLog[] = [];
@@ -97,7 +113,9 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
       }).sort((a, b) => b.key.localeCompare(a.key));
 
       setGroupedLogs(grouped);
-      if (grouped.length > 0) {
+      // 只有在没有保存的折叠状态时才设置默认值
+      const savedExpanded = getRecordLogsExpandedGroups(year, month, mode);
+      if (!savedExpanded && grouped.length > 0) {
         setExpandedGroups(new Set([grouped[0].key]));
       }
     } else {
@@ -123,7 +141,11 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
       }).sort((a, b) => b.key.localeCompare(a.key));
 
       setGroupedLogs(grouped);
-      setExpandedGroups(new Set(grouped.map(g => g.key)));
+      // 只有在没有保存的折叠状态时才默认展开所有
+      const savedExpanded = getRecordLogsExpandedGroups(year, month, mode);
+      if (!savedExpanded) {
+        setExpandedGroups(new Set(grouped.map(g => g.key)));
+      }
     }
   };
 
@@ -135,6 +157,8 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
       } else {
         newSet.add(key);
       }
+      // 保存折叠状态到本地存储
+      saveRecordLogsExpandedGroups(year, month, mode, Array.from(newSet));
       return newSet;
     });
   };
