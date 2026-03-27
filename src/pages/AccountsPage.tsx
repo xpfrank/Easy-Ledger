@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
+import type { ExcelImportRow } from '@/lib/storage';
 import {
   getAllAccounts,
   deleteAccount,
@@ -16,7 +17,6 @@ import {
   parseExcelCSV,
   batchImportFromExcel,
   exportExcelTemplate,
-  ExcelImportRow,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
