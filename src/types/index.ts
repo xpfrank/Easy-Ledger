@@ -103,7 +103,7 @@ export interface IconConfig {
 }
 
 // 页面路由
-export type PageRoute = 'home' | 'accounts' | 'record' | 'trend' | 'settings' | 'account-edit' | 'record-logs';
+export type PageRoute = 'home' | 'accounts' | 'record' | 'trend' | 'settings' | 'account-edit' | 'record-logs' | 'account-detail' | 'account-flow';
 
 // 记账模式
 export type RecordMode = 'monthly' | 'yearly';
