@@ -613,3 +613,154 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
   
   return totalLiabilities;
 }
+
+// ==================== Excel 批量导入功能 ====================
+
+// Excel 数据行格式
+export interface ExcelImportRow {
+  month: string;      // YYYY-MM 格式
+  accountName: string; // 目标账户名称
+  balance: number;    // 当月存款余额
+}
+
+// 解析 Excel CSV 内容
+export function parseExcelCSV(content: string): ExcelImportRow[] {
+  const lines = content.trim().split('\n');
+  const result: ExcelImportRow[] = [];
+
+  // 跳过标题行，从第2行开始
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // 支持逗号或制表符分隔
+    const parts = line.includes('\t') ? line.split('\t') : line.split(',');
+    if (parts.length < 3) continue;
+
+    const month = parts[0].trim().replace(/"/g, '');
+    const accountName = parts[1].trim().replace(/"/g, '');
+    const balanceStr = parts[2].trim().replace(/"/g, '').replace(/¥/g, '').replace(/,/g, '');
+    const balance = parseFloat(balanceStr);
+
+    // 验证格式
+    if (!month.match(/^\d{4}-\d{2}$/) || isNaN(balance)) continue;
+
+    result.push({ month, accountName, balance });
+  }
+
+  return result;
+}
+
+// 批量导入月度数据（Excel 模式）
+// 规则：指定账户设为 Excel 中的余额，其余所有账户余额设为 0
+export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' = 'merge'): { success: boolean; message: string; importedCount: number } {
+  if (rows.length === 0) {
+    return { success: false, message: 'Excel 数据为空', importedCount: 0 };
+  }
+
+  try {
+    const data = loadData();
+    let importedCount = 0;
+    const errors: string[] = [];
+
+    for (const row of rows) {
+      // 解析月份
+      const [yearStr, monthStr] = row.month.split('-');
+      const year = parseInt(yearStr);
+      const month = parseInt(monthStr);
+
+      // 查找目标账户
+      const targetAccount = data.accounts.find(a => a.name === row.accountName);
+      if (!targetAccount) {
+        errors.push(`未找到账户「${row.accountName}」`);
+        continue;
+      }
+
+      if (mergeMode === 'overwrite') {
+        // 覆盖模式：删除该月所有现有记录
+        data.records = data.records.filter(r => !(r.year === year && r.month === month));
+      }
+
+      // 为所有账户设置余额
+      for (const account of data.accounts) {
+        const isTargetAccount = account.id === targetAccount.id;
+        const balance = isTargetAccount ? row.balance : 0;
+
+        // 查找是否已有该账户该月的记录
+        const existingRecord = data.records.find(
+          r => r.accountId === account.id && r.year === year && r.month === month
+        );
+
+        if (existingRecord) {
+          existingRecord.balance = balance;
+        } else {
+          data.records.push({
+            id: generateId(),
+            accountId: account.id,
+            year,
+            month,
+            balance,
+          });
+        }
+      }
+
+      importedCount++;
+    }
+
+    saveData(data);
+
+    if (errors.length > 0) {
+      return { success: true, message: `导入完成，但有 ${errors.length} 个错误：\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...' : ''}`, importedCount };
+    }
+
+    return { success: true, message: `成功导入 ${importedCount} 个月的数据`, importedCount };
+  } catch (error) {
+    console.error('Excel 导入失败:', error);
+    return { success: false, message: 'Excel 导入失败，请检查文件格式', importedCount: 0 };
+  }
+}
+
+// 导出数据为 Excel CSV 模板
+export function exportExcelTemplate(): string {
+  const accounts = getAllAccounts();
+  const header = '月份(YYYY-MM),目标存款账户名称,当月存款余额';
+
+  // 生成示例数据（最近6个月）
+  const now = new Date();
+  const examples: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const monthStr = `${year}-${month.toString().padStart(2, '0')}`;
+    const defaultAccount = accounts.length > 0 ? accounts[0].name : '账户名称';
+    examples.push(`${monthStr},${defaultAccount},0.00`);
+  }
+
+  return [header, ...examples].join('\n');
+}
+
+// 批量导入指定时间范围的数据
+export function batchImportByRange(
+  rows: ExcelImportRow[],
+  startYear: number,
+  startMonth: number,
+  endYear: number,
+  endMonth: number,
+  mergeMode: 'overwrite' | 'merge' = 'merge'
+): { success: boolean; message: string; importedCount: number } {
+  // 过滤出在指定范围内的数据
+  const filteredRows = rows.filter(row => {
+    const [yearStr, monthStr] = row.month.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+
+    const rowKey = year * 100 + month;
+    const startKey = startYear * 100 + startMonth;
+    const endKey = endYear * 100 + endMonth;
+
+    return rowKey >= startKey && rowKey <= endKey;
+  });
+
+  return batchImportFromExcel(filteredRows, mergeMode);
+}
