@@ -2,6 +2,7 @@ import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog } from '@
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
+const RECORD_LOGS_EXPANDED_KEY = 'simple-ledger-record-logs-expanded';
 const CURRENT_VERSION = '1.2';
 
 // 默认数据
@@ -139,6 +140,47 @@ export function saveExpandedGroups(groups: Record<string, boolean>): void {
     localStorage.setItem(EXPANDED_GROUPS_KEY, JSON.stringify(groups));
   } catch (error) {
     console.error('Failed to save expanded groups:', error);
+  }
+}
+
+// 获取记账记录页面的折叠状态
+export function getRecordLogsExpandedGroups(
+  year: number,
+  month: number | undefined,
+  mode: 'monthly' | 'yearly'
+): string[] | null {
+  try {
+    const data = localStorage.getItem(RECORD_LOGS_EXPANDED_KEY);
+    if (data) {
+      const parsed = JSON.parse(data);
+      const key = mode === 'monthly' && month !== undefined
+        ? `${mode}-${year}-${month}`
+        : `${mode}-${year}`;
+      return parsed[key] || null;
+    }
+  } catch (error) {
+    console.error('Failed to load record logs expanded groups:', error);
+  }
+  return null;
+}
+
+// 保存记账记录页面的折叠状态
+export function saveRecordLogsExpandedGroups(
+  year: number,
+  month: number | undefined,
+  mode: 'monthly' | 'yearly',
+  expandedKeys: string[]
+): void {
+  try {
+    const data = localStorage.getItem(RECORD_LOGS_EXPANDED_KEY);
+    const parsed = data ? JSON.parse(data) : {};
+    const key = mode === 'monthly' && month !== undefined
+      ? `${mode}-${year}-${month}`
+      : `${mode}-${year}`;
+    parsed[key] = expandedKeys;
+    localStorage.setItem(RECORD_LOGS_EXPANDED_KEY, JSON.stringify(parsed));
+  } catch (error) {
+    console.error('Failed to save record logs expanded groups:', error);
   }
 }
 
