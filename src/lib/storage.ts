@@ -637,9 +637,6 @@ export function hasGarbledText(text: string): boolean {
 
 // 解析 Excel CSV 内容
 export function parseExcelCSV(content: string): ExcelImportRow[] {
-  // 检测乱码并尝试处理
-  const hasGarbled = hasGarbledText(content);
-
   const lines = content.trim().split('\n');
   const result: ExcelImportRow[] = [];
 
