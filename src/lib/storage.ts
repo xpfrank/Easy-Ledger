@@ -623,24 +623,52 @@ export interface ExcelImportRow {
   balance: number;    // 当月存款余额
 }
 
+// 检测文本是否包含乱码特征
+export function hasGarbledText(text: string): boolean {
+  // 检测替换字符（通常是编码问题的标志）
+  if (text.includes('\uFFFD')) return true;
+  // 检测大量不可见字符或异常字符比例
+  const garbledPatterns = ['', '�'];
+  for (const pattern of garbledPatterns) {
+    if (text.includes(pattern)) return true;
+  }
+  return false;
+}
+
 // 解析 Excel CSV 内容
 export function parseExcelCSV(content: string): ExcelImportRow[] {
+  // 检测乱码并尝试处理
+  const hasGarbled = hasGarbledText(content);
+
   const lines = content.trim().split('\n');
   const result: ExcelImportRow[] = [];
 
   // 跳过标题行，从第2行开始
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line) continue;
+    if (!line || line.startsWith('#')) continue; // 跳过空行和注释行
 
-    // 支持逗号或制表符分隔
-    const parts = line.includes('\t') ? line.split('\t') : line.split(',');
+    // 支持逗号、分号、制表符分隔（同时处理中英文标点）
+    let parts: string[];
+    if (line.includes('\t')) {
+      parts = line.split('\t');
+    } else if (line.includes(',')) {
+      parts = line.split(',');
+    } else if (line.includes(';')) {
+      parts = line.split(';');
+    } else {
+      continue; // 无法识别的分隔符
+    }
+
     if (parts.length < 3) continue;
 
-    const monthRaw = parts[0].trim().replace(/"/g, '');
+    const monthRaw = parts[0].trim().replace(/"/g, '').replace(/^#.*/, ''); // 去除引号和注释
     const accountName = parts[1].trim().replace(/"/g, '');
-    const balanceStr = parts[2].trim().replace(/"/g, '').replace(/¥/g, '').replace(/,/g, '');
+    const balanceStr = parts[2].trim().replace(/"/g, '').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, '');
     const balance = parseFloat(balanceStr);
+
+    // 跳过无效行
+    if (!monthRaw || !accountName) continue;
 
     // 转换日期格式为 YYYY-MM
     const normalizedMonth = normalizeMonthFormat(monthRaw);
@@ -650,6 +678,14 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
   }
 
   return result;
+}
+
+// 账户名称标准化（用于模糊匹配）
+function normalizeAccountName(name: string): string {
+  return name
+    .trim()                           // 去除首尾空格
+    .replace(/[\s\uFEFF\u200B]+/g, '') // 去除各种空白字符（包括 BOM 和零宽空格）
+    .toLowerCase();                    // 统一小写
 }
 
 // 规范化月份格式，支持多种输入格式
@@ -705,15 +741,15 @@ function normalizeMonthFormat(monthStr: string): string | null {
 
 // 批量导入月度数据（Excel 模式）
 // 规则：指定账户设为 Excel 中的余额，其余所有账户余额设为 0
-export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' = 'merge'): { success: boolean; message: string; importedCount: number } {
+export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' = 'merge'): { success: boolean; message: string; importedCount: number; unmatchedAccounts?: string[] } {
   if (rows.length === 0) {
-    return { success: false, message: 'Excel 数据为空', importedCount: 0 };
+    return { success: false, message: 'CSV 数据为空，请检查文件内容', importedCount: 0 };
   }
 
   try {
     const data = loadData();
     let importedCount = 0;
-    const errors: string[] = [];
+    const unmatchedAccounts: string[] = [];
 
     for (const row of rows) {
       // 解析月份
@@ -721,10 +757,21 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
       const year = parseInt(yearStr);
       const month = parseInt(monthStr);
 
-      // 查找目标账户
-      const targetAccount = data.accounts.find(a => a.name === row.accountName);
+      // 标准化后的账户名称用于匹配
+      const normalizedRowName = normalizeAccountName(row.accountName);
+
+      // 模糊查找目标账户：先精确匹配，再模糊匹配
+      let targetAccount = data.accounts.find(a => a.name === row.accountName);
       if (!targetAccount) {
-        errors.push(`未找到账户「${row.accountName}」`);
+        // 尝试模糊匹配（去除空格和大小写后匹配）
+        targetAccount = data.accounts.find(a => normalizeAccountName(a.name) === normalizedRowName);
+      }
+
+      if (!targetAccount) {
+        // 收集未匹配的账户名称
+        if (!unmatchedAccounts.includes(row.accountName)) {
+          unmatchedAccounts.push(row.accountName);
+        }
         continue;
       }
 
@@ -761,8 +808,17 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 
     saveData(data);
 
-    if (errors.length > 0) {
-      return { success: true, message: `导入完成，但有 ${errors.length} 个错误：\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...' : ''}`, importedCount };
+    // 构建返回消息
+    if (unmatchedAccounts.length > 0) {
+      const accountList = unmatchedAccounts.slice(0, 5).map(name => `「${name}」`).join('、');
+      const moreText = unmatchedAccounts.length > 5 ? `等${unmatchedAccounts.length}个` : '';
+      const hintText = '\n\n💡 提示：如账户名称匹配失败，请检查 CSV 文件是否使用 UTF-8 编码';
+      return {
+        success: true,
+        message: `成功导入 ${importedCount} 个月的数据\n\n⚠️ 未找到以下账户：${accountList}${moreText}${hintText}`,
+        importedCount,
+        unmatchedAccounts
+      };
     }
 
     return { success: true, message: `成功导入 ${importedCount} 个月的数据`, importedCount };
@@ -775,8 +831,10 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 // 导出数据为 Excel CSV 模板
 export function exportExcelTemplate(): string {
   const accounts = getAllAccounts();
+  // UTF-8 BOM 头，让 Excel 正确识别中文编码
+  const BOM = '\uFEFF';
   const header = '月份(YYYY-MM),目标存款账户名称,当月存款余额';
-  const note = '# 支持格式: YYYY-MM (2024-01) 或 MMM-YY (Jan-24)';
+  const note = '# 支持格式: YYYY-MM (2024-01) 或 MMM-YY (Jan-24)，请保存为 UTF-8 编码';
 
   // 生成示例数据（最近6个月）
   const now = new Date();
@@ -790,7 +848,7 @@ export function exportExcelTemplate(): string {
     examples.push(`${monthStr},${defaultAccount},0.00`);
   }
 
-  return [header, note, ...examples].join('\n');
+  return BOM + [header, note, ...examples].join('\n');
 }
 
 // 批量导入指定时间范围的数据
