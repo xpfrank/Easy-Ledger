@@ -4,6 +4,8 @@ import { BottomNav } from '@/components/BottomNav';
 import { HomePage } from '@/pages/HomePage';
 import { AccountsPage } from '@/pages/AccountsPage';
 import { AccountEditPage } from '@/pages/AccountEditPage';
+import { AccountDetailPage } from '@/pages/AccountDetailPage';
+import { AccountFlowPage } from '@/pages/AccountFlowPage';
 import { RecordPage } from '@/pages/RecordPage';
 import { RecordLogsPage } from '@/pages/RecordLogsPage';
 import { TrendPage } from '@/pages/TrendPage';
@@ -151,6 +153,10 @@ function App() {
         return <AccountsPage onPageChange={handlePageChange} />;
       case 'account-edit':
         return <AccountEditPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+      case 'account-detail':
+        return <AccountDetailPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+      case 'account-flow':
+        return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
       case 'record':
         return <RecordPage onPageChange={handlePageChange} />;
       case 'record-logs':
