@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Edit3, Trash2, TrendingUp, History, Eye, EyeOff, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Edit3, Trash2, TrendingUp, History, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -8,7 +8,6 @@ import type { Account, PageRoute, ThemeType } from '@/types';
 import {
   getAccountById,
   getMonthlyRecord,
-  getMonthlyRecordsByAccount,
   formatAmountNoSymbol,
   getSettings,
   updateAccount,
@@ -17,8 +16,6 @@ import {
 import { getAccountTypeLabel, getAccountHistory } from '@/lib/calculator';
 import { THEMES } from '@/types';
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,

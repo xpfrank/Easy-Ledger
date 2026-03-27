@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Filter, TrendingUp, TrendingDown, ArrowRightLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/Icon';
+
 import type { PageRoute, RecordLog, ThemeType } from '@/types';
 import {
   getRecordLogsByAccount,
