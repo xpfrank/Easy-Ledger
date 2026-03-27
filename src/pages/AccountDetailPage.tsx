@@ -358,7 +358,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`}
                         />
                         <Tooltip
-                          formatter={(v: number) => [`¥${formatAmountNoSymbol(v)}`, '欠款']}
+                          formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '欠款']}
                           labelFormatter={(l) => `${l}`}
                         />
                         <Area
@@ -386,7 +386,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`}
                         />
                         <Tooltip
-                          formatter={(v: number) => [`¥${formatAmountNoSymbol(v)}`, '余额']}
+                          formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '余额']}
                           labelFormatter={(l) => `${l}`}
                         />
                         <Area

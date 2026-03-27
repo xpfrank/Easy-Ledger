@@ -559,9 +559,20 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
 
         {/* 账户余额列表 */}
         <div className="space-y-2">
-          <h2 className="text-sm font-medium text-gray-500 px-1">
-            {recordMode === 'monthly' ? '账户余额' : '年度账户余额'}
-          </h2>
+          <div className="flex justify-between items-center px-1">
+            <h2 className="text-sm font-medium text-gray-500">
+              {recordMode === 'monthly' ? '账户余额' : '年度账户余额'}
+            </h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              style={{ color: themeConfig.primary }}
+              onClick={() => onPageChange('accounts')}
+            >
+              管理账户
+            </Button>
+          </div>
           
           {accounts.length === 0 ? (
             <Card className="bg-white">
@@ -586,7 +597,11 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   const isEditing = editingAccount === account.id;
 
                   return (
-                    <div key={account.id} className="p-3">
+                    <div
+                      key={account.id}
+                      className="p-3 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => onPageChange('account-detail', { accountId: account.id })}
+                    >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div 
@@ -632,20 +647,26 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                                 }}
                               />
                             </div>
-                            <Button 
-                              size="sm" 
+                            <Button
+                              size="sm"
                               className="h-8 px-2 text-white"
                               style={{ backgroundColor: themeConfig.primary }}
-                              onClick={saveEdit}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                saveEdit();
+                              }}
                             >
                               保存
                             </Button>
                           </div>
                         ) : (
                           <button
-                            onClick={() => startEdit(account)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEdit(account);
+                            }}
                             className={`text-right px-3 py-1 rounded-lg hover:bg-gray-100 ${
-                              isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') : 
+                              isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') :
                               isDebt ? 'text-red-500' : ''
                             }`}
                           >
