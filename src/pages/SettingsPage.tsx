@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy } from 'lucide-react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings } from '@/lib/storage';
+import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, ExcelImportRow } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
@@ -19,13 +19,18 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [importError, setImportError] = useState('');
   const [theme, setTheme] = useState<ThemeType>('blue');
-  
+
+  // Excel 导入相关状态
+  const [importMode, setImportMode] = useState<'json' | 'excel'>('json');
+  const [excelData, setExcelData] = useState<ExcelImportRow[]>([]);
+  const [excelError, setExcelError] = useState('');
+
   // 导出设置
   const [exportStartYear, setExportStartYear] = useState(new Date().getFullYear());
   const [exportStartMonth, setExportStartMonth] = useState(new Date().getMonth() + 1);
   const [exportEndYear, setExportEndYear] = useState(new Date().getFullYear());
   const [exportEndMonth, setExportEndMonth] = useState(new Date().getMonth() + 1);
-  
+
   // 导入设置
   const [importTargetYear, setImportTargetYear] = useState(new Date().getFullYear());
   const [importTargetMonth, setImportTargetMonth] = useState(new Date().getMonth() + 1);
@@ -122,7 +127,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     setImportError('');
-    
+
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -139,6 +144,66 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
         setImportError('文件读取失败');
       };
       reader.readAsText(file);
+    }
+  };
+
+  const handleExcelFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    setExcelError('');
+
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        const parsed = parseExcelCSV(content);
+        if (parsed.length > 0) {
+          setExcelData(parsed);
+          setExcelError('');
+        } else {
+          setExcelData([]);
+          setExcelError('无法解析 Excel 文件，请确保格式正确');
+        }
+      };
+      reader.onerror = () => {
+        setExcelError('文件读取失败');
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleExcelImport = () => {
+    if (excelData.length === 0) {
+      setExcelError('请先选择 Excel 文件');
+      return;
+    }
+    const result = batchImportFromExcel(excelData);
+    alert(result.message);
+    if (result.success) {
+      setShowImportDialog(false);
+      setExcelData([]);
+      setImportMode('json');
+      window.location.reload();
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const template = exportExcelTemplate();
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '资产导入模板.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCloseImportDialog = (open: boolean) => {
+    setShowImportDialog(open);
+    if (!open) {
+      setExcelData([]);
+      setExcelError('');
+      setImportMode('json');
+      setImportError('');
     }
   };
 
@@ -394,76 +459,166 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       </Dialog>
 
       {/* 导入对话框 */}
-      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+      <Dialog open={showImportDialog} onOpenChange={handleCloseImportDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>导入数据</DialogTitle>
-            <DialogDescription>
-              选择目标时间和导入方式
-            </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div>
-              <div className="text-sm text-gray-500 mb-2">目标时间</div>
-              <div className="flex gap-2">
-                <select
-                  value={importTargetYear}
-                  onChange={(e) => setImportTargetYear(Number(e.target.value))}
-                  className="flex-1 p-2 border rounded-lg"
-                >
-                  {yearRange.map(y => <option key={y} value={y}>{y}年</option>)}
-                </select>
-                <select
-                  value={importTargetMonth}
-                  onChange={(e) => setImportTargetMonth(Number(e.target.value))}
-                  className="flex-1 p-2 border rounded-lg"
-                >
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                    <option key={m} value={m}>{m}月</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-500 mb-2">导入方式</div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setImportMergeMode('merge')}
-                  className={`flex-1 p-2 rounded-lg border text-sm ${
-                    importMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
-                  }`}
-                  style={{ borderColor: importMergeMode === 'merge' ? themeConfig.primary : undefined }}
-                >
-                  合并记录
-                </button>
-                <button
-                  onClick={() => setImportMergeMode('overwrite')}
-                  className={`flex-1 p-2 rounded-lg border text-sm ${
-                    importMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
-                  }`}
-                  style={{ borderColor: importMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
-                >
-                  覆盖记录
-                </button>
-              </div>
-            </div>
-            <div>
-              <input
-                type="file"
-                accept=".json"
-                onChange={handleImport}
-                className="w-full"
-              />
-              {importError && (
-                <p className="text-red-500 text-sm mt-2">{importError}</p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowImportDialog(false)}>
-              取消
+
+          {/* 导入模式切换 */}
+          <div className="flex gap-2 py-2">
+            <Button
+              variant={importMode === 'json' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              style={importMode === 'json' ? { backgroundColor: themeConfig.primary } : {}}
+              onClick={() => setImportMode('json')}
+            >
+              <FileJson size={16} className="mr-1" />
+              JSON 恢复
             </Button>
-          </DialogFooter>
+            <Button
+              variant={importMode === 'excel' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              style={importMode === 'excel' ? { backgroundColor: themeConfig.primary } : {}}
+              onClick={() => setImportMode('excel')}
+            >
+              <FileSpreadsheet size={16} className="mr-1" />
+              Excel 批量
+            </Button>
+          </div>
+
+          {/* JSON 导入模式 */}
+          {importMode === 'json' && (
+            <>
+              <DialogDescription className="text-sm">
+                选择目标时间和导入方式，然后选择 JSON 文件导入
+              </DialogDescription>
+              <div className="py-4 space-y-4">
+                <div>
+                  <div className="text-sm text-gray-500 mb-2">目标时间</div>
+                  <div className="flex gap-2">
+                    <select
+                      value={importTargetYear}
+                      onChange={(e) => setImportTargetYear(Number(e.target.value))}
+                      className="flex-1 p-2 border rounded-lg"
+                    >
+                      {yearRange.map(y => <option key={y} value={y}>{y}年</option>)}
+                    </select>
+                    <select
+                      value={importTargetMonth}
+                      onChange={(e) => setImportTargetMonth(Number(e.target.value))}
+                      className="flex-1 p-2 border rounded-lg"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                        <option key={m} value={m}>{m}月</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-500 mb-2">导入方式</div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setImportMergeMode('merge')}
+                      className={`flex-1 p-2 rounded-lg border text-sm ${
+                        importMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                      }`}
+                      style={{ borderColor: importMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                    >
+                      合并记录
+                    </button>
+                    <button
+                      onClick={() => setImportMergeMode('overwrite')}
+                      className={`flex-1 p-2 rounded-lg border text-sm ${
+                        importMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                      }`}
+                      style={{ borderColor: importMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                    >
+                      覆盖记录
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImport}
+                    className="w-full"
+                  />
+                  {importError && (
+                    <p className="text-red-500 text-sm mt-2">{importError}</p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Excel 导入模式 */}
+          {importMode === 'excel' && (
+            <>
+              <DialogDescription className="text-sm">
+                上传 Excel/CSV 文件，批量导入月度存款数据。目标账户设为 Excel 余额，其余账户设为 0。
+              </DialogDescription>
+
+              <div className="py-3 space-y-3">
+                {/* 下载模板按钮 */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleDownloadTemplate}
+                >
+                  <Download size={16} className="mr-1" />
+                  下载导入模板
+                </Button>
+
+                {/* 文件选择 */}
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={handleExcelFileChange}
+                  className="w-full text-sm"
+                />
+
+                {/* Excel 数据预览 */}
+                {excelData.length > 0 && (
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs">
+                    <div className="font-medium mb-2">预览 ({excelData.length} 条数据)</div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {excelData.slice(0, 5).map((row, index) => (
+                        <div key={index} className="flex justify-between text-gray-600">
+                          <span>{row.month}</span>
+                          <span className="text-gray-400">{row.accountName}</span>
+                          <span className="font-medium">¥{row.balance.toFixed(2)}</span>
+                        </div>
+                      ))}
+                      {excelData.length > 5 && (
+                        <div className="text-gray-400">...还有 {excelData.length - 5} 条</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 错误提示 */}
+                {(excelError || importError) && (
+                  <div className="text-red-500 text-sm">{excelError || importError}</div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button
+                  onClick={handleExcelImport}
+                  disabled={excelData.length === 0}
+                  className="text-white"
+                  style={{ backgroundColor: themeConfig.primary }}
+                >
+                  确认导入
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

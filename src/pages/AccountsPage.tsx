@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -13,6 +13,10 @@ import {
   formatAmountNoSymbol,
   getMonthlyRecordsByMonth,
   getSettings,
+  parseExcelCSV,
+  batchImportFromExcel,
+  exportExcelTemplate,
+  ExcelImportRow,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -36,6 +40,9 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [hideBalance, setHideBalance] = useState(false);
+  const [importMode, setImportMode] = useState<'json' | 'excel'>('json');
+  const [excelData, setExcelData] = useState<ExcelImportRow[]>([]);
+  const [excelError, setExcelError] = useState<string>('');
 
   useEffect(() => {
     const settings = getSettings();
@@ -100,6 +107,60 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
         }
       };
       reader.readAsText(file);
+    }
+  };
+
+  const handleExcelFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        const parsed = parseExcelCSV(content);
+        if (parsed.length > 0) {
+          setExcelData(parsed);
+          setExcelError('');
+        } else {
+          setExcelData([]);
+          setExcelError('无法解析 Excel 文件，请确保格式正确');
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleExcelImport = () => {
+    if (excelData.length === 0) {
+      setExcelError('请先选择 Excel 文件');
+      return;
+    }
+    const result = batchImportFromExcel(excelData);
+    alert(result.message);
+    if (result.success) {
+      loadAccounts();
+      setImportDialogOpen(false);
+      setExcelData([]);
+      setImportMode('json');
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const template = exportExcelTemplate();
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '资产导入模板.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCloseImportDialog = (open: boolean) => {
+    setImportDialogOpen(open);
+    if (!open) {
+      setExcelData([]);
+      setExcelError('');
+      setImportMode('json');
     }
   };
 
@@ -274,27 +335,117 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
       </Dialog>
 
       {/* 导入对话框 */}
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+      <Dialog open={importDialogOpen} onOpenChange={handleCloseImportDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>导入数据</DialogTitle>
-            <DialogDescription>
-              选择之前导出的 JSON 文件进行恢复。导入将覆盖当前所有数据。
-            </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="w-full"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>
-              取消
+
+          {/* 导入模式切换 */}
+          <div className="flex gap-2 py-2">
+            <Button
+              variant={importMode === 'json' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              style={importMode === 'json' ? { backgroundColor: '#0ea5e9' } : {}}
+              onClick={() => setImportMode('json')}
+            >
+              <FileJson size={16} className="mr-1" />
+              JSON 恢复
             </Button>
-          </DialogFooter>
+            <Button
+              variant={importMode === 'excel' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              style={importMode === 'excel' ? { backgroundColor: '#0ea5e9' } : {}}
+              onClick={() => setImportMode('excel')}
+            >
+              <FileSpreadsheet size={16} className="mr-1" />
+              Excel 批量
+            </Button>
+          </div>
+
+          {/* JSON 导入模式 */}
+          {importMode === 'json' && (
+            <>
+              <DialogDescription className="text-sm">
+                选择之前导出的 JSON 文件进行恢复。导入将覆盖当前所有数据。
+              </DialogDescription>
+              <div className="py-4">
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleImport}
+                  className="w-full"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Excel 导入模式 */}
+          {importMode === 'excel' && (
+            <>
+              <DialogDescription className="text-sm">
+                上传 Excel/CSV 文件，批量导入月度存款数据。目标账户设为 Excel 余额，其余账户设为 0。
+              </DialogDescription>
+
+              <div className="py-3 space-y-3">
+                {/* 下载模板按钮 */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleDownloadTemplate}
+                >
+                  <Download size={16} className="mr-1" />
+                  下载导入模板
+                </Button>
+
+                {/* 文件选择 */}
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={handleExcelFileChange}
+                  className="w-full text-sm"
+                />
+
+                {/* Excel 数据预览 */}
+                {excelData.length > 0 && (
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs">
+                    <div className="font-medium mb-2">预览 ({excelData.length} 条数据)</div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {excelData.slice(0, 5).map((row, index) => (
+                        <div key={index} className="flex justify-between text-gray-600">
+                          <span>{row.month}</span>
+                          <span className="text-gray-400">{row.accountName}</span>
+                          <span className="font-medium">¥{row.balance.toFixed(2)}</span>
+                        </div>
+                      ))}
+                      {excelData.length > 5 && (
+                        <div className="text-gray-400">...还有 {excelData.length - 5} 条</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 错误提示 */}
+                {excelError && (
+                  <div className="text-red-500 text-sm">{excelError}</div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button
+                  onClick={handleExcelImport}
+                  disabled={excelData.length === 0}
+                  style={{ backgroundColor: '#0ea5e9' }}
+                  className="text-white"
+                >
+                  确认导入
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
