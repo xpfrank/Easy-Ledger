@@ -149,24 +149,25 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
               <Card className="bg-white overflow-hidden">
                 <div className="divide-y divide-gray-100">
                   {group.accounts.map((account) => (
-                    <div 
+                    <div
                       key={account.id}
-                      className="p-3 hover:bg-gray-50"
+                      className="p-3 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => onPageChange('account-detail', { accountId: account.id })}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                            account.type === 'credit' || account.type === 'debt' 
-                              ? 'bg-red-50' 
+                            account.type === 'credit' || account.type === 'debt'
+                              ? 'bg-red-50'
                               : 'bg-sky-50'
                           }`}>
-                            <Icon 
-                              name={account.icon} 
-                              size={18} 
-                              className={account.type === 'credit' || account.type === 'debt' 
-                                ? 'text-red-500' 
+                            <Icon
+                              name={account.icon}
+                              size={18}
+                              className={account.type === 'credit' || account.type === 'debt'
+                                ? 'text-red-500'
                                 : 'text-sky-500'
-                              } 
+                              }
                             />
                           </div>
                           <div>
@@ -177,19 +178,25 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8"
-                            onClick={() => onPageChange('account-edit', { accountId: account.id })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onPageChange('account-edit', { accountId: account.id });
+                            }}
                           >
                             <Edit3 size={16} className="text-gray-400" />
                           </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
+                          <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8"
-                            onClick={() => handleDelete(account)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(account);
+                            }}
                           >
                             <Trash2 size={16} className="text-red-400" />
                           </Button>
