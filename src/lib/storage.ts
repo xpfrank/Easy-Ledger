@@ -637,18 +637,70 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
     const parts = line.includes('\t') ? line.split('\t') : line.split(',');
     if (parts.length < 3) continue;
 
-    const month = parts[0].trim().replace(/"/g, '');
+    const monthRaw = parts[0].trim().replace(/"/g, '');
     const accountName = parts[1].trim().replace(/"/g, '');
     const balanceStr = parts[2].trim().replace(/"/g, '').replace(/¥/g, '').replace(/,/g, '');
     const balance = parseFloat(balanceStr);
 
-    // 验证格式
-    if (!month.match(/^\d{4}-\d{2}$/) || isNaN(balance)) continue;
+    // 转换日期格式为 YYYY-MM
+    const normalizedMonth = normalizeMonthFormat(monthRaw);
+    if (!normalizedMonth || isNaN(balance)) continue;
 
-    result.push({ month, accountName, balance });
+    result.push({ month: normalizedMonth, accountName, balance });
   }
 
   return result;
+}
+
+// 规范化月份格式，支持多种输入格式
+// 支持格式: "YYYY-MM", "YYYY/MM", "MMM-YY" (如 Jan-24), "MMM/YY" (如 Jan/24)
+function normalizeMonthFormat(monthStr: string): string | null {
+  // 已经是 YYYY-MM 格式
+  if (/^\d{4}-\d{2}$/.test(monthStr)) {
+    return monthStr;
+  }
+
+  // YYYY/MM 格式
+  if (/^\d{4}\/\d{2}$/.test(monthStr)) {
+    return monthStr.replace('/', '-');
+  }
+
+  // MMM-YY 或 MMM/YY 格式 (如 Jan-24, Feb-25)
+  const monthMap: Record<string, string> = {
+    'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+    'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+    'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+  };
+
+  const parts = monthStr.split(/[-\/]/);
+  if (parts.length === 2) {
+    const monthKey = parts[0].toLowerCase();
+    const yearPart = parts[1];
+
+    if (monthMap[monthKey] && /^\d{2}$/.test(yearPart)) {
+      // 处理两位数年份，假设 00-69 为 2000 年代，70-99 为 1900 年代
+      let year = parseInt(yearPart);
+      if (year < 70) {
+        year += 2000;
+      } else {
+        year += 1900;
+      }
+      return `${year}-${monthMap[monthKey]}`;
+    }
+  }
+
+  // MMM YYYY 格式 (如 Jan 2024)
+  const parts2 = monthStr.split(/\s+/);
+  if (parts2.length === 2) {
+    const monthKey = parts2[0].toLowerCase();
+    const yearPart = parts2[1];
+
+    if (monthMap[monthKey] && /^\d{4}$/.test(yearPart)) {
+      return `${yearPart}-${monthMap[monthKey]}`;
+    }
+  }
+
+  return null;
 }
 
 // 批量导入月度数据（Excel 模式）
@@ -724,6 +776,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 export function exportExcelTemplate(): string {
   const accounts = getAllAccounts();
   const header = '月份(YYYY-MM),目标存款账户名称,当月存款余额';
+  const note = '# 支持格式: YYYY-MM (2024-01) 或 MMM-YY (Jan-24)';
 
   // 生成示例数据（最近6个月）
   const now = new Date();
@@ -737,7 +790,7 @@ export function exportExcelTemplate(): string {
     examples.push(`${monthStr},${defaultAccount},0.00`);
   }
 
-  return [header, ...examples].join('\n');
+  return [header, note, ...examples].join('\n');
 }
 
 // 批量导入指定时间范围的数据
