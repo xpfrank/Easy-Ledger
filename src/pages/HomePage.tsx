@@ -285,8 +285,8 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
             accountGroups.map((group) => (
               <Card key={group.type} className="bg-white overflow-hidden">
                 {/* 分组标题 */}
-                <div 
-                  className="flex items-center justify-between p-3.5 bg-gradient-to-r from-gray-100 to-gray-50 cursor-pointer select-none border-b-2 border-gray-200 shadow-sm"
+                <div
+                  className="flex items-center justify-between p-3.5 bg-white cursor-pointer select-none border-b border-gray-100 hover:bg-gray-50"
                   onClick={() => toggleGroup(group.type)}
                 >
                   <div className="flex items-center gap-2.5">
