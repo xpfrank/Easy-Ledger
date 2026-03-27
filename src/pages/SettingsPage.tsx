@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate } from '@/lib/storage';
+import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
@@ -153,20 +153,34 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     setExcelError('');
 
     if (file) {
+      // 检查文件扩展名
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.csv')) {
+        setExcelError('仅支持 .csv 格式文件，请将 Excel 文件另存为 CSV 格式');
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (e) => {
         const content = e.target?.result as string;
+
+        // 检测乱码
+        if (hasGarbledText(content)) {
+          setExcelError('检测到文件编码问题，请将 CSV 文件另存为 UTF-8 编码后重新导入');
+          return;
+        }
+
         const parsed = parseExcelCSV(content);
         if (parsed.length > 0) {
           setExcelData(parsed);
           setExcelError('');
         } else {
           setExcelData([]);
-          setExcelError('无法解析 Excel 文件，请确保格式正确');
+          setExcelError('无法解析 CSV 文件，请确保格式正确（月份,账户名称,余额）');
         }
       };
       reader.onerror = () => {
-        setExcelError('文件读取失败');
+        setExcelError('文件读取失败，请尝试重新下载模板');
       };
       reader.readAsText(file);
     }
@@ -486,7 +500,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               onClick={() => setImportMode('excel')}
             >
               <FileSpreadsheet size={16} className="mr-1" />
-              Excel 批量
+              月度余额导入
             </Button>
           </div>
 
@@ -560,7 +574,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           {importMode === 'excel' && (
             <>
               <DialogDescription className="text-sm">
-                上传 Excel/CSV 文件，批量导入月度存款数据。目标账户设为 Excel 余额，其余账户设为 0。
+                上传 CSV 文件批量导入月度余额数据。表格格式：月份、账户名称、当月余额。导入后仅更新指定账户的指定月份，未填写的账户月份保持不变。
               </DialogDescription>
 
               <div className="py-3 space-y-3">
@@ -575,13 +589,14 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                   下载导入模板
                 </Button>
 
-                {/* 文件选择 */}
+                {/* 文件选择 - 仅支持 CSV */}
                 <input
                   type="file"
-                  accept=".csv,.xlsx,.xls"
+                  accept=".csv"
                   onChange={handleExcelFileChange}
                   className="w-full text-sm"
                 />
+                <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
 
                 {/* Excel 数据预览 */}
                 {excelData.length > 0 && (
