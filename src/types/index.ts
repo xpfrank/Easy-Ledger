@@ -52,6 +52,7 @@ export interface AppState {
   accounts: Account[];
   records: MonthlyRecord[];
   logs: RecordLog[];    // 记账日志
+  attributions: MonthlyAttribution[]; // 归因记录
   settings: AppSettings;
   version: string;
 }
@@ -107,6 +108,64 @@ export type PageRoute = 'home' | 'accounts' | 'record' | 'trend' | 'settings' | 
 
 // 记账模式
 export type RecordMode = 'monthly' | 'yearly';
+
+// 波动评级
+export type FluctuationLevel = 'normal' | 'warning' | 'abnormal';
+
+// 归因标签类型
+export type AttributionTag =
+  | 'salary'           // 工资积累
+  | 'investment'       // 投资收益
+  | 'daily'            // 日常波动
+  | 'other'            // 其他
+  | 'salary_income'    // 工资收入
+  | 'bonus'            // 奖金
+  | 'year_end_bonus'   // 年终奖
+  | 'loan_repayment'   // 借款归还
+  | 'large_expense'    // 大额支出
+  | 'transfer'         // 转账调整
+  | 'abnormal_other';  // 异常其他
+
+// 标签配置
+export interface TagConfig {
+  value: AttributionTag;
+  label: string;
+  emoji: string;
+  isRequired: boolean; // 异常波动时是否必选
+}
+
+// 正常变化可选标签
+export const NORMAL_TAGS: TagConfig[] = [
+  { value: 'salary', label: '工资积累', emoji: '💰', isRequired: false },
+  { value: 'investment', label: '投资收益', emoji: '📈', isRequired: false },
+  { value: 'daily', label: '日常波动', emoji: '🔄', isRequired: false },
+  { value: 'other', label: '其他', emoji: '📝', isRequired: false },
+];
+
+// 异常变化必选标签
+export const ABNORMAL_TAGS: TagConfig[] = [
+  { value: 'salary_income', label: '工资收入', emoji: '💰', isRequired: true },
+  { value: 'bonus', label: '奖金', emoji: '🎁', isRequired: true },
+  { value: 'year_end_bonus', label: '年终奖', emoji: '🧧', isRequired: true },
+  { value: 'investment', label: '投资收益', emoji: '📈', isRequired: true },
+  { value: 'loan_repayment', label: '借款归还', emoji: '🔄', isRequired: true },
+  { value: 'large_expense', label: '大额支出', emoji: '🛒', isRequired: true },
+  { value: 'transfer', label: '转账调整', emoji: '🔀', isRequired: true },
+  { value: 'abnormal_other', label: '其他', emoji: '📝', isRequired: true },
+];
+
+// 月度归因记录
+export interface MonthlyAttribution {
+  id: string;
+  year: number;
+  month: number;
+  change: number;           // 变化金额
+  changePercent: number;    // 变化百分比
+  fluctuationLevel: FluctuationLevel;
+  tags: AttributionTag[];    // 选择的标签
+  note?: string;            // 备注
+  timestamp: number;         // 记录时间
+}
 
 // 预设图标配置
 export const PRESET_ICONS: IconConfig[] = [
