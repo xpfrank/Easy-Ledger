@@ -91,6 +91,7 @@ export function loadData(): AppState {
           ...defaultState.settings,
           ...parsed.settings,
         },
+        attributions: parsed.attributions || [],
         version: CURRENT_VERSION,
       };
     }
