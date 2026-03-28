@@ -16,8 +16,6 @@ import {
   saveMonthlyAttribution,
   getMonthlyAttribution,
   calculateFluctuationLevel,
-  getAttributionTagLabel,
-  getAttributionTagEmoji,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -274,7 +272,6 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   } | null>(null);
   const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
   const [attributionNote, setAttributionNote] = useState('');
-  const [hasPendingChanges, setHasPendingChanges] = useState(false);
 
   const themeConfig = THEMES[theme];
 
