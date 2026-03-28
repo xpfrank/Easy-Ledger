@@ -1,4 +1,4 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
@@ -10,6 +10,7 @@ const defaultState: AppState = {
   accounts: [],
   records: [],
   logs: [],
+  attributions: [],
   settings: {
     hideBalance: false,
     theme: 'blue',
@@ -686,8 +687,15 @@ function normalizeAccountName(name: string): string {
 }
 
 // 规范化月份格式，支持多种输入格式
-// 支持格式: "YYYY-MM", "YYYY/MM", "MMM-YY" (如 Jan-24), "MMM/YY" (如 Jan/24)
+// 支持格式: "YYYY-MM", "YYYY/MM", "MMM-YY" (如 Jan-24), "MMM/YY" (如 Jan/24), "YY-MMM" (如 25-Oct), "YY MMM" (如 25 Oct)
 function normalizeMonthFormat(monthStr: string): string | null {
+  // 月份映射表
+  const monthMap: Record<string, string> = {
+    'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+    'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+    'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+  };
+
   // 已经是 YYYY-MM 格式
   if (/^\d{4}-\d{2}$/.test(monthStr)) {
     return monthStr;
@@ -698,38 +706,33 @@ function normalizeMonthFormat(monthStr: string): string | null {
     return monthStr.replace('/', '-');
   }
 
-  // MMM-YY 或 MMM/YY 格式 (如 Jan-24, Feb-25)
-  const monthMap: Record<string, string> = {
-    'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
-    'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
-    'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
-  };
-
-  const parts = monthStr.split(/[-\/]/);
+  // 按分隔符分割 (支持 - / 空格分隔)
+  const parts = monthStr.split(/[-\/ ]+/).filter(p => p.length > 0);
   if (parts.length === 2) {
-    const monthKey = parts[0].toLowerCase();
-    const yearPart = parts[1];
+    const [first, second] = parts;
 
-    if (monthMap[monthKey] && /^\d{2}$/.test(yearPart)) {
-      // 处理两位数年份，假设 00-69 为 2000 年代，70-99 为 1900 年代
-      let year = parseInt(yearPart);
-      if (year < 70) {
-        year += 2000;
-      } else {
-        year += 1900;
+    // 判断谁是月份，谁是年份
+    const firstIsMonth = monthMap[first.toLowerCase()] !== undefined;
+    const secondIsMonth = monthMap[second.toLowerCase()] !== undefined;
+    const firstIsYear = /^\d{2,4}$/.test(first);
+    const secondIsYear = /^\d{2,4}$/.test(second);
+
+    if (firstIsMonth && secondIsYear) {
+      // MMM-YY 格式 (如 Jan-24, Oct-25)
+      let year = parseInt(second);
+      if (second.length === 2) {
+        year = year < 70 ? year + 2000 : year + 1900;
       }
-      return `${year}-${monthMap[monthKey]}`;
+      return `${year}-${monthMap[first.toLowerCase()]}`;
     }
-  }
 
-  // MMM YYYY 格式 (如 Jan 2024)
-  const parts2 = monthStr.split(/\s+/);
-  if (parts2.length === 2) {
-    const monthKey = parts2[0].toLowerCase();
-    const yearPart = parts2[1];
-
-    if (monthMap[monthKey] && /^\d{4}$/.test(yearPart)) {
-      return `${yearPart}-${monthMap[monthKey]}`;
+    if (secondIsMonth && firstIsYear) {
+      // YY-MMM 格式 (如 25-Oct, 24-Jan)
+      let year = parseInt(first);
+      if (first.length === 2) {
+        year = year < 70 ? year + 2000 : year + 1900;
+      }
+      return `${year}-${monthMap[second.toLowerCase()]}`;
     }
   }
 
@@ -871,4 +874,110 @@ export function batchImportByRange(
   });
 
   return batchImportFromExcel(filteredRows, mergeMode);
+}
+
+// ==================== 归因记录功能 ====================
+
+// 计算波动等级
+export function calculateFluctuationLevel(changePercent: number): FluctuationLevel {
+  const absPercent = Math.abs(changePercent);
+  if (absPercent > 30) {
+    return 'abnormal';
+  } else if (absPercent > 10) {
+    return 'warning';
+  }
+  return 'normal';
+}
+
+// 获取月度归因记录
+export function getMonthlyAttribution(year: number, month: number): MonthlyAttribution | null {
+  const data = loadData();
+  return data.attributions.find(a => a.year === year && a.month === month) || null;
+}
+
+// 保存月度归因记录
+export function saveMonthlyAttribution(
+  year: number,
+  month: number,
+  change: number,
+  changePercent: number,
+  tags: AttributionTag[],
+  note?: string
+): void {
+  const data = loadData();
+
+  // 查找是否已有该月归因记录
+  const existingIndex = data.attributions.findIndex(a => a.year === year && a.month === month);
+
+  const attribution: MonthlyAttribution = {
+    id: existingIndex >= 0 ? data.attributions[existingIndex].id : generateId(),
+    year,
+    month,
+    change,
+    changePercent,
+    fluctuationLevel: calculateFluctuationLevel(changePercent),
+    tags,
+    note,
+    timestamp: Date.now(),
+  };
+
+  if (existingIndex >= 0) {
+    data.attributions[existingIndex] = attribution;
+  } else {
+    data.attributions.push(attribution);
+  }
+
+  saveData(data);
+}
+
+// 获取所有归因记录
+export function getAllAttributions(): MonthlyAttribution[] {
+  const data = loadData();
+  return data.attributions.sort((a, b) => {
+    if (a.year !== b.year) return b.year - a.year;
+    return b.month - a.month;
+  });
+}
+
+// 删除归因记录
+export function deleteMonthlyAttribution(year: number, month: number): void {
+  const data = loadData();
+  data.attributions = data.attributions.filter(a => !(a.year === year && a.month === month));
+  saveData(data);
+}
+
+// 获取归因标签的中文显示
+export function getAttributionTagLabel(tag: AttributionTag): string {
+  const tagLabels: Record<AttributionTag, string> = {
+    salary: '工资积累',
+    investment: '投资收益',
+    daily: '日常波动',
+    other: '其他',
+    salary_income: '工资收入',
+    bonus: '奖金',
+    year_end_bonus: '年终奖',
+    loan_repayment: '借款归还',
+    large_expense: '大额支出',
+    transfer: '转账调整',
+    abnormal_other: '其他',
+  };
+  return tagLabels[tag] || tag;
+}
+
+// 获取归因标签的 emoji
+export function getAttributionTagEmoji(tag: AttributionTag): string {
+  const tagEmojis: Record<AttributionTag, string> = {
+    salary: '💰',
+    investment: '📈',
+    daily: '🔄',
+    other: '📝',
+    salary_income: '💰',
+    bonus: '🎁',
+    year_end_bonus: '🧧',
+    loan_repayment: '🔄',
+    large_expense: '🛒',
+    transfer: '🔀',
+    abnormal_other: '📝',
+  };
+  return tagEmojis[tag] || '📝';
 }
