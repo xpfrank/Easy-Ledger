@@ -236,6 +236,7 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         accounts: data.accounts,
         records: data.records,
         logs: data.logs || [],
+        attributions: [],
         settings: { ...defaultState.settings, ...data.settings },
         version: CURRENT_VERSION,
       });
