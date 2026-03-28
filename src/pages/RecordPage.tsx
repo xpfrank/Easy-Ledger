@@ -464,7 +464,6 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     );
 
     setShowPreviewDialog(false);
-    setHasPendingChanges(false);
     setSelectedTags([]);
     setAttributionNote('');
   };
