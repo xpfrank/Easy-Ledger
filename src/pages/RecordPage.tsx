@@ -1,20 +1,26 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
-import type { Account, PageRoute, RecordMode, ThemeType } from '@/types';
-import { 
-  getAllAccounts, 
-  getMonthlyRecord, 
+import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel } from '@/types';
+import { NORMAL_TAGS, ABNORMAL_TAGS } from '@/types';
+import {
+  getAllAccounts,
+  getMonthlyRecord,
   setMonthlyRecord,
   formatAmountNoSymbol,
   formatMonth,
   getSettings,
+  saveMonthlyAttribution,
+  getMonthlyAttribution,
+  calculateFluctuationLevel,
+  getAttributionTagLabel,
+  getAttributionTagEmoji,
 } from '@/lib/storage';
-import { 
-  calculateNetWorth, 
+import {
+  calculateNetWorth,
   calculateTotalAssets,
   calculateTotalLiabilities,
   getAccountTypeLabel,
@@ -257,6 +263,19 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const [editingAccount, setEditingAccount] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
+  // 预览确认弹窗状态
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    lastNetWorth: number;
+    currentNetWorth: number;
+    change: number;
+    changePercent: number;
+    fluctuationLevel: FluctuationLevel;
+  } | null>(null);
+  const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
+  const [attributionNote, setAttributionNote] = useState('');
+  const [hasPendingChanges, setHasPendingChanges] = useState(false);
+
   const themeConfig = THEMES[theme];
 
   useEffect(() => {
@@ -391,6 +410,100 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const cancelEdit = () => {
     setEditingAccount(null);
     setEditValue('');
+  };
+
+  // 触发预览确认弹窗
+  const triggerPreview = () => {
+    if (recordMode !== 'monthly') return;
+
+    let lastYear = year;
+    let lastMonthNum = month - 1;
+    if (lastMonthNum === 0) {
+      lastYear--;
+      lastMonthNum = 12;
+    }
+    const lastNW = calculateNetWorth(lastYear, lastMonthNum);
+    const currentNW = calculateNetWorth(year, month);
+    const changeAmt = currentNW - lastNW;
+    const changePct = lastNW !== 0 ? (changeAmt / Math.abs(lastNW)) * 100 : 0;
+    const level = calculateFluctuationLevel(changePct);
+
+    // 加载已有归因记录
+    const existingAttribution = getMonthlyAttribution(year, month);
+    if (existingAttribution) {
+      setSelectedTags(existingAttribution.tags);
+      setAttributionNote(existingAttribution.note || '');
+    } else {
+      setSelectedTags([]);
+      setAttributionNote('');
+    }
+
+    setPreviewData({
+      lastNetWorth: lastNW,
+      currentNetWorth: currentNW,
+      change: changeAmt,
+      changePercent: changePct,
+      fluctuationLevel: level,
+    });
+    setShowPreviewDialog(true);
+  };
+
+  // 保存归因记录
+  const handleSaveAttribution = () => {
+    if (!previewData) return;
+
+    // 异常波动必须选择标签
+    if (previewData.fluctuationLevel === 'abnormal' && selectedTags.length === 0) {
+      return;
+    }
+
+    saveMonthlyAttribution(
+      year,
+      month,
+      previewData.change,
+      previewData.changePercent,
+      selectedTags,
+      attributionNote || undefined
+    );
+
+    setShowPreviewDialog(false);
+    setHasPendingChanges(false);
+    setSelectedTags([]);
+    setAttributionNote('');
+  };
+
+  // 跳过归因（仅正常波动可用）
+  const handleSkipAttribution = () => {
+    setShowPreviewDialog(false);
+    setSelectedTags([]);
+    setAttributionNote('');
+  };
+
+  // 处理标签选择（正常波动多选，异常波动单选）
+  const handleTagToggle = (tag: AttributionTag, isAbnormal: boolean) => {
+    if (isAbnormal) {
+      // 异常波动：单选
+      setSelectedTags([tag]);
+    } else {
+      // 正常波动：多选切换
+      setSelectedTags(prev =>
+        prev.includes(tag)
+          ? prev.filter(t => t !== tag)
+          : [...prev, tag]
+      );
+    }
+  };
+
+  // 获取变化等级标签
+  const getFluctuationLevelLabel = (level: FluctuationLevel): { label: string; color: string } => {
+    switch (level) {
+      case 'normal':
+        return { label: '正常', color: 'text-green-600 bg-green-50' };
+      case 'warning':
+        return { label: '需关注', color: 'text-yellow-600 bg-yellow-50' };
+      case 'abnormal':
+        return { label: '异常', color: 'text-red-600 bg-red-50' };
+    }
   };
 
   let lastNetWorth = 0;
@@ -537,24 +650,36 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
 
         {/* 快捷操作（仅月度模式） */}
         {recordMode === 'monthly' && (
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              className="flex-1 h-10"
-              onClick={() => setShowCopyDialog(true)}
+          <>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 h-10"
+                onClick={() => setShowCopyDialog(true)}
+              >
+                <Copy size={16} className="mr-1" />
+                复制上月
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1 h-10"
+                onClick={() => setShowClearDialog(true)}
+              >
+                <RotateCcw size={16} className="mr-1" />
+                清空
+              </Button>
+            </div>
+
+            {/* 完成本月记账按钮 */}
+            <Button
+              className="w-full h-12 text-white font-medium"
+              style={{ backgroundColor: themeConfig.primary }}
+              onClick={triggerPreview}
             >
-              <Copy size={16} className="mr-1" />
-              复制上月
+              <Check size={18} className="mr-2" />
+              完成本月记账
             </Button>
-            <Button 
-              variant="outline" 
-              className="flex-1 h-10"
-              onClick={() => setShowClearDialog(true)}
-            >
-              <RotateCcw size={16} className="mr-1" />
-              清空
-            </Button>
-          </div>
+          </>
         )}
 
         {/* 账户余额列表 */}
@@ -741,6 +866,160 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             </Button>
             <Button variant="destructive" onClick={handleClear}>
               确认清空
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 预览确认对话框 */}
+      <Dialog open={showPreviewDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowPreviewDialog(false);
+          setSelectedTags([]);
+          setAttributionNote('');
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{formatMonth(year, month)} 记账预览</DialogTitle>
+          </DialogHeader>
+
+          {previewData && (
+            <div className="py-4 space-y-4">
+              {/* 变化摘要 */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-500">净资产变化</span>
+                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${getFluctuationLevelLabel(previewData.fluctuationLevel).color}`}>
+                    {getFluctuationLevelLabel(previewData.fluctuationLevel).label}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-center">
+                    <div className="text-xs text-gray-400 mb-1">上月</div>
+                    <div className="font-medium">
+                      {hideBalance ? '******' : `¥${formatAmountNoSymbol(previewData.lastNetWorth)}`}
+                    </div>
+                  </div>
+                  <div className="text-2xl text-gray-300">→</div>
+                  <div className="text-center">
+                    <div className="text-xs text-gray-400 mb-1">本月</div>
+                    <div className="font-medium">
+                      {hideBalance ? '******' : `¥${formatAmountNoSymbol(previewData.currentNetWorth)}`}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-gray-200 text-center">
+                  <span className={`text-lg font-bold ${previewData.change >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+                    {hideBalance ? '******' : (
+                      <>
+                        {previewData.change >= 0 ? '+' : ''}
+                        ¥{formatAmountNoSymbol(previewData.change)}
+                        <span className="text-sm ml-1">
+                          ({previewData.change >= 0 ? '+' : ''}{previewData.changePercent.toFixed(1)}%)
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* 波动进度条 */}
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>正常</span>
+                  <span>需关注</span>
+                  <span>异常</span>
+                </div>
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                  <div className="h-full bg-green-500" style={{ width: '33.33%' }} />
+                  <div className="h-full bg-yellow-500" style={{ width: '33.33%' }} />
+                  <div className="h-full bg-red-500" style={{ width: '33.34%' }} />
+                </div>
+                {/* 当前位置指示器 */}
+                <div
+                  className="w-2 h-2 bg-white border-2 border-gray-800 rounded-full -mt-3 mx-auto"
+                  style={{
+                    marginLeft: `${Math.min(Math.max(Math.abs(previewData.changePercent), 0), 100) / 100 * 100}%`,
+                    transform: 'translateX(-50%)'
+                  }}
+                />
+              </div>
+
+              {/* 异常波动警告 */}
+              {previewData.fluctuationLevel === 'abnormal' && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+                  <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
+                  <div className="text-sm text-red-700">
+                    <div className="font-medium mb-1">本月变化幅度较大</div>
+                    <div>请选择变化原因，以便后续回看分析</div>
+                  </div>
+                </div>
+              )}
+
+              {/* 原因标签 */}
+              <div>
+                <div className="text-sm text-gray-600 mb-2">
+                  {previewData.fluctuationLevel === 'abnormal' ? '请选择原因（必选）' : '选择原因（可选）'}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).map((tag) => {
+                    const isSelected = selectedTags.includes(tag.value);
+                    return (
+                      <button
+                        key={tag.value}
+                        onClick={() => handleTagToggle(tag.value, previewData.fluctuationLevel === 'abnormal')}
+                        className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1 transition-colors ${
+                          isSelected
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        <span>{tag.emoji}</span>
+                        <span>{tag.label}</span>
+                        {isSelected && <Check size={14} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 备注输入 */}
+              <div>
+                <div className="text-sm text-gray-600 mb-2">详细备注（可选）</div>
+                <textarea
+                  value={attributionNote}
+                  onChange={(e) => setAttributionNote(e.target.value)}
+                  placeholder="添加备注说明..."
+                  className="w-full p-3 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            {previewData?.fluctuationLevel !== 'abnormal' && (
+              <Button
+                variant="outline"
+                onClick={handleSkipAttribution}
+                className="sm:flex-1"
+              >
+                跳过
+              </Button>
+            )}
+            <Button
+              onClick={handleSaveAttribution}
+              disabled={previewData?.fluctuationLevel === 'abnormal' && selectedTags.length === 0}
+              className="text-white sm:flex-1"
+              style={{
+                backgroundColor: themeConfig.primary,
+                opacity: previewData?.fluctuationLevel === 'abnormal' && selectedTags.length === 0 ? 0.5 : 1
+              }}
+            >
+              {previewData?.fluctuationLevel === 'abnormal' && selectedTags.length === 0
+                ? '请选择原因'
+                : '保存记录'}
             </Button>
           </DialogFooter>
         </DialogContent>
