@@ -11,6 +11,7 @@ const defaultState: AppState = {
   records: [],
   logs: [],
   attributions: [],
+  yearlyAttributions: [],
   settings: {
     hideBalance: false,
     theme: 'blue',
@@ -92,6 +93,7 @@ export function loadData(): AppState {
           ...parsed.settings,
         },
         attributions: parsed.attributions || [],
+        yearlyAttributions: parsed.yearlyAttributions || [],
         version: CURRENT_VERSION,
       };
     }
@@ -237,6 +239,7 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         records: data.records,
         logs: data.logs || [],
         attributions: [],
+        yearlyAttributions: [],
         settings: { ...defaultState.settings, ...data.settings },
         version: CURRENT_VERSION,
       });
@@ -982,4 +985,101 @@ export function getAttributionTagEmoji(tag: AttributionTag): string {
     abnormal_other: '📝',
   };
   return tagEmojis[tag] || '📝';
+}
+
+// ==================== 年度归因记录功能 ====================
+
+// 获取年度归因记录
+export function getYearlyAttribution(year: number): YearlyAttribution | null {
+  const data = loadData();
+  return data.yearlyAttributions.find(a => a.year === year) || null;
+}
+
+// 保存年度归因记录
+export function saveYearlyAttribution(
+  year: number,
+  netWorth: number,
+  change: number,
+  changePercent: number,
+  tags: YearlyAttributionTag[],
+  note?: string,
+  keyMonths: string[] = []
+): void {
+  const data = loadData();
+
+  // 查找是否已有该年归因记录
+  const existingIndex = data.yearlyAttributions.findIndex(a => a.year === year);
+
+  const attribution: YearlyAttribution = {
+    id: existingIndex >= 0 ? data.yearlyAttributions[existingIndex].id : generateId(),
+    year,
+    netWorth,
+    change,
+    changePercent,
+    tags,
+    note,
+    keyMonths,
+    timestamp: Date.now(),
+  };
+
+  if (existingIndex >= 0) {
+    data.yearlyAttributions[existingIndex] = attribution;
+  } else {
+    data.yearlyAttributions.push(attribution);
+  }
+
+  saveData(data);
+}
+
+// 获取所有年度归因记录
+export function getAllYearlyAttributions(): YearlyAttribution[] {
+  const data = loadData();
+  return data.yearlyAttributions.sort((a, b) => b.year - a.year);
+}
+
+// 删除年度归因记录
+export function deleteYearlyAttribution(year: number): void {
+  const data = loadData();
+  data.yearlyAttributions = data.yearlyAttributions.filter(a => a.year !== year);
+  saveData(data);
+}
+
+// 根据年份获取该年所有月度归因
+export function getMonthlyAttributionsByYear(year: number): MonthlyAttribution[] {
+  const data = loadData();
+  return data.attributions
+    .filter(a => a.year === year)
+    .sort((a, b) => a.month - b.month);
+}
+
+// 获取指定月份所有账户的余额快照
+export function getAccountSnapshotsByMonth(year: number, month: number): AccountSnapshot[] {
+  const data = loadData();
+  const records = data.records.filter(r => r.year === year && r.month === month);
+
+  return records.map(record => {
+    const account = data.accounts.find(a => a.id === record.accountId);
+    if (!account) return null;
+
+    // 计算该账户在该月的变化
+    let lastYear = year;
+    let lastMonth = month - 1;
+    if (lastMonth === 0) {
+      lastYear--;
+      lastMonth = 12;
+    }
+    const lastRecord = data.records.find(
+      r => r.accountId === record.accountId && r.year === lastYear && r.month === lastMonth
+    );
+    const lastBalance = lastRecord ? lastRecord.balance : 0;
+
+    return {
+      accountId: account.id,
+      accountName: account.name,
+      accountIcon: account.icon,
+      accountType: account.type,
+      balance: record.balance,
+      change: record.balance - lastBalance,
+    };
+  }).filter((s): s is AccountSnapshot => s !== null);
 }
