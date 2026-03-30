@@ -634,7 +634,7 @@ export function hasGarbledText(text: string): boolean {
   // 检测替换字符（通常是编码问题的标志）
   if (text.includes('\uFFFD')) return true;
   // 检测大量不可见字符或异常字符比例
-  const garbledPatterns = ['', '�'];
+  const garbledPatterns = ['', ''];
   for (const pattern of garbledPatterns) {
     if (text.includes(pattern)) return true;
   }
@@ -1056,10 +1056,11 @@ export function getMonthlyAttributionsByYear(year: number): MonthlyAttribution[]
 export function getAccountSnapshotsByMonth(year: number, month: number): AccountSnapshot[] {
   const data = loadData();
   const records = data.records.filter(r => r.year === year && r.month === month);
+  const snapshots: AccountSnapshot[] = [];
 
-  return records.map(record => {
+  for (const record of records) {
     const account = data.accounts.find(a => a.id === record.accountId);
-    if (!account) return null;
+    if (!account) continue;
 
     // 计算该账户在该月的变化
     let lastYear = year;
@@ -1073,13 +1074,15 @@ export function getAccountSnapshotsByMonth(year: number, month: number): Account
     );
     const lastBalance = lastRecord ? lastRecord.balance : 0;
 
-    return {
+    snapshots.push({
       accountId: account.id,
       accountName: account.name,
       accountIcon: account.icon,
       accountType: account.type,
       balance: record.balance,
-      change: record.balance - lastBalance,
-    };
-  }).filter((s): s is AccountSnapshot => s !== null);
+      change: record.balance - lastBalance,  // 始终有值
+    } as AccountSnapshot);
+  }
+
+  return snapshots;
 }
