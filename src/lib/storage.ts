@@ -1,4 +1,4 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
