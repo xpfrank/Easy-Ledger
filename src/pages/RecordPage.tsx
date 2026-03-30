@@ -1100,9 +1100,6 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   onChange={(e) => setAttributionNote(e.target.value)}
                   placeholder="添加备注说明，如工资到账、投资收益等..."
                   className="w-full p-4 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-opacity-50 focus:border-transparent transition-all"
-                  style={{ 
-                    focusRing: themeConfig.primary 
-                  }}
                   rows={3}
                 />
               </div>
