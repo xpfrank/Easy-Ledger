@@ -52,7 +52,8 @@ export interface AppState {
   accounts: Account[];
   records: MonthlyRecord[];
   logs: RecordLog[];    // 记账日志
-  attributions: MonthlyAttribution[]; // 归因记录
+  attributions: MonthlyAttribution[]; // 月度归因记录
+  yearlyAttributions: YearlyAttribution[]; // 年度归因记录
   settings: AppSettings;
   version: string;
 }
@@ -165,6 +166,86 @@ export interface MonthlyAttribution {
   tags: AttributionTag[];    // 选择的标签
   note?: string;            // 备注
   timestamp: number;         // 记录时间
+  accountsSnapshot?: AccountSnapshot[]; // 该月所有账户余额快照
+}
+
+// 账户余额快照
+export interface AccountSnapshot {
+  accountId: string;
+  accountName: string;
+  accountIcon: string;
+  accountType: AccountType;
+  balance: number;
+  change?: number;          // 该月变化金额
+}
+
+// 年度归因记录
+export interface YearlyAttribution {
+  id: string;
+  year: number;
+  netWorth: number;        // 年末净资产
+  change: number;           // 较年初变化金额
+  changePercent: number;    // 较年初变化百分比
+  tags: YearlyAttributionTag[];  // 年度归因标签
+  note?: string;            // 年度详细备注
+  keyMonths: string[];      // 关联关键月份（如 "7", "12"）
+  timestamp: number;         // 记录时间
+}
+
+// 年度归因标签类型
+export type YearlyAttributionTag =
+  | 'salary_growth'      // 工资增长
+  | 'bonus丰厚'         // 奖金丰厚
+  | 'investment_return' // 投资丰收
+  | 'asset_change'      // 资产变动
+  | 'large_expense'      // 大额支出
+  | 'account_integration' // 账户整合
+  | 'yearly_other';       // 其他
+
+// 年度标签配置
+export interface YearlyTagConfig {
+  value: YearlyAttributionTag;
+  label: string;
+  emoji: string;
+}
+
+// 年度归因标签
+export const YEARLY_TAGS: YearlyTagConfig[] = [
+  { value: 'salary_growth', label: '工资增长', emoji: '💰' },
+  { value: 'bonus丰厚', label: '奖金丰厚', emoji: '🎁' },
+  { value: 'investment_return', label: '投资丰收', emoji: '📈' },
+  { value: 'asset_change', label: '资产变动', emoji: '🏠' },
+  { value: 'large_expense', label: '大额支出', emoji: '💸' },
+  { value: 'account_integration', label: '账户整合', emoji: '🔄' },
+  { value: 'yearly_other', label: '其他', emoji: '📝' },
+];
+
+// 获取年度归因标签的中文显示
+export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string {
+  const tagLabels: Record<YearlyAttributionTag, string> = {
+    salary_growth: '工资增长',
+    'bonus丰厚': '奖金丰厚',
+    investment_return: '投资丰收',
+    asset_change: '资产变动',
+    large_expense: '大额支出',
+    account_integration: '账户整合',
+    yearly_other: '其他',
+  };
+  return tagLabels[tag] || tag;
+}
+
+// 获取年度归因标签的 emoji
+export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string {
+  const tagEmojis: Record<YearlyAttributionTag, string> = {
+    salary_growth: '💰',
+    'bonus丰厚': '🎁',
+    investment_return: '📈',
+    asset_change: '🏠',
+    large_expense: '💸',
+    account_integration: '🔄',
+    yearly_other: '📝',
+  };
+  return tagEmojis[tag] || '📝';
 }
 
 // 预设图标配置
