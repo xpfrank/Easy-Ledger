@@ -11,49 +11,48 @@ export interface AccountTypeConfig {
 
 // 账户对象
 export interface Account {
-  id: string;           // 唯一标识
-  name: string;         // 账户名称
-  type: AccountType;    // 账户类型
-  icon: string;         // 图标名称
-  balance: number;      // 当前余额
-  includeInTotal: boolean;  // 计入总资产
-  isHidden: boolean;    // 是否隐藏
-  note?: string;        // 备注
-  // 信用卡专属
-  billDay?: number;     // 账单日
-  repaymentDay?: number; // 还款日
-  graceDays?: number;   // 顺延天数
+  id: string;
+  name: string;
+  type: AccountType;
+  icon: string;
+  balance: number;
+  includeInTotal: boolean;
+  isHidden: boolean;
+  note?: string;
+  billDay?: number;
+  repaymentDay?: number;
+  graceDays?: number;
 }
 
 // 月度记录
 export interface MonthlyRecord {
   id: string;
-  accountId: string;    // 关联账户
-  year: number;         // 年份
-  month: number;        // 月份 (1-12)
-  balance: number;      // 该月余额
+  accountId: string;
+  year: number;
+  month: number;
+  balance: number;
 }
 
-// 记账日志（余额变化记录）
+// 记账日志
 export interface RecordLog {
   id: string;
-  accountId: string;    // 账户ID
-  accountName: string;  // 账户名称
-  year: number;         // 年份
-  month: number;        // 月份
-  oldBalance: number;   // 修改前余额
-  newBalance: number;   // 修改后余额
-  timestamp: number;    // 操作时间戳
-  operationType?: 'balance_change' | 'account_create' | 'account_edit'; // 操作类型
+  accountId: string;
+  accountName: string;
+  year: number;
+  month: number;
+  oldBalance: number;
+  newBalance: number;
+  timestamp: number;
+  operationType?: 'balance_change' | 'account_create' | 'account_edit';
 }
 
 // 应用状态
 export interface AppState {
   accounts: Account[];
   records: MonthlyRecord[];
-  logs: RecordLog[];    // 记账日志
-  attributions: MonthlyAttribution[]; // 月度归因记录
-  yearlyAttributions: YearlyAttribution[]; // 年度归因记录
+  logs: RecordLog[];
+  attributions: MonthlyAttribution[];
+  yearlyAttributions: YearlyAttribution[];
   settings: AppSettings;
   version: string;
 }
@@ -63,8 +62,8 @@ export type ThemeType = 'blue' | 'green' | 'orange' | 'dark' | 'purple';
 
 // 应用设置
 export interface AppSettings {
-  hideBalance: boolean; // 是否隐藏余额显示
-  theme: ThemeType;     // 当前主题
+  hideBalance: boolean;
+  theme: ThemeType;
 }
 
 // 月度净资产汇总
@@ -72,8 +71,8 @@ export interface MonthlyNetWorth {
   year: number;
   month: number;
   netWorth: number;
-  totalAssets: number;    // 总资产
-  totalLiabilities: number; // 负资产
+  totalAssets: number;
+  totalLiabilities: number;
   change: number;
   changePercent: number;
 }
@@ -84,7 +83,7 @@ export interface YearlyNetWorth {
   netWorth: number;
   totalAssets: number;
   totalLiabilities: number;
-  lastRecordedMonth: number; // 最后一个有记录的月份
+  lastRecordedMonth: number;
   change: number;
   changePercent: number;
 }
@@ -115,24 +114,24 @@ export type FluctuationLevel = 'normal' | 'warning' | 'abnormal';
 
 // 归因标签类型
 export type AttributionTag =
-  | 'salary'           // 工资积累
-  | 'investment'       // 投资收益
-  | 'daily'            // 日常波动
-  | 'other'            // 其他
-  | 'salary_income'    // 工资收入
-  | 'bonus'            // 奖金
-  | 'year_end_bonus'   // 年终奖
-  | 'loan_repayment'   // 借款归还
-  | 'large_expense'    // 大额支出
-  | 'transfer'         // 转账调整
-  | 'abnormal_other';  // 异常其他
+  | 'salary'
+  | 'investment'
+  | 'daily'
+  | 'other'
+  | 'salary_income'
+  | 'bonus'
+  | 'year_end_bonus'
+  | 'loan_repayment'
+  | 'large_expense'
+  | 'transfer'
+  | 'abnormal_other';
 
 // 标签配置
 export interface TagConfig {
   value: AttributionTag;
   label: string;
   emoji: string;
-  isRequired: boolean; // 异常波动时是否必选
+  isRequired: boolean;
 }
 
 // 正常变化可选标签
@@ -160,13 +159,12 @@ export interface MonthlyAttribution {
   id: string;
   year: number;
   month: number;
-  change: number;           // 变化金额
-  changePercent: number;    // 变化百分比
+  change: number;
+  changePercent: number;
   fluctuationLevel: FluctuationLevel;
-  tags: AttributionTag[];    // 选择的标签
-  note?: string;            // 备注
-  timestamp: number;         // 记录时间
-  accountsSnapshot?: AccountSnapshot[]; // 该月所有账户余额快照
+  tags: AttributionTag[];
+  note?: string;
+  timestamp: number;
 }
 
 // 账户余额快照
@@ -176,31 +174,18 @@ export interface AccountSnapshot {
   accountIcon: string;
   accountType: AccountType;
   balance: number;
-  change?: number;          // 该月变化金额
-}
-
-// 年度归因记录
-export interface YearlyAttribution {
-  id: string;
-  year: number;
-  netWorth: number;        // 年末净资产
-  change: number;           // 较年初变化金额
-  changePercent: number;    // 较年初变化百分比
-  tags: YearlyAttributionTag[];  // 年度归因标签
-  note?: string;            // 年度详细备注
-  keyMonths: string[];      // 关联关键月份（如 "7", "12"）
-  timestamp: number;         // 记录时间
+  change: number;
 }
 
 // 年度归因标签类型
 export type YearlyAttributionTag =
-  | 'salary_growth'      // 工资增长
-  | 'bonus丰厚'         // 奖金丰厚
-  | 'investment_return' // 投资丰收
-  | 'asset_change'      // 资产变动
-  | 'large_expense'      // 大额支出
-  | 'account_integration' // 账户整合
-  | 'yearly_other';       // 其他
+  | 'salary_growth'
+  | 'bonus_丰厚'
+  | 'investment_return'
+  | 'asset_change'
+  | 'large_expense'
+  | 'account_integration'
+  | 'yearly_other';
 
 // 年度标签配置
 export interface YearlyTagConfig {
@@ -212,7 +197,7 @@ export interface YearlyTagConfig {
 // 年度归因标签
 export const YEARLY_TAGS: YearlyTagConfig[] = [
   { value: 'salary_growth', label: '工资增长', emoji: '💰' },
-  { value: 'bonus丰厚', label: '奖金丰厚', emoji: '🎁' },
+  { value: 'bonus_丰厚', label: '奖金丰厚', emoji: '🎁' },
   { value: 'investment_return', label: '投资丰收', emoji: '📈' },
   { value: 'asset_change', label: '资产变动', emoji: '🏠' },
   { value: 'large_expense', label: '大额支出', emoji: '💸' },
@@ -220,11 +205,24 @@ export const YEARLY_TAGS: YearlyTagConfig[] = [
   { value: 'yearly_other', label: '其他', emoji: '📝' },
 ];
 
+// 年度归因记录
+export interface YearlyAttribution {
+  id: string;
+  year: number;
+  netWorth: number;
+  change: number;
+  changePercent: number;
+  tags: YearlyAttributionTag[];
+  note?: string;
+  keyMonths: string[];
+  timestamp: number;
+}
+
 // 获取年度归因标签的中文显示
 export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string {
   const tagLabels: Record<YearlyAttributionTag, string> = {
     salary_growth: '工资增长',
-    'bonus丰厚': '奖金丰厚',
+    'bonus_丰厚': '奖金丰厚',
     investment_return: '投资丰收',
     asset_change: '资产变动',
     large_expense: '大额支出',
@@ -238,7 +236,7 @@ export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string 
 export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string {
   const tagEmojis: Record<YearlyAttributionTag, string> = {
     salary_growth: '💰',
-    'bonus丰厚': '🎁',
+    'bonus_丰厚': '🎁',
     investment_return: '📈',
     asset_change: '🏠',
     large_expense: '💸',
