@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle, X, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -42,16 +42,8 @@ interface TrendPoint extends MonthlyNetWorth {
   isFiltered?: boolean;
 }
 
+// 用于选中和悬停数据的联合类型
 type TrendData = TrendPoint | YearlyNetWorth;
-
-interface NodeStyle {
-  size: number;
-  color: string;
-  stroke: string;
-  pulse: boolean;
-  label?: string;
-  opacity: number;
-}
 
 export function TrendPage({ onPageChange }: TrendPageProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('12');
@@ -62,85 +54,90 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [selectedData, setSelectedData] = useState<TrendData | null>(null);
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [hideBalance, setHideBalance] = useState(false);
-  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: TrendData; clientX: number; clientY: number } | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: TrendData; index: number } | null>(null);
   const [filterTag, setFilterTag] = useState<FilterTag>('all');
   const [expandedSnapshots, setExpandedSnapshots] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const chartRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const themeConfig = THEMES[theme] || THEMES.blue;
 
+  // 格式化金额，支持隐藏显示
   const formatBalance = (amount: number): string => {
-    if (hideBalance) return '******';
+    if (hideBalance) {
+      return '******';
+    }
     return formatAmountNoSymbol(amount);
   };
 
-  const getNodeStyle = useCallback((changePercent: number, isFiltered: boolean): NodeStyle => {
+  // 获取节点样式（根据变化幅度）- 优化小圆点
+  const getNodeStyle = (changePercent: number, isFiltered: boolean): { size: number; color: string; stroke: string; pulse: boolean; label?: string } => {
     const absPercent = Math.abs(changePercent);
 
     if (!isFiltered && filterTag !== 'all') {
-      return { 
-        size: 6, 
-        color: '#d1d5db', 
-        stroke: '#9ca3af', 
-        pulse: false, 
-        opacity: 0.4 
-      };
+      // 非目标月份：更小的灰色空心点
+      return { size: 4, color: '#d1d5db', stroke: '#9ca3af', pulse: false };
     }
 
     if (absPercent > 30) {
+      // 异常波动：中等大小，带脉冲
       const emoji = changePercent > 0 ? '📈' : '📉';
       return {
-        size: 20,
-        color: changePercent > 0 ? '#fa8c16' : '#ff4d4f',
-        stroke: '#ffffff',
-        pulse: true,
-        label: emoji,
-        opacity: 1
-      };
-    } else if (absPercent > 10) {
-      return {
-        size: 12,
+        size: 8,
         color: changePercent > 0 ? '#52c41a' : '#ff4d4f',
         stroke: '#ffffff',
-        pulse: false,
-        opacity: 1
+        pulse: true,
+        label: emoji
+      };
+    } else if (absPercent > 10) {
+      // 警告波动：小圆点
+      return {
+        size: 5,
+        color: changePercent > 0 ? '#52c41a' : '#ff4d4f',
+        stroke: '#ffffff',
+        pulse: false
       };
     } else {
+      // 正常波动：最小圆点
       return {
-        size: 8,
-        color: '#1890ff',
+        size: 4,
+        color: themeConfig.primary,
         stroke: '#ffffff',
-        pulse: false,
-        opacity: 1
+        pulse: false
       };
     }
-  }, [filterTag]);
+  };
 
-  const getConsistentNetWorthHistory = useCallback((months: number): TrendPoint[] => {
+  // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
+  const getConsistentNetWorthHistory = (months: number): TrendPoint[] => {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
     const records = data.records || [];
 
+    // 获取所有有记录的月份
     const monthSet = new Set<string>([]);
     records.forEach((r: any) => {
       monthSet.add(`${r.year}-${r.month.toString().padStart(2, '0')}`);
     });
 
+    // 添加当前月份
     const now = new Date();
     monthSet.add(`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`);
 
+    // 排序
     const sortedMonths = Array.from(monthSet).sort();
+
+    // 如果 months > 0，取最近N个月；否则取全部
     const filteredMonths = months > 0 ? sortedMonths.slice(-months) : sortedMonths;
 
     const history: TrendPoint[] = [];
 
     for (const monthKey of filteredMonths) {
       const [year, month] = monthKey.split('-').map(Number);
+      // 使用与首页一致的计算函数
       const totalAssets = calculateTotalAssets(year, month);
       const totalLiabilities = calculateTotalLiabilities(year, month);
       const netWorth = totalAssets - totalLiabilities;
 
+      // 计算上月数据用于对比
       let lastYear = year;
       let lastMonth = month - 1;
       if (lastMonth === 0) {
@@ -151,6 +148,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       const change = netWorth - lastNetWorth;
       const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
 
+      // 获取归因信息
       const attribution = getMonthlyAttribution(year, month);
       let fluctuationLevel: 'normal' | 'warning' | 'abnormal' = 'normal';
       if (Math.abs(changePercent) > 30) {
@@ -177,35 +175,44 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
 
     return history;
-  }, []);
+  };
 
-  const getConsistentYearlyNetWorthHistory = useCallback((): YearlyNetWorth[] => {
+  // 获取年度净资产历史（与首页逻辑一致）
+  const getConsistentYearlyNetWorthHistory = (): YearlyNetWorth[] => {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
     const records = data.records || [];
 
+    // 获取所有有记录的年份
     const yearSet = new Set<number>([]);
     records.forEach((r: any) => {
       yearSet.add(r.year);
     });
 
+    // 添加当前年份
     const now = new Date();
     yearSet.add(now.getFullYear());
 
+    // 排序
     const sortedYears = Array.from(yearSet).sort();
+
     const history: YearlyNetWorth[] = [];
 
     for (let i = 0; i < sortedYears.length; i++) {
       const year = sortedYears[i];
+
+      // 获取该年度最后一个有记录的月份
       const yearRecords = records.filter((r: any) => r.year === year);
       let lastMonth = 12;
       if (yearRecords.length > 0) {
         lastMonth = Math.max(...yearRecords.map((r: any) => r.month));
       }
 
+      // 使用与首页一致的计算函数
       const totalAssets = calculateTotalAssets(year, lastMonth);
       const totalLiabilities = calculateTotalLiabilities(year, lastMonth);
       const netWorth = totalAssets - totalLiabilities;
 
+      // 计算上一年度数据用于对比
       const lastYearNetWorth = calculateNetWorth(year - 1, 12);
       const change = netWorth - lastYearNetWorth;
       const changePercent = lastYearNetWorth !== 0 ? (change / Math.abs(lastYearNetWorth)) * 100 : 0;
@@ -221,28 +228,25 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
 
     return history;
-  }, []);
+  };
 
   useEffect(() => {
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      const settings = getSettings();
-      const validThemes: ThemeType[] = ['blue', 'green', 'orange', 'dark', 'purple'];
-      const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
-      setTheme(themeValue as ThemeType);
-      setHideBalance(settings.hideBalance || false);
-      
-      const months = timeRange === 'all' ? 0 : parseInt(timeRange);
-      setMonthlyHistory(getConsistentNetWorthHistory(months));
-      setYearlyHistory(getConsistentYearlyNetWorthHistory());
-      setIsLoading(false);
-    }, 300);
+    const settings = getSettings();
+    const validThemes: ThemeType[] = ['blue', 'green', 'orange', 'dark', 'purple'];
+    const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
+    setTheme(themeValue as ThemeType);
+    setHideBalance(settings.hideBalance || false);
+    // 当选择"全部"时，传入 0 表示获取所有数据
+    const months = timeRange === 'all' ? 0 : parseInt(timeRange);
+    // 使用与首页一致的计算逻辑
+    setMonthlyHistory(getConsistentNetWorthHistory(months));
+    setYearlyHistory(getConsistentYearlyNetWorthHistory());
+  }, [timeRange]);
 
-    return () => clearTimeout(timer);
-  }, [timeRange, getConsistentNetWorthHistory, getConsistentYearlyNetWorthHistory]);
-
+  // 当前显示的历史数据
   const history = trendType === 'monthly' ? monthlyHistory : yearlyHistory;
 
+  // 根据筛选标签计算是否过滤
   const filteredHistory = useMemo(() => {
     if (trendType !== 'monthly') return history;
     if (filterTag === 'all') return history;
@@ -301,6 +305,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     };
   }, [filteredHistory]);
 
+  // 计算图表数据 - 优化为更平滑的曲线
   const chartData = useMemo(() => {
     const validHistory = filteredHistory.filter(h => !h.isFiltered);
     if (validHistory.length === 0) return null;
@@ -308,67 +313,63 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const netWorths = validHistory.map(h => h.netWorth);
     const max = Math.max(...netWorths, 0);
     const min = Math.min(...netWorths, 0);
-    const range = max - min || 1;
+    
+    // 增加上下边距，让曲线不贴边
+    const padding = (max - min) * 0.1 || max * 0.1 || 1000;
+    const chartMax = max + padding;
+    const chartMin = Math.max(0, min - padding);
+    const range = chartMax - chartMin || 1;
 
+    // 计算坐标点 - 使用所有数据点（包括过滤的，用于保持时间连续性）
     const points = filteredHistory.map((h, index) => {
       const validIndex = filteredHistory.slice(0, index + 1).filter(p => !p.isFiltered).length - 1;
       const validLength = validHistory.length;
       const x = validLength > 1 ? (validIndex / (validLength - 1)) * 100 : 50;
-      const y = max === min ? 50 : 100 - ((h.netWorth - min) / range) * 80 - 10;
-      return { x, y, data: h };
+      const y = 100 - ((h.netWorth - chartMin) / range) * 80 - 10; // 10-90 的范围，留出边距
+      return { x, y, data: h, index };
     });
 
+    // 生成平滑的 SVG 路径（使用所有点，但过滤的点用虚线连接）
     const validPoints = points.filter(p => !p.data.isFiltered);
-    let pathD = '';
-    if (validPoints.length > 1) {
-      pathD = `M ${validPoints[0].x} ${validPoints[0].y}`;
-      for (let i = 1; i < validPoints.length; i++) {
-        const prev = validPoints[i - 1];
-        const curr = validPoints[i];
-        const cp1x = prev.x + (curr.x - prev.x) / 3;
-        const cp1y = prev.y;
-        const cp2x = prev.x + (curr.x - prev.x) * 2 / 3;
-        const cp2y = curr.y;
-        pathD += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
+    
+    // 生成平滑曲线 - 使用 Catmull-Rom 样条或更平滑的贝塞尔曲线
+    const generateSmoothPath = (points: typeof validPoints) => {
+      if (points.length === 0) return '';
+      if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+      
+      let path = `M ${points[0].x} ${points[0].y}`;
+      
+      for (let i = 0; i < points.length - 1; i++) {
+        const curr = points[i];
+        const next = points[i + 1];
+        
+        // 计算控制点，使曲线更平滑
+        const tension = 0.3; // 张力系数，0-1之间
+        const cp1x = curr.x + (next.x - curr.x) * tension;
+        const cp1y = curr.y;
+        const cp2x = next.x - (next.x - curr.x) * tension;
+        const cp2y = next.y;
+        
+        path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
       }
-    }
+      
+      return path;
+    };
 
-    const fillD = validPoints.length > 1 
+    const pathD = generateSmoothPath(validPoints);
+
+    // 生成填充区域路径
+    const fillD = validPoints.length > 0 
       ? pathD + ` L ${validPoints[validPoints.length - 1].x} 100 L ${validPoints[0].x} 100 Z`
       : '';
 
-    let allPathD = '';
-    if (points.length > 1) {
-      allPathD = `M ${points[0].x} ${points[0].y}`;
-      for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1];
-        const curr = points[i];
-        const cp1x = prev.x + (curr.x - prev.x) / 3;
-        const cp1y = prev.y;
-        const cp2x = prev.x + (curr.x - prev.x) * 2 / 3;
-        const cp2y = curr.y;
-        allPathD += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
-      }
-    }
-
-    return { points, pathD, fillD, allPathD, max, min, range, validPoints };
+    return { points, pathD, fillD, max: chartMax, min: chartMin, range, validPoints };
   }, [filteredHistory, trendType]);
 
-  const showYearSeparators = useMemo(() => {
-    if (trendType === 'yearly') return false;
-    const validHistory = filteredHistory.filter(h => !h.isFiltered);
-    if (validHistory.length < 2) return false;
-    const firstYear = validHistory[0].year;
-    const lastYear = validHistory[validHistory.length - 1].year;
-    return firstYear !== lastYear;
-  }, [filteredHistory, trendType]);
-
-  const formatMonthLabel = (year: number, month: number) => {
-    return `${year}年${month.toString().padStart(2, '0')}月`;
-  };
-
+  // 智能金额格式化 - 根据数值大小自动选择合适的单位和精度
   const formatSmartAmount = (amount: number, useUnit: string): string => {
     const absValue = Math.abs(amount);
+
     if (useUnit === 'w') {
       return (amount / 10000).toFixed(1) + 'w';
     } else if (useUnit === 'k') {
@@ -382,6 +383,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
   };
 
+  // 计算规整的刻度间隔
   const getNiceStep = (range: number, tickCount: number): number => {
     if (range <= 0) return 1;
     const roughStep = range / (tickCount - 1);
@@ -397,6 +399,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return niceNormalized * magnitude;
   };
 
+  // 计算Y轴刻度 - 智能生成等距、规整的刻度
   const yAxisConfig = useMemo(() => {
     if (!chartData) return { ticks: [], unit: '元' };
 
@@ -406,7 +409,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const max = Math.max(...validNetWorths, 0);
     const min = Math.min(...validNetWorths, 0);
     const range = max - min;
-    const tickCount = 7;
+    const tickCount = 6; // 减少刻度数量，更简洁
 
     const absMax = Math.max(Math.abs(max), Math.abs(min));
     let unit: '元' | 'k' | 'w';
@@ -419,6 +422,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
 
     const step = getNiceStep(range, tickCount);
+
     const niceMin = Math.floor(min / step) * step;
     const niceMax = Math.ceil(max / step) * step;
 
@@ -435,6 +439,83 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return { ticks, unit };
   }, [chartData]);
 
+  // 生成X轴标签 - 优化时间轴显示
+  const xAxisLabels = useMemo(() => {
+    if (!chartData) return [];
+    
+    const validPoints = chartData.validPoints;
+    if (validPoints.length === 0) return [];
+    
+    const labels: { x: number; label: string; isYear?: boolean }[] = [];
+    
+    if (trendType === 'yearly') {
+      // 年度趋势：显示所有年份
+      validPoints.forEach((point, index) => {
+        labels.push({
+          x: point.x,
+          label: `${point.data.year}年`,
+          isYear: true
+        });
+      });
+    } else {
+      // 月度趋势：智能显示标签
+      const totalPoints = validPoints.length;
+      
+      if (totalPoints <= 6) {
+        // 数据点少，全部显示
+        validPoints.forEach(point => {
+          const data = point.data as TrendPoint;
+          labels.push({
+            x: point.x,
+            label: `${data.month}月`
+          });
+        });
+      } else if (totalPoints <= 12) {
+        // 显示首尾和中间几个点
+        const indices = [0, Math.floor(totalPoints / 3), Math.floor(totalPoints * 2 / 3), totalPoints - 1];
+        indices.forEach(i => {
+          if (i < totalPoints) {
+            const point = validPoints[i];
+            const data = point.data as TrendPoint;
+            labels.push({
+              x: point.x,
+              label: `${data.month}月`
+            });
+          }
+        });
+      } else {
+        // 数据点多，按年份分组显示
+        let lastYear = -1;
+        validPoints.forEach((point, index) => {
+          const data = point.data as TrendPoint;
+          const isFirst = index === 0;
+          const isLast = index === totalPoints - 1;
+          const isYearBoundary = data.year !== lastYear;
+          
+          if (isFirst || isLast || isYearBoundary || index % 3 === 0) {
+            if (isYearBoundary && !isFirst) {
+              // 年份分界线，显示年份
+              labels.push({
+                x: point.x,
+                label: `${data.year}`,
+                isYear: true
+              });
+            } else {
+              labels.push({
+                x: point.x,
+                label: `${data.month}月`
+              });
+            }
+            lastYear = data.year;
+          }
+        });
+      }
+    }
+    
+    return labels;
+  }, [chartData, trendType]);
+
+  // 跳转到记账页面补充记录
   const goToRecordForAttribution = (year: number, month?: number) => {
     if (month !== undefined) {
       onPageChange('record', { year, month, mode: 'monthly' });
@@ -443,67 +524,15 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
   };
 
+  // 获取选中数据的账户快照
   const getSelectedSnapshots = (): AccountSnapshot[] => {
     if (!selectedData || !('month' in selectedData)) return [];
     return getAccountSnapshotsByMonth(selectedData.year, selectedData.month);
   };
 
-  const handleMouseEnter = useCallback((point: any, e: React.MouseEvent) => {
-    setHoveredPoint({
-      ...point,
-      clientX: e.clientX,
-      clientY: e.clientY
-    });
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (hoveredPoint) {
-      setHoveredPoint(prev => prev ? { ...prev, clientX: e.clientX, clientY: e.clientY } : null);
-    }
-  }, [hoveredPoint]);
-
-  const handleMouseLeave = useCallback(() => {
-    setHoveredPoint(null);
-  }, []);
-
-  const getTooltipPosition = () => {
-    if (!hoveredPoint || !tooltipRef.current) return { left: 0, top: 0 };
-    
-    const tooltipRect = tooltipRef.current.getBoundingClientRect();
-    const chartRect = chartRef.current?.getBoundingClientRect();
-    if (!chartRect) return { left: 0, top: 0 };
-
-    let left = hoveredPoint.clientX - chartRect.left;
-    let top = hoveredPoint.clientY - chartRect.top - tooltipRect.height - 16;
-
-    if (left + tooltipRect.width > chartRect.width) {
-      left = chartRect.width - tooltipRect.width - 8;
-    }
-    if (left < 8) left = 8;
-    if (top < 8) top = hoveredPoint.clientY - chartRect.top + 16;
-
-    return { left, top };
-  };
-
-  const tooltipPos = getTooltipPosition();
-
-  const SkeletonCard = () => (
-    <Card className="bg-white">
-      <CardContent className="p-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-64 bg-gray-100 rounded"></div>
-          <div className="flex justify-between">
-            <div className="h-3 bg-gray-200 rounded w-16"></div>
-            <div className="h-3 bg-gray-200 rounded w-16"></div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-
   return (
     <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
       <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
@@ -511,33 +540,28 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           </Button>
           <h1 className="text-lg font-semibold">资产趋势</h1>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setHideBalance(!hideBalance)}
-          className="text-gray-500"
-        >
-          {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
-        </Button>
       </header>
 
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
       <div className="h-14"></div>
 
       <div className="p-4 space-y-4">
+        {/* 趋势类型切换 + 时间范围选择 */}
         <div className="flex gap-2">
+          {/* 趋势类型下拉 */}
           <div className="relative">
             <button
-              className="flex items-center gap-1 px-4 py-2 bg-white rounded-lg border border-gray-200 text-sm font-medium transition-all hover:shadow-md"
+              className="flex items-center gap-1 px-4 py-2 bg-white rounded-lg border border-gray-200 text-sm font-medium"
               onClick={() => setShowTrendDropdown(!showTrendDropdown)}
             >
               {trendType === 'monthly' ? '月度趋势' : '年度趋势'}
-              <ChevronDown size={16} className={`text-gray-400 transition-transform ${showTrendDropdown ? 'rotate-180' : ''}`} />
+              <ChevronDown size={16} className="text-gray-400" />
             </button>
 
             {showTrendDropdown && (
-              <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[120px] animate-in fade-in zoom-in-95 duration-200">
+              <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[120px]">
                 <button
-                  className={`w-full px-4 py-2 text-left text-sm transition-colors ${trendType === 'monthly' ? 'text-white' : 'hover:bg-gray-50'}`}
+                  className={`w-full px-4 py-2 text-left text-sm ${trendType === 'monthly' ? 'text-white' : 'hover:bg-gray-50'}`}
                   style={{ backgroundColor: trendType === 'monthly' ? themeConfig.primary : undefined }}
                   onClick={() => {
                     setTrendType('monthly');
@@ -547,7 +571,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   月度趋势
                 </button>
                 <button
-                  className={`w-full px-4 py-2 text-left text-sm transition-colors ${trendType === 'yearly' ? 'text-white' : 'hover:bg-gray-50'}`}
+                  className={`w-full px-4 py-2 text-left text-sm ${trendType === 'yearly' ? 'text-white' : 'hover:bg-gray-50'}`}
                   style={{ backgroundColor: trendType === 'yearly' ? themeConfig.primary : undefined }}
                   onClick={() => {
                     setTrendType('yearly');
@@ -560,6 +584,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             )}
           </div>
 
+          {/* 时间范围选择（仅月度趋势显示） */}
           {trendType === 'monthly' && (
             <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)} className="flex-1">
               <TabsList className="grid w-full grid-cols-3">
@@ -571,8 +596,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           )}
         </div>
 
+        {/* 筛选栏（仅月度趋势显示） */}
         {trendType === 'monthly' && (
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
             {[
               { key: 'all', label: '全部', emoji: '📊' },
               { key: 'salary', label: '工资', emoji: '💰' },
@@ -583,10 +609,10 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             ].map(item => (
               <button
                 key={item.key}
-                className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap transition-all duration-200 ${
+                className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap transition-colors ${
                   filterTag === item.key
-                    ? 'bg-white shadow-sm text-gray-800 scale-105'
-                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-200/50'
+                    ? 'bg-white shadow text-gray-800'
+                    : 'text-gray-600 hover:text-gray-800'
                 }`}
                 onClick={() => setFilterTag(item.key as FilterTag)}
               >
@@ -596,15 +622,13 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           </div>
         )}
 
-        {isLoading ? (
-          <SkeletonCard />
-        ) : filteredHistory.filter(h => !h.isFiltered).length === 0 ? (
+        {filteredHistory.filter(h => !h.isFiltered).length === 0 ? (
           <Card className="bg-white">
             <CardContent className="p-8 text-center">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3 animate-pulse">
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
                 <TrendingUp size={28} className="text-gray-400" />
               </div>
-              <p className="text-gray-500 font-medium">筛选结果为空</p>
+              <p className="text-gray-500">筛选结果为空</p>
               <p className="text-sm text-gray-400 mt-1">尝试选择其他筛选条件</p>
             </CardContent>
           </Card>
@@ -614,221 +638,192 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
                 <TrendingUp size={28} className="text-gray-400" />
               </div>
-              <p className="text-gray-500 font-medium">还没有足够的数据</p>
+              <p className="text-gray-500">还没有足够的数据</p>
               <p className="text-sm text-gray-400 mt-1">请至少记录两个月的余额数据</p>
             </CardContent>
           </Card>
         ) : (
           <>
-            <Card className="bg-white shadow-sm hover:shadow-md transition-shadow">
+            {/* 折线图 - 优化样式 */}
+            <Card className="bg-white">
               <CardContent className="p-4">
-                <div className="relative h-72 w-full" ref={chartRef}>
-                  <div className="absolute left-0 top-0 bottom-12 w-14 flex flex-col justify-between text-xs text-gray-400">
+                <div className="relative h-56 w-full" ref={chartRef}>
+                  {/* Y轴标签 */}
+                  <div className="absolute left-0 top-2 bottom-10 w-12 flex flex-col justify-between text-xs text-gray-400 text-right pr-2">
                     {yAxisConfig.ticks.map((tick, index) => (
-                      <span key={index} className="transition-all duration-300">{tick.label}</span>
+                      <span key={index}>{tick.label}</span>
                     ))}
                   </div>
 
-                  <div 
-                    className="absolute left-14 right-0 top-0 bottom-12"
-                    onMouseMove={handleMouseMove}
-                    onMouseLeave={handleMouseLeave}
-                  >
+                  {/* 图表区域 */}
+                  <div className="absolute left-12 right-2 top-2 bottom-10">
+                    {/* 网格线背景 */}
+                    <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                      {yAxisConfig.ticks.map((_, index) => (
+                        <div key={index} className="w-full h-px bg-gray-100" />
+                      ))}
+                    </div>
+
                     <svg
                       viewBox="0 0 100 100"
                       preserveAspectRatio="none"
-                      className="w-full h-full"
+                      className="w-full h-full relative z-10"
+                      onMouseLeave={() => setHoveredPoint(null)}
                     >
+                      {/* 渐变定义 */}
                       <defs>
                         <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor={themeConfig.primary} stopOpacity="0.3" />
-                          <stop offset="100%" stopColor={themeConfig.primary} stopOpacity="0.05" />
+                          <stop offset="100%" stopColor={themeConfig.primary} stopOpacity="0.02" />
                         </linearGradient>
-                        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                          <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-                          <feMerge>
-                            <feMergeNode in="coloredBlur"/>
-                            <feMergeNode in="SourceGraphic"/>
-                          </feMerge>
-                        </filter>
+                        <linearGradient id="lineGradient" x1="0" y1="0" x2="100" y2="0">
+                          <stop offset="0%" stopColor={themeConfig.primary} />
+                          <stop offset="100%" stopColor={themeConfig.primary} />
+                        </linearGradient>
                       </defs>
 
-                      {[10, 30, 50, 70, 90].map(y => (
-                        <line 
-                          key={y} 
-                          x1="0" 
-                          y1={y} 
-                          x2="100" 
-                          y2={y} 
-                          stroke="#f0f0f0" 
-                          strokeWidth="0.5"
-                          strokeDasharray="2,2"
-                        />
-                      ))}
-
+                      {/* 填充区域 */}
                       {chartData?.fillD && (
-                        <path d={chartData.fillD} fill="url(#areaGradient)" className="transition-all duration-500" />
+                        <path d={chartData.fillD} fill="url(#areaGradient)" />
                       )}
 
-                      {chartData?.allPathD && filterTag !== 'all' && (
-                        <path
-                          d={chartData.allPathD}
-                          fill="none"
-                          stroke="#d1d5db"
-                          strokeWidth="1"
-                          strokeDasharray="4,4"
-                          strokeOpacity="0.5"
-                        />
-                      )}
-
+                      {/* 折线 - 更细的线 */}
                       {chartData?.pathD && (
                         <path
                           d={chartData.pathD}
                           fill="none"
-                          stroke={themeConfig.primary}
-                          strokeWidth="2"
+                          stroke="url(#lineGradient)"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          className="transition-all duration-500"
-                          filter="url(#glow)"
                         />
                       )}
 
+                      {/* 数据点 - 优化为小圆点 */}
                       {chartData?.points.map((point, index) => {
                         const nodeStyle = getNodeStyle(point.data.changePercent, point.data.isFiltered || false);
                         const isValidPoint = !point.data.isFiltered;
-                        const isHovered = hoveredPoint?.data === point.data;
+                        const isHovered = hoveredPoint?.index === index;
                         
                         return (
                           <g key={index}>
-                            {nodeStyle.pulse && isValidPoint && (
-                              <circle
-                                cx={point.x}
-                                cy={point.y}
-                                r={nodeStyle.size * 1.5}
-                                fill={nodeStyle.color}
-                                fillOpacity="0.2"
-                                className="animate-ping"
-                                style={{ animationDuration: '2s' }}
-                              />
-                            )}
-                            
-                            {isHovered && isValidPoint && (
-                              <circle
-                                cx={point.x}
-                                cy={point.y}
-                                r={(isHovered ? nodeStyle.size * 1.3 : nodeStyle.size) + 4}
-                                fill={nodeStyle.color}
-                                fillOpacity="0.1"
-                                className="transition-all duration-200"
-                              />
-                            )}
-
+                            {/* 悬停区域（更大，便于触摸） */}
                             <circle
                               cx={point.x}
                               cy={point.y}
-                              r={isHovered ? nodeStyle.size * 1.3 : nodeStyle.size}
-                              fill={isValidPoint ? nodeStyle.color : '#ffffff'}
-                              stroke={nodeStyle.stroke}
-                              strokeWidth={isValidPoint ? 2 : 1}
-                              strokeDasharray={!isValidPoint ? '2,2' : undefined}
-                              fillOpacity={nodeStyle.opacity}
-                              className="cursor-pointer transition-all duration-200"
-                              onMouseEnter={(e) => handleMouseEnter(point, e)}
+                              r="6"
+                              fill="transparent"
+                              className="cursor-pointer"
+                              onMouseEnter={() => setHoveredPoint(point)}
                               onClick={() => setSelectedData(point.data)}
-                              filter={isValidPoint && (nodeStyle.pulse || isHovered) ? 'url(#glow)' : undefined}
                             />
-
-                            {nodeStyle.label && isValidPoint && (
-                              <text
-                                x={point.x}
-                                y={point.y - nodeStyle.size - 6}
-                                textAnchor="middle"
-                                fontSize="10"
-                                fill={nodeStyle.color}
-                                fontWeight="bold"
-                                className="transition-all duration-300"
-                                style={{ opacity: isHovered ? 1 : 0.8 }}
-                              >
-                                {nodeStyle.label}
-                              </text>
+                            
+                            {/* 可见的数据点 */}
+                            {isValidPoint ? (
+                              <>
+                                {/* 脉冲动画背景（仅异常波动） */}
+                                {nodeStyle.pulse && (
+                                  <circle
+                                    cx={point.x}
+                                    cy={point.y}
+                                    r={nodeStyle.size * 2}
+                                    fill={nodeStyle.color}
+                                    fillOpacity="0.2"
+                                    className="animate-ping"
+                                  />
+                                )}
+                                {/* 外圈白边 */}
+                                <circle
+                                  cx={point.x}
+                                  cy={point.y}
+                                  r={isHovered ? nodeStyle.size + 2 : nodeStyle.size + 1}
+                                  fill="#ffffff"
+                                  className="transition-all duration-200"
+                                />
+                                {/* 内圈彩色 */}
+                                <circle
+                                  cx={point.x}
+                                  cy={point.y}
+                                  r={isHovered ? nodeStyle.size + 1 : nodeStyle.size}
+                                  fill={nodeStyle.color}
+                                  className="cursor-pointer transition-all duration-200"
+                                  onMouseEnter={() => setHoveredPoint(point)}
+                                  onClick={() => setSelectedData(point.data)}
+                                />
+                              </>
+                            ) : (
+                              /* 过滤掉的点：很小的灰色点 */
+                              <circle
+                                cx={point.x}
+                                cy={point.y}
+                                r="2"
+                                fill="#d1d5db"
+                              />
                             )}
                           </g>
                         );
                       })}
+
+                      {/* 悬停指示线 */}
+                      {hoveredPoint && (
+                        <line
+                          x1={hoveredPoint.x}
+                          y1="0"
+                          x2={hoveredPoint.x}
+                          y2="100"
+                          stroke={themeConfig.primary}
+                          strokeWidth="0.5"
+                          strokeDasharray="2,2"
+                          opacity="0.5"
+                        />
+                      )}
                     </svg>
 
+                    {/* 悬停提示 - 优化样式 */}
                     {hoveredPoint && (
                       <div
-                        ref={tooltipRef}
-                        className="absolute z-50 pointer-events-none"
+                        className="absolute bg-gray-800 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none z-20 whitespace-nowrap"
                         style={{
-                          left: tooltipPos.left,
-                          top: tooltipPos.top,
-                          transition: 'all 0.15s ease-out'
+                          left: `${Math.min(Math.max(hoveredPoint.x, 10), 90)}%`,
+                          top: `${Math.max(hoveredPoint.y - 12, 5)}%`,
+                          transform: 'translate(-50%, -100%)',
                         }}
                       >
-                        <div className="bg-gray-900/95 text-white text-xs rounded-lg px-3 py-2 shadow-xl backdrop-blur-sm border border-gray-700/50">
-                          <div className="font-semibold mb-1">
-                            {trendType === 'yearly'
-                              ? `${hoveredPoint.data.year}年`
-                              : `${hoveredPoint.data.year}年${'month' in hoveredPoint.data ? hoveredPoint.data.month.toString().padStart(2, '0') : '01'}月`
-                            }
-                          </div>
-                          <div className="text-gray-300">
-                            净资产: <span className="text-white font-medium">{formatBalance(hoveredPoint.data.netWorth)}</span>
-                          </div>
-                          {hoveredPoint.data.change !== 0 && (
-                            <div className={`text-xs mt-1 ${hoveredPoint.data.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              {hoveredPoint.data.change >= 0 ? '+' : ''}{formatBalance(hoveredPoint.data.change)}
-                              ({hoveredPoint.data.change >= 0 ? '+' : ''}{hoveredPoint.data.changePercent.toFixed(1)}%)
-                            </div>
-                          )}
-                          {hoveredPoint.data.attribution && (
-                            <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-gray-700">
-                              {hoveredPoint.data.attribution.tags.slice(0, 2).map(tag => (
-                                <span key={tag} className="text-xs bg-gray-800 px-1.5 py-0.5 rounded">
-                                  {getAttributionTagEmoji(tag as any)}{getAttributionTagLabel(tag as any)}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                        <div className="font-medium mb-0.5">
+                          {trendType === 'yearly'
+                            ? `${hoveredPoint.data.year}年`
+                            : `${hoveredPoint.data.year}年${'month' in hoveredPoint.data ? hoveredPoint.data.month.toString().padStart(2, '0') : '01'}月`
+                          }
                         </div>
-                        <div 
-                          className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-gray-900/95 rotate-45 border-r border-b border-gray-700/50"
-                        />
+                        <div className="text-gray-300">
+                          余额: {formatBalance(hoveredPoint.data.netWorth)}
+                        </div>
+                        {hoveredPoint.data.attribution && hoveredPoint.data.attribution.tags.length > 0 && (
+                          <div className="text-gray-400 mt-1 text-[10px]">
+                            {hoveredPoint.data.attribution.tags.slice(0, 2).map(tag =>
+                              `${getAttributionTagEmoji(tag as any)}`
+                            ).join(' ')}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  <div className="absolute left-14 right-0 bottom-0 h-10 flex justify-between items-end text-xs text-gray-400">
-                    {trendType === 'yearly' ? (
-                      (filteredHistory as TrendPoint[]).filter(h => !h.isFiltered).map((h, i) => (
-                        <span key={i} className="transition-all duration-300">{h.year}年</span>
-                      ))
-                    ) : (
-                      (filteredHistory as TrendPoint[]).filter(h => !h.isFiltered).length <= 6 ? (
-                        (filteredHistory as TrendPoint[]).filter(h => !h.isFiltered).map((h, i) => (
-                          <span key={i} className="transition-all duration-300">{h.month}月</span>
-                        ))
-                      ) : (
-                        <>
-                          <span>{(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered)[0]?.month}月</span>
-                          {showYearSeparators && (
-                            <span style={{ color: themeConfig.primary }} className="font-medium">
-                              {(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered)[0]?.year}
-                            </span>
-                          )}
-                          <span>{(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered)[Math.floor((filteredHistory as TrendPoint[]).filter(h => !h.isFiltered).length / 2)]?.month}月</span>
-                          {showYearSeparators && (
-                            <span style={{ color: themeConfig.primary }} className="font-medium">
-                              {(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered)[(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered).length - 1]?.year}
-                            </span>
-                          )}
-                          <span>{(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered)[(filteredHistory as TrendPoint[]).filter(h => !h.isFiltered).length - 1]?.month}月</span>
-                        </>
-                      )
-                    )}
+                  {/* X轴标签 - 优化显示 */}
+                  <div className="absolute left-12 right-2 bottom-0 h-8 flex items-end text-xs text-gray-400">
+                    {xAxisLabels.map((label, index) => (
+                      <span
+                        key={index}
+                        className="absolute transform -translate-x-1/2"
+                        style={{ 
+                          left: `${label.x}%`,
+                          color: label.isYear ? themeConfig.primary : undefined,
+                          fontWeight: label.isYear ? 600 : 400
+                        }}
+                      >
+                        {label.label}
+                      </span>
+                    ))}
                   </div>
                 </div>
 
@@ -838,227 +833,146 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               </CardContent>
             </Card>
 
+            {/* 数据摘要 */}
             {stats && (
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  { 
-                    icon: TrendingUp, 
-                    color: 'text-green-500', 
-                    bg: 'bg-green-50', 
-                    label: '最高净资产', 
-                    value: stats.maxNetWorth 
-                  },
-                  { 
-                    icon: TrendingDown, 
-                    color: 'text-red-500', 
-                    bg: 'bg-red-50', 
-                    label: '最低净资产', 
-                    value: stats.minNetWorth 
-                  },
-                  { 
-                    icon: Calendar, 
-                    color: 'text-blue-500', 
-                    bg: 'bg-blue-50', 
-                    label: '平均净资产', 
-                    value: stats.avgNetWorth 
-                  },
-                  { 
-                    icon: stats.totalChange >= 0 ? TrendingUp : TrendingDown, 
-                    color: stats.totalChange >= 0 ? 'text-green-500' : 'text-red-500', 
-                    bg: stats.totalChange >= 0 ? 'bg-green-50' : 'bg-red-50', 
-                    label: '总变化', 
-                    value: stats.totalChange,
-                    showSign: true,
-                    valueColor: stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'
-                  },
-                ].map((stat, index) => (
-                  <Card key={index} className="bg-white hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-8 h-8 rounded-lg ${stat.bg} flex items-center justify-center`}>
-                          <stat.icon size={16} className={stat.color} />
-                        </div>
-                        <span className="text-xs text-gray-500">{stat.label}</span>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+                        <TrendingUp size={16} className="text-green-500" />
                       </div>
-                      <div className={`text-lg font-bold ${stat.valueColor || 'text-gray-900'}`}>
-                        {stat.showSign && stat.value >= 0 ? '+' : ''}{formatBalance(stat.value)}
+                      <span className="text-xs text-gray-500">最高净资产</span>
+                    </div>
+                    <div className="text-lg font-semibold mt-1">{formatBalance(stats.maxNetWorth)}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
+                        <TrendingDown size={16} className="text-red-500" />
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      <span className="text-xs text-gray-500">最低净资产</span>
+                    </div>
+                    <div className="text-lg font-semibold mt-1">{formatBalance(stats.minNetWorth)}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                        <Calendar size={16} className="text-blue-500" />
+                      </div>
+                      <span className="text-xs text-gray-500">平均净资产</span>
+                    </div>
+                    <div className="text-lg font-semibold mt-1">{formatBalance(stats.avgNetWorth)}</div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${stats.totalChange >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                        {stats.totalChange >= 0 ? (
+                          <TrendingUp size={16} className="text-green-500" />
+                        ) : (
+                          <TrendingDown size={16} className="text-red-500" />
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">总变化</span>
+                    </div>
+                    <div className={`text-lg font-semibold mt-1 ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      {stats.totalChange >= 0 ? '+' : ''}{formatBalance(stats.totalChange)}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             )}
           </>
         )}
       </div>
 
-      <Dialog 
-        open={!!selectedData} 
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedData(null);
-            setExpandedSnapshots(false);
-          }
-        }}
-      >
-        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
-          <DialogHeader className="sticky top-0 bg-white z-10 pb-2 border-b">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-lg">
-                {selectedData && ('month' in selectedData
-                  ? formatMonthLabel(selectedData.year, selectedData.month)
-                  : `${selectedData.year}年`
-                )}
-              </DialogTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => {
-                  setSelectedData(null);
-                  setExpandedSnapshots(false);
-                }}
-              >
-                <X size={18} />
-              </Button>
-            </div>
+      {/* 详情弹窗 */}
+      <Dialog open={!!selectedData} onOpenChange={() => {
+        setSelectedData(null);
+        setExpandedSnapshots(false);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedData && ('month' in selectedData
+                ? `${selectedData.year}年${selectedData.month.toString().padStart(2, '0')}月`
+                : `${selectedData.year}年`
+              )}
+            </DialogTitle>
           </DialogHeader>
-          
           {selectedData && (
-            <div className="space-y-4 py-2">
-              <div 
-                className="rounded-xl p-4 text-white"
-                style={{ 
-                  background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` 
-                }}
-              >
-                <div className="text-white/80 text-sm mb-1">净资产</div>
-                <div className="text-3xl font-bold mb-2">{formatBalance(selectedData.netWorth)}</div>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-white/70">较上期</span>
-                  <span className={`font-semibold ${selectedData.change >= 0 ? 'text-white' : 'text-red-100'}`}>
-                    {selectedData.change >= 0 ? '+' : ''}{formatBalance(selectedData.change)}
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${selectedData.change >= 0 ? 'bg-white/20' : 'bg-red-500/30'}`}>
-                    {selectedData.change >= 0 ? '+' : ''}{selectedData.changePercent.toFixed(1)}%
+            <div className="space-y-4 py-4">
+              {/* 基本信息 */}
+              <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <div className="text-sm text-gray-500 mb-1">净资产</div>
+                <div className="text-3xl font-bold" style={{ color: themeConfig.primary }}>
+                  {formatBalance(selectedData.netWorth)}
+                </div>
+                <div className={`text-sm font-medium mt-1 ${selectedData.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  {selectedData.change >= 0 ? '+' : ''}{formatBalance(selectedData.change)}
+                  <span className="text-xs ml-1 text-gray-400">
+                    ({hideBalance ? '******' : `${selectedData.changePercent >= 0 ? '+' : ''}${selectedData.changePercent.toFixed(2)}%`})
                   </span>
                 </div>
               </div>
 
+              {/* 归因信息 */}
               {selectedData.attribution ? (
-                <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-100">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-sm font-medium text-gray-600">变化归因</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      selectedData.attribution.fluctuationLevel === 'normal' ? 'bg-green-100 text-green-700' :
-                      selectedData.attribution.fluctuationLevel === 'warning' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {selectedData.attribution.fluctuationLevel === 'normal' ? '正常' :
-                       selectedData.attribution.fluctuationLevel === 'warning' ? '需关注' : '异常'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mb-3">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
                     {selectedData.attribution.tags.map(tag => (
-                      <span 
-                        key={tag} 
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-white rounded-full text-sm shadow-sm border border-gray-100"
-                      >
-                        <span>{getAttributionTagEmoji(tag as any)}</span>
-                        <span className="text-gray-700">{getAttributionTagLabel(tag as any)}</span>
+                      <span key={tag} className="text-sm bg-white px-2 py-1 rounded-md shadow-sm">
+                        {getAttributionTagEmoji(tag as any)} {getAttributionTagLabel(tag as any)}
                       </span>
                     ))}
                   </div>
                   {selectedData.attribution.note && (
-                    <p className="text-sm text-gray-600 bg-white/50 rounded-lg p-3 leading-relaxed">
-                      {selectedData.attribution.note}
-                    </p>
+                    <p className="text-sm text-gray-600 mt-2">{selectedData.attribution.note}</p>
                   )}
                 </div>
               ) : (
-                <div className="bg-orange-50 rounded-xl p-4 flex items-start gap-3 border border-orange-100">
-                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
-                    <AlertTriangle size={20} className="text-orange-500" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold text-orange-800 mb-1">本月未记录变化原因</div>
-                    <p className="text-xs text-orange-600 leading-relaxed">建议补充记录归因信息，以便后续分析资产变化趋势和制定财务规划。</p>
+                <div className="bg-orange-50 rounded-lg p-4 flex items-start gap-2">
+                  <AlertTriangle size={18} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-sm font-medium text-orange-700">本月未记录变化原因</div>
+                    <p className="text-xs text-orange-600 mt-1">建议补充记录，以便后续回看分析</p>
                   </div>
                 </div>
               )}
 
+              {/* 账户快照 */}
               {('month' in selectedData) && (
-                <div className="border border-gray-100 rounded-xl overflow-hidden">
+                <div className="border-t border-gray-100 pt-4">
                   <button
-                    className="flex items-center justify-between w-full p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
+                    className="flex items-center justify-between w-full text-sm font-medium text-gray-700 mb-2"
                     onClick={() => setExpandedSnapshots(!expandedSnapshots)}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-700">账户余额快照</span>
-                      <span className="text-xs text-gray-400 font-normal">({getSelectedSnapshots().length}个账户)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">
-                        {expandedSnapshots ? '收起' : '展开'}
-                      </span>
-                      <ChevronDown 
-                        size={18} 
-                        className={`text-gray-400 transition-transform duration-200 ${expandedSnapshots ? 'rotate-180' : ''}`} 
-                      />
-                    </div>
+                    <span>各账户余额</span>
+                    <span className={expandedSnapshots ? 'text-gray-400' : ''}>
+                      {expandedSnapshots ? '收起' : '展开'}
+                    </span>
                   </button>
-                  
                   {expandedSnapshots && (
-                    <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-                      {getSelectedSnapshots().map((snapshot, index) => (
-                        <div 
-                          key={snapshot.accountId} 
-                          className="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
-                          style={{ animationDelay: `${index * 50}ms` }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                              snapshot.accountType === 'credit' || snapshot.accountType === 'debt' 
-                                ? 'bg-red-50' 
-                                : 'bg-blue-50'
-                            }`}>
-                              <Icon 
-                                name={snapshot.accountIcon} 
-                                size={18}
-                                className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : 'text-blue-500'}
-                              />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-gray-800">{snapshot.accountName}</div>
-                              <div className="text-xs text-gray-400">
-                                {snapshot.accountType === 'credit' ? '信用卡' :
-                                 snapshot.accountType === 'debt' ? '债务' :
-                                 snapshot.accountType === 'investment' ? '投资' :
-                                 snapshot.accountType === 'digital' ? '电子钱包' : '储蓄账户'}
-                              </div>
-                            </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {getSelectedSnapshots().map(snapshot => (
+                        <div key={snapshot.accountId} className="flex items-center justify-between text-sm py-2 border-b border-gray-50 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <Icon name={snapshot.accountIcon} size={16} />
+                            <span className="text-gray-700">{snapshot.accountName}</span>
                           </div>
                           <div className="text-right">
-                            <div className={`text-sm font-semibold ${
-                              snapshot.accountType === 'credit' || snapshot.accountType === 'debt' 
-                                ? 'text-red-500' 
-                                : 'text-gray-900'
-                            }`}>
-                              {snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? '-' : ''}
-                              ¥{formatBalance(Math.abs(snapshot.balance))}
-                            </div>
+                            <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : 'text-gray-900'}>
+                              ¥{formatBalance(snapshot.balance)}
+                            </span>
                             {snapshot.change !== undefined && snapshot.change !== 0 && (
-                              <div className={`text-xs flex items-center justify-end gap-0.5 ${
-                                snapshot.change >= 0 ? 'text-green-500' : 'text-red-500'
-                              }`}>
-                                {snapshot.change >= 0 ? (
-                                  <TrendingUp size={10} />
-                                ) : (
-                                  <TrendingDown size={10} />
-                                )}
-                                <span>
-                                  {snapshot.change >= 0 ? '+' : ''}{formatBalance(Math.abs(snapshot.change))}
-                                </span>
+                              <div className={`text-xs ${snapshot.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                {snapshot.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(snapshot.change))}
                               </div>
                             )}
                           </div>
@@ -1069,10 +983,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
+              {/* 操作按钮 */}
+              <div className="flex gap-2 pt-4 border-t border-gray-100">
                 <Button
                   variant="outline"
-                  className="flex-1 h-11"
+                  className="flex-1"
                   onClick={() => {
                     if ('month' in selectedData) {
                       onPageChange('record-logs', { year: selectedData.year, month: selectedData.month, mode: 'monthly' });
@@ -1084,11 +999,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   查看完整记账
                 </Button>
                 <Button
-                  className="flex-1 h-11 text-white"
-                  style={{ backgroundColor: themeConfig.primary }}
+                  variant="outline"
+                  className="flex-1"
                   onClick={() => goToRecordForAttribution(selectedData.year, 'month' in selectedData ? selectedData.month : undefined)}
                 >
-                  <Edit3 size={16} className="mr-2" />
+                  <Edit3 size={14} className="mr-1" />
                   {selectedData.attribution ? '编辑备注' : '补充记录'}
                 </Button>
               </div>
