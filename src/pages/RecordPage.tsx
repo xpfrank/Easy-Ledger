@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -602,7 +602,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                     setShowModeDropdown(false);
                   }}
                 >
-                  月度记账
+                 月度记账
                 </button>
                 <button
                   className={`w-full px-4 py-2.5 text-left text-sm transition-colors ${recordMode === 'yearly' ? 'text-white' : 'hover:bg-gray-50'}`}
