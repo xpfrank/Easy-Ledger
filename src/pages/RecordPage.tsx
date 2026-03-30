@@ -1,241 +1,510 @@
-import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
-import type { Account, PageRoute, RecordMode, AttributionTag } from '@/types';
-import { 
-  getAllAccounts, 
-  getMonthlyRecord, 
-  setMonthlyRecord, 
-  formatAmount, 
-  saveMonthlyAttribution, 
-  getAccountSnapshotsByMonth 
+import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
+import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS } from '@/types';
+import {
+  getAllAccounts,
+  getMonthlyRecord,
+  setMonthlyRecord,
+  formatAmountNoSymbol,
+  formatMonth,
+  getSettings,
+  saveMonthlyAttribution,
+  getMonthlyAttribution,
+  calculateFluctuationLevel,
+  saveYearlyAttribution,
+  getYearlyAttribution,
+  getMonthlyAttributionsByYear,
 } from '@/lib/storage';
-import { calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-
-// 标签配置
-const ATTRIBUTION_CONFIG: Record<string, { label: string; emoji: string }> = {
-  salary: { label: '工资收入', emoji: '💰' },
-  bonus: { label: '奖金', emoji: '🎁' },
-  year_end_bonus: { label: '年终奖', emoji: '🧧' },
-  investment: { label: '投资收益', emoji: '📈' },
-  daily: { label: '日常波动', emoji: '🔄' },
-  loan_repayment: { label: '借款归还', emoji: '🔄' },
-  large_expense: { label: '大额支出', emoji: '🛒' },
-  transfer: { label: '转账调整', emoji: '🔀' },
-  other: { label: '其他', emoji: '📝' },
-};
-
-const NORMAL_TAGS = ['salary', 'investment', 'daily', 'other'];
-const ABNORMAL_TAGS = ['salary', 'bonus', 'year_end_bonus', 'investment', 'loan_repayment', 'large_expense', 'transfer', 'other'];
+import {
+  calculateNetWorth,
+  calculateTotalAssets,
+  calculateTotalLiabilities,
+  getAccountTypeLabel,
+  getYearlyNetWorth,
+  getLastRecordedMonth,
+} from '@/lib/calculator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { THEMES } from '@/types';
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
-  params?: any;
 }
 
-export function RecordPage({ onPageChange, params }: RecordPageProps) {
-  const [year, setYear] = useState(params?.year || new Date().getFullYear());
-  const [month, setMonth] = useState(params?.month || new Date().getMonth() + 1);
-  const [mode, setMode] = useState<RecordMode>(params?.mode || 'monthly');
+function formatHiddenAmount(amount: number, hide: boolean): string {
+  if (hide) return '******';
+  return formatAmountNoSymbol(amount);
+}
+
+function MonthPicker({
+  year,
+  month,
+  onSelect,
+  onClose,
+  theme,
+}: {
+  year: number;
+  month: number;
+  onSelect: (y: number, m: number) => void;
+  onClose: () => void;
+  theme: ThemeType;
+}) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
   
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [records, setRecords] = useState<Record<string, number>>({});
+  const defaultYear = year || currentYear;
+  const defaultMonth = month || currentMonth;
   
-  // 核心拦截状态
-  const [hasChanged, setHasChanged] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [attribution, setAttribution] = useState<{ tags: string[], note: string }>({ tags: [], note: '' });
+  const [viewYear, setViewYear] = useState(defaultYear);
+  const [viewMonth, setViewMonth] = useState(defaultMonth);
+  const [showYearSelector, setShowYearSelector] = useState(false);
+  const themeConfig = THEMES[theme];
 
-  // 初始化数据
-  useEffect(() => {
-    const data = getAllAccounts();
-    setAccounts(data);
-    const initialRecords: Record<string, number> = {};
-    data.forEach(acc => {
-      const rec = getMonthlyRecord(acc.id, year, month);
-      initialRecords[acc.id] = rec ? rec.balance : acc.balance;
-    });
-    setRecords(initialRecords);
-  }, [year, month]);
+  const getDaysInMonth = (y: number, m: number) => new Date(y, m, 0).getDate();
+  const getFirstDayOfMonth = (y: number, m: number) => new Date(y, m - 1, 1).getDay();
+  const yearRange = Array.from({ length: 211 }, (_, i) => 1990 + i);
 
-  // 计算波动数据
-  const previewData = useMemo(() => {
-    // 当前输入的总资产
-    let currentAssets = 0;
-    let currentLiabilities = 0;
-    accounts.forEach(acc => {
-      const bal = records[acc.id] || 0;
-      if (acc.type === 'credit' || acc.type === 'debt') currentLiabilities += Math.abs(bal);
-      else currentAssets += bal;
-    });
-    const currentNetWorth = currentAssets - currentLiabilities;
+  const generateCalendar = () => {
+    const daysInMonth = getDaysInMonth(viewYear, viewMonth);
+    const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
+    const days = [];
 
-    // 上月总资产
-    let lastYear = year;
-    let lastMonth = month - 1;
-    if (lastMonth === 0) { lastYear--; lastMonth = 12; }
-    const lastAssets = calculateTotalAssets(lastYear, lastMonth);
-    const lastLiabilities = calculateTotalLiabilities(lastYear, lastMonth);
-    const lastNetWorth = lastAssets - lastLiabilities;
-
-    const change = currentNetWorth - lastNetWorth;
-    const percent = lastNetWorth === 0 ? 0 : (change / Math.abs(lastNetWorth)) * 100;
-    
-    return { currentNetWorth, lastNetWorth, change, percent, isAnomaly: Math.abs(percent) > 30 };
-  }, [records, accounts, year, month]);
-
-  const handleInputChange = (id: string, value: string) => {
-    setRecords({ ...records, [id]: Number(value) });
-    setHasChanged(true); // 触发修改状态
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(i);
+    return days;
   };
 
-  const handleSave = () => {
-    // 保存记录
-    Object.entries(records).forEach(([id, bal]) => setMonthlyRecord(id, year, month, bal));
-    
-    // 如果选择了标签，保存归因
-    if (attribution.tags.length > 0 || attribution.note) {
-      saveMonthlyAttribution(
-        year, month,
-        previewData.change,
-        previewData.percent,
-        attribution.tags as AttributionTag[],
-        attribution.note
-      );
-    }
-    
-    setHasChanged(false);
-    setShowPreview(false);
-    onPageChange('home');
-  };
+  const calendarDays = generateCalendar();
+  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
 
-  const toggleTag = (tag: string) => {
-    if (previewData.isAnomaly) {
-      // 异常强制单选
-      setAttribution({ ...attribution, tags: [tag] });
+  const prevMonth = () => {
+    if (viewMonth === 1) {
+      setViewYear(viewYear - 1);
+      setViewMonth(12);
     } else {
-      // 正常允许多选
-      const newTags = attribution.tags.includes(tag) 
-        ? attribution.tags.filter(t => t !== tag)
-        : [...attribution.tags, tag];
-      setAttribution({ ...attribution, tags: newTags });
+      setViewMonth(viewMonth - 1);
     }
   };
+
+  const nextMonth = () => {
+    if (viewMonth === 12) {
+      setViewYear(viewYear + 1);
+      setViewMonth(1);
+    } else {
+      setViewMonth(viewMonth + 1);
+    }
+  };
+
+  const selectDate = (day: number | null) => {
+    if (day !== null) {
+      onSelect(viewYear, viewMonth);
+      onClose();
+    }
+  };
+
+  if (showYearSelector) {
+    return (
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={() => setShowYearSelector(false)} className="text-gray-500 hover:bg-gray-100 p-2 rounded-full transition-colors">
+            <ChevronLeft size={20} />
+          </button>
+          <span className="font-medium text-lg">选择年份</span>
+          <div className="w-10" />
+        </div>
+        <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto scrollbar-hide">
+          {yearRange.map((y) => (
+            <button
+              key={y}
+              onClick={() => {
+                setViewYear(y);
+                setShowYearSelector(false);
+              }}
+              className={`p-3 rounded-lg text-sm transition-all duration-200 ${
+                viewYear === y
+                  ? 'text-white shadow-md scale-105'
+                  : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+              style={{ backgroundColor: viewYear === y ? themeConfig.primary : undefined }}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-32">
-      {/* 头部导航 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}><ArrowLeft size={20} /></Button>
-          <h1 className="text-lg font-semibold">{year}年{month}月 记账</h1>
-        </div>
-      </header>
-      <div className="h-16"></div>
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={prevMonth} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
+          <ChevronLeft size={20} className="text-gray-500" />
+        </button>
+        <button 
+          onClick={() => setShowYearSelector(true)}
+          className="flex items-center gap-1 font-medium text-lg hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors"
+        >
+          {viewYear}年{viewMonth}月
+          <ChevronDown size={16} className="text-gray-400" />
+        </button>
+        <button onClick={nextMonth} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
+          <ChevronRight size={20} className="text-gray-500" />
+        </button>
+      </div>
 
-      {/* 账户列表录入区 */}
-      <div className="p-4 space-y-3">
-        {accounts.map(acc => (
-          <Card key={acc.id} className="overflow-hidden bg-white">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Icon name={acc.icon} size={24} className={acc.type === 'credit' ? 'text-red-400' : 'text-blue-400'} />
-                <div className="font-medium text-sm">{acc.name}</div>
-              </div>
-              <Input 
-                type="number" 
-                className="w-32 text-right font-medium" 
-                value={records[acc.id] === 0 ? '' : records[acc.id]} 
-                placeholder="0.00"
-                onChange={(e) => handleInputChange(acc.id, e.target.value)}
-              />
-            </CardContent>
-          </Card>
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {weekDays.map((day) => (
+          <div key={day} className="text-center text-sm text-gray-400 py-2 font-medium">
+            {day}
+          </div>
         ))}
       </div>
 
-      {/* 需求 4.1：预览按钮 */}
-      {hasChanged && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-40">
-          <Button className="w-full h-12 text-base shadow-md" onClick={() => setShowPreview(true)}>
-            预览本月记账
-          </Button>
-        </div>
-      )}
+      <div className="grid grid-cols-7 gap-1">
+        {calendarDays.map((day, index) => (
+          <button
+            key={index}
+            onClick={() => selectDate(day)}
+            disabled={day === null}
+            className={`
+              aspect-square flex items-center justify-center rounded-full text-sm transition-all duration-200
+              ${day === null ? 'invisible' : ''}
+              ${day !== null && viewYear === year && viewMonth === month
+                ? 'text-white shadow-md scale-110' 
+                : 'hover:bg-gray-100 hover:scale-105'
+              }
+            `}
+            style={{ 
+              backgroundColor: day !== null && viewYear === year && viewMonth === month 
+                ? themeConfig.primary 
+                : undefined 
+            }}
+          >
+            {day}
+          </button>
+        ))}
+      </div>
 
-      {/* 需求 4.2：归因预览弹窗 */}
-      <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-[90vw] rounded-2xl p-5 bg-white">
-          <DialogHeader>
-            <DialogTitle>资产变动确认</DialogTitle>
-            {previewData.isAnomaly && (
-              <div className="text-orange-500 text-xs flex items-center gap-1 mt-1 bg-orange-50 p-2 rounded-lg">
-                <AlertTriangle size={14} /> 本月变化幅度较大，建议记录原因
-              </div>
-            )}
-          </DialogHeader>
-          
-          <div className="space-y-5 my-2">
-            {/* 变化对比 */}
-            <div className="flex justify-between items-center bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <div>
-                <div className="text-xs text-gray-500 mb-1">上月 → 本月</div>
-                <div className="text-lg font-bold text-gray-800">{formatAmount(previewData.currentNetWorth)}</div>
-              </div>
-              <div className="text-right">
-                <div className={`text-sm font-bold ${previewData.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {previewData.change >= 0 ? '↑' : '↓'} {previewData.percent.toFixed(1)}%
-                </div>
-                <div className={`text-xs ${previewData.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                  {previewData.change >= 0 ? '+' : ''}{formatAmount(previewData.change)}
-                </div>
-              </div>
-            </div>
-
-            {/* 归因标签 */}
-            <div>
-              <div className="text-sm font-medium mb-3 text-gray-700">变化原因 {previewData.isAnomaly ? '(必选)' : '(可选)'}</div>
-              <div className="grid grid-cols-4 gap-2">
-                {(previewData.isAnomaly ? ABNORMAL_TAGS : NORMAL_TAGS).map(tag => (
-                  <button
-                    key={tag}
-                    onClick={() => toggleTag(tag)}
-                    className={`flex flex-col items-center justify-center py-2 rounded-xl border transition-all ${
-                      attribution.tags.includes(tag) ? 'bg-blue-50 border-blue-500 text-blue-600 shadow-sm' : 'bg-white border-gray-100 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="text-xl mb-1">{ATTRIBUTION_CONFIG[tag]?.emoji}</div>
-                    <div className="text-[10px] whitespace-nowrap">{ATTRIBUTION_CONFIG[tag]?.label}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 备注 */}
-            <textarea 
-              placeholder="记录本月发生的大事记..."
-              className="w-full p-3 bg-gray-50 rounded-xl text-sm border-none focus:ring-1 focus:ring-blue-500 outline-none"
-              rows={3}
-              value={attribution.note}
-              onChange={(e) => setAttribution({...attribution, note: e.target.value})}
-            />
-          </div>
-
-          <DialogFooter>
-            <Button 
-              className="w-full h-11 text-base rounded-xl"
-              disabled={previewData.isAnomaly && attribution.tags.length === 0}
-              onClick={handleSave}
-            >
-              确认保存
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+        <button 
+          onClick={onClose}
+          className="px-5 py-2.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+        >
+          取消
+        </button>
+        <button 
+          onClick={() => {
+            onSelect(viewYear, viewMonth);
+            onClose();
+          }}
+          className="px-5 py-2.5 text-sm text-white rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg hover:scale-105"
+          style={{ backgroundColor: themeConfig.primary }}
+        >
+          确定
+        </button>
+      </div>
     </div>
   );
 }
+
+export function RecordPage({ onPageChange }: RecordPageProps) {
+  const now = new Date();
+  const [recordMode, setRecordMode] = useState<RecordMode>('monthly');
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [netWorth, setNetWorth] = useState(0);
+  const [totalAssets, setTotalAssets] = useState(0);
+  const [totalLiabilities, setTotalLiabilities] = useState(0);
+  const [hideBalance, setHideBalance] = useState(false);
+  const [theme, setTheme] = useState<ThemeType>('blue');
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    lastNetWorth: number;
+    currentNetWorth: number;
+    change: number;
+    changePercent: number;
+    fluctuationLevel: FluctuationLevel;
+  } | null>(null);
+  const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
+  const [attributionNote, setAttributionNote] = useState('');
+
+  const [showYearlyAttributionDialog, setShowYearlyAttributionDialog] = useState(false);
+  const [yearlySelectedTags, setYearlySelectedTags] = useState<YearlyAttributionTag[]>([]);
+  const [yearlyAttributionNote, setYearlyAttributionNote] = useState('');
+  const [yearlyKeyMonths, setYearlyKeyMonths] = useState<string[]>([]);
+
+  const themeConfig = THEMES[theme];
+
+  useEffect(() => {
+    const settings = getSettings();
+    setHideBalance(settings.hideBalance);
+    setTheme(settings.theme || 'blue');
+    loadData();
+    setHasChanges(false);
+  }, [year, month, recordMode]);
+
+  const loadData = () => {
+    const allAccounts = getAllAccounts().filter(a => !a.isHidden);
+    setAccounts(allAccounts);
+
+    if (recordMode === 'monthly') {
+      const newBalances: Record<string, number> = {};
+      for (const account of allAccounts) {
+        const record = getMonthlyRecord(account.id, year, month);
+        newBalances[account.id] = record ? record.balance : account.balance;
+      }
+      setBalances(newBalances);
+
+      setNetWorth(calculateNetWorth(year, month));
+      setTotalAssets(calculateTotalAssets(year, month));
+      setTotalLiabilities(calculateTotalLiabilities(year, month));
+    } else {
+      const lastMonth = getLastRecordedMonth(year) || 12;
+      const newBalances: Record<string, number> = {};
+      for (const account of allAccounts) {
+        const record = getMonthlyRecord(account.id, year, lastMonth);
+        newBalances[account.id] = record ? record.balance : account.balance;
+      }
+      setBalances(newBalances);
+
+      const yearlyData = getYearlyNetWorth(year);
+      setNetWorth(yearlyData.netWorth);
+      setTotalAssets(yearlyData.totalAssets);
+      setTotalLiabilities(yearlyData.totalLiabilities);
+    }
+  };
+
+  const goToPrev = () => {
+    if (recordMode === 'monthly') {
+      if (month === 1) {
+        setYear(y => y - 1);
+        setMonth(12);
+      } else {
+        setMonth(m => m - 1);
+      }
+    } else {
+      setYear(y => y - 1);
+    }
+    setHasChanges(false);
+  };
+
+  const goToNext = () => {
+    if (recordMode === 'monthly') {
+      if (month === 12) {
+        setYear(y => y + 1);
+        setMonth(1);
+      } else {
+        setMonth(m => m + 1);
+      }
+    } else {
+      setYear(y => y + 1);
+    }
+    setHasChanges(false);
+  };
+
+  const handleSelectMonth = (selectedYear: number, selectedMonth: number) => {
+    setYear(selectedYear);
+    setMonth(selectedMonth);
+    setHasChanges(false);
+  };
+
+  const handleBalanceChange = (accountId: string, value: string) => {
+    const numValue = parseFloat(value) || 0;
+    setBalances(prev => ({ ...prev, [accountId]: numValue }));
+    setMonthlyRecord(accountId, year, month, numValue);
+    setHasChanges(true);
+    
+    setTimeout(() => {
+      setNetWorth(calculateNetWorth(year, month));
+      setTotalAssets(calculateTotalAssets(year, month));
+      setTotalLiabilities(calculateTotalLiabilities(year, month));
+    }, 0);
+  };
+
+  const handleCopyLastMonth = () => {
+    let lastYear = year;
+    let lastMonth = month - 1;
+    if (lastMonth === 0) {
+      lastYear--;
+      lastMonth = 12;
+    }
+
+    const newBalances: Record<string, number> = { ...balances };
+    for (const account of accounts) {
+      const lastRecord = getMonthlyRecord(account.id, lastYear, lastMonth);
+      if (lastRecord) {
+        newBalances[account.id] = lastRecord.balance;
+        setMonthlyRecord(account.id, year, month, lastRecord.balance);
+      }
+    }
+    setBalances(newBalances);
+    setNetWorth(calculateNetWorth(year, month));
+    setTotalAssets(calculateTotalAssets(year, month));
+    setTotalLiabilities(calculateTotalLiabilities(year, month));
+    setHasChanges(true);
+    setShowCopyDialog(false);
+  };
+
+  const handleClear = () => {
+    const newBalances: Record<string, number> = {};
+    for (const account of accounts) {
+      newBalances[account.id] = 0;
+      setMonthlyRecord(account.id, year, month, 0);
+    }
+    setBalances(newBalances);
+    setNetWorth(calculateNetWorth(year, month));
+    setTotalAssets(calculateTotalAssets(year, month));
+    setTotalLiabilities(calculateTotalLiabilities(year, month));
+    setHasChanges(true);
+    setShowClearDialog(false);
+  };
+
+  const startEdit = (account: Account) => {
+    setEditingAccount(account.id);
+    setEditValue(balances[account.id]?.toString() || '0');
+  };
+
+  const saveEdit = () => {
+    if (editingAccount) {
+      handleBalanceChange(editingAccount, editValue);
+      setEditingAccount(null);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingAccount(null);
+    setEditValue('');
+  };
+
+  const triggerPreview = () => {
+    if (recordMode !== 'monthly') return;
+
+    let lastYear = year;
+    let lastMonthNum = month - 1;
+    if (lastMonthNum === 0) {
+      lastYear--;
+      lastMonthNum = 12;
+    }
+    const lastNW = calculateNetWorth(lastYear, lastMonthNum);
+    const currentNW = calculateNetWorth(year, month);
+    const changeAmt = currentNW - lastNW;
+    const changePct = lastNW !== 0 ? (changeAmt / Math.abs(lastNW)) * 100 : 0;
+    const level = calculateFluctuationLevel(changePct);
+
+    const existingAttribution = getMonthlyAttribution(year, month);
+    if (existingAttribution) {
+      setSelectedTags(existingAttribution.tags);
+      setAttributionNote(existingAttribution.note || '');
+    } else {
+      setSelectedTags([]);
+      setAttributionNote('');
+    }
+
+    setPreviewData({
+      lastNetWorth: lastNW,
+      currentNetWorth: currentNW,
+      change: changeAmt,
+      changePercent: changePct,
+      fluctuationLevel: level,
+    });
+    setShowPreviewDialog(true);
+  };
+
+  const handleSaveAttribution = () => {
+    if (!previewData) return;
+
+    if (previewData.fluctuationLevel === 'abnormal' && selectedTags.length === 0) {
+      return;
+    }
+
+    saveMonthlyAttribution(
+      year,
+      month,
+      previewData.change,
+      previewData.changePercent,
+      selectedTags,
+      attributionNote || undefined
+    );
+
+    setShowPreviewDialog(false);
+    setSelectedTags([]);
+    setAttributionNote('');
+    setHasChanges(false);
+  };
+
+  const handleSkipAttribution = () => {
+    setShowPreviewDialog(false);
+    setSelectedTags([]);
+    setAttributionNote('');
+    setHasChanges(false);
+  };
+
+  const triggerYearlyAttribution = () => {
+    const existingAttribution = getYearlyAttribution(year);
+    if (existingAttribution) {
+      setYearlySelectedTags(existingAttribution.tags);
+      setYearlyAttributionNote(existingAttribution.note || '');
+      setYearlyKeyMonths(existingAttribution.keyMonths);
+    } else {
+      setYearlySelectedTags([]);
+      setYearlyAttributionNote('');
+      setYearlyKeyMonths([]);
+    }
+    setShowYearlyAttributionDialog(true);
+  };
+
+  const generateYearlyFromMonthly = () => {
+    const monthlyAttributions = getMonthlyAttributionsByYear(year);
+    if (monthlyAttributions.length === 0) return;
+
+    const tagCounts: Record<string, number> = {};
+    monthlyAttributions.forEach(attr => {
+      attr.tags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+
+    const sortedTags = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([tag]) => tag as YearlyAttributionTag);
+
+    setYearlySelectedTags(sortedTags);
+  };
+
+  const handleSaveYearlyAttribution = () => {
+    const lastYearNetWorth = calculateNetWorth(year - 1, 12);
+    const yearlyChange = netWorth - lastYearNetWorth;
+    const yearlyChangePercent = lastYearNetWorth !== 0 ? (yearlyChange / Math.abs(lastYearNetWorth)) * 100 : 0;
+
+    saveYearlyAttribution(
+      year,
+      netWorth,
+      yearlyChange,
+      yearlyChangePercent,
+      yearlySelectedTags,
+      yearlyAttributionNote || undefined,
+      yearlyKeyMonths
+    );
+
+    setShowYearlyAttributionDialog(false);
+  };
+
+  const handleYearlyTagToggle = (tag: YearlyAttributionTag) => {
+    setYearlySelectedTags(prev =>
