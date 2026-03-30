@@ -450,7 +450,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     
     if (trendType === 'yearly') {
       // 年度趋势：显示所有年份
-      validPoints.forEach((point, index) => {
+      validPoints.forEach((point) => {
         labels.push({
           x: point.x,
           label: `${point.data.year}年`,
