@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3, Eye, EyeOff, Edit3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -379,7 +379,8 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     setShowClearDialog(false);
   };
 
-  const startEdit = (account: Account) => {
+  const startEdit = (account: Account, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setEditingAccount(account.id);
     setEditValue(balances[account.id]?.toString() || '0');
   };
@@ -575,7 +576,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
 
   return (
-    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+    <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 标题栏 */}
       <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
         <div className="flex items-center gap-2">
@@ -711,12 +712,55 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
           </CardContent>
         </Card>
 
+        {/* 悬浮预览按钮 - 固定在底部导航栏上方 */}
+        {recordMode === 'monthly' && (
+          <div 
+            className={`
+              fixed left-4 right-4 z-40 transition-all duration-300 ease-in-out
+              ${hasChanges ? 'bottom-20 opacity-100 translate-y-0' : 'bottom-0 opacity-0 translate-y-full pointer-events-none'}
+            `}
+            style={{ bottom: hasChanges ? '80px' : '0px' }}
+          >
+            <div 
+              className="glass-panel rounded-2xl p-1.5 border-2 alert-pulse bg-gradient-to-br from-white to-gray-50 shadow-2xl"
+              style={{ 
+                '--theme-color': themeConfig.primary,
+                borderColor: themeConfig.primary
+              } as React.CSSProperties}
+            >
+              <Button
+                className="w-full h-14 text-white font-semibold text-base shadow-lg hover:shadow-xl transition-all duration-200 rounded-xl"
+                style={{ backgroundColor: themeConfig.primary }}
+                onClick={triggerPreview}
+              >
+                <Check size={20} className="mr-2" />
+                预览本月记账
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 年度归因按钮（月度模式下隐藏，年度模式下显示在固定位置） */}
+        {recordMode === 'yearly' && (
+          <div className="px-1">
+            <Button
+              variant="outline"
+              className="w-full h-12 font-semibold text-base border-2 bg-white hover:bg-gray-50"
+              style={{ borderColor: themeConfig.primary, color: themeConfig.primary }}
+              onClick={triggerYearlyAttribution}
+            >
+              <BarChart3 size={20} className="mr-2" />
+              年度归因
+            </Button>
+          </div>
+        )}
+
         {/* 快捷操作 */}
         {recordMode === 'monthly' && (
           <div className="flex gap-2">
             <Button
               variant="outline"
-              className="flex-1 h-11 hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex-1 h-11 hover:bg-gray-50 transition-colors text-sm font-medium bg-white"
               onClick={() => setShowCopyDialog(true)}
             >
               <Copy size={16} className="mr-2" />
@@ -724,7 +768,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             </Button>
             <Button
               variant="outline"
-              className="flex-1 h-11 hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex-1 h-11 hover:bg-gray-50 transition-colors text-sm font-medium bg-white"
               onClick={() => setShowClearDialog(true)}
             >
               <RotateCcw size={16} className="mr-2" />
@@ -778,8 +822,9 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   return (
                     <div
                       key={account.id}
-                      className="p-4 hover:bg-gray-50 transition-colors"
+                      className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
                       style={{ animationDelay: `${index * 50}ms` }}
+                      onClick={() => onPageChange('account-detail', { accountId: account.id })}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -808,7 +853,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                         </div>
                         
                         {isEditing ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                             <div className="relative">
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">¥</span>
                               <Input
@@ -828,27 +873,34 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                               size="sm"
                               className="h-10 px-4 text-white text-sm"
                               style={{ backgroundColor: themeConfig.primary }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                saveEdit();
-                              }}
+                              onClick={saveEdit}
                             >
                               保存
                             </Button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => startEdit(account)}
-                            className={`text-right px-4 py-2 rounded-xl hover:bg-gray-100 transition-all ${
-                              isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') :
-                              isDebt ? 'text-red-500' : 'text-gray-900'
-                            }`}
-                          >
-                            <div className="text-base font-medium">
-                              ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
-                            </div>
-                            <div className="text-xs text-gray-400">点击编辑</div>
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => startEdit(account, e)}
+                              className={`text-right px-3 py-2 rounded-xl hover:bg-gray-100 transition-all ${
+                                isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') :
+                                isDebt ? 'text-red-500' : 'text-gray-900'
+                              }`}
+                            >
+                              <div className="text-base font-medium">
+                                ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
+                              </div>
+                              <div className="text-xs text-gray-400">点击编辑</div>
+                            </button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-gray-400 hover:text-gray-600"
+                              onClick={(e) => startEdit(account, e)}
+                            >
+                              <Edit3 size={16} />
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -859,45 +911,8 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
           )}
         </div>
 
-        {/* 预览/归因按钮区域 - 放在账户列表下方，非固定定位 */}
-        <div className="pt-4 pb-20">
-          {recordMode === 'monthly' ? (
-            <div 
-              className={`
-                glass-panel rounded-2xl p-1 border-2 alert-pulse bg-gradient-to-br from-white to-gray-50
-                ${hasChanges ? '' : 'opacity-50'}
-              `}
-              style={{ 
-                '--theme-color': themeConfig.primary,
-                borderColor: hasChanges ? themeConfig.primary : '#9ca3af'
-              } as React.CSSProperties}
-            >
-              <Button
-                className="w-full h-14 text-white font-semibold text-base shadow-lg hover:shadow-xl transition-all duration-200 rounded-xl"
-                style={{ 
-                  backgroundColor: hasChanges ? themeConfig.primary : '#9ca3af',
-                }}
-                onClick={triggerPreview}
-                disabled={!hasChanges}
-              >
-                <Check size={20} className="mr-2" />
-                {hasChanges ? '预览本月记账' : '请先修改余额'}
-              </Button>
-            </div>
-          ) : (
-            <div className="glass-panel rounded-2xl p-1 border-2 bg-gradient-to-br from-white to-gray-50" style={{ borderColor: themeConfig.primary }}>
-              <Button
-                variant="outline"
-                className="w-full h-14 font-semibold text-base border-2 border-transparent bg-white/50 backdrop-blur-sm hover:bg-white/80 rounded-xl"
-                style={{ color: themeConfig.primary }}
-                onClick={triggerYearlyAttribution}
-              >
-                <BarChart3 size={20} className="mr-2" />
-                年度归因
-              </Button>
-            </div>
-          )}
-        </div>
+        {/* 底部占位，防止内容被固定按钮遮挡 */}
+        {recordMode === 'monthly' && <div className="h-20"></div>}
       </div>
 
       {/* 月份选择器弹窗 */}
@@ -960,7 +975,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* 预览确认对话框 - 优化设计 */}
+      {/* 预览确认对话框 */}
       <Dialog open={showPreviewDialog} onOpenChange={(open) => {
         if (!open) {
           setShowPreviewDialog(false);
@@ -1261,13 +1276,11 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
         @keyframes alert-pulse {
           0%, 100% {
             border-color: var(--theme-color);
-            box-shadow: 0 0 0 0 var(--theme-color);
-            opacity: 1;
+            box-shadow: 0 0 0 0 rgba(var(--theme-color-rgb), 0.4);
           }
           50% {
             border-color: var(--theme-color);
-            box-shadow: 0 0 20px 4px var(--theme-color);
-            opacity: 0.8;
+            box-shadow: 0 0 20px 4px rgba(var(--theme-color-rgb), 0.2);
           }
         }
         .alert-pulse {
