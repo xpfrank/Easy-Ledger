@@ -444,7 +444,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
   // 获取选中数据的账户快照
   const getSelectedSnapshots = (): AccountSnapshot[] => {
-    if (!selectedData || !selectedData.month) return [];
+    if (!selectedData || !('month' in selectedData)) return [];
     return getAccountSnapshotsByMonth(selectedData.year, selectedData.month);
   };
 
@@ -697,7 +697,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         <div className="font-medium">
                           {trendType === 'yearly'
                             ? `${hoveredPoint.data.year}年`
-                            : `${hoveredPoint.data.year}年${hoveredPoint.data.month?.toString().padStart(2, '0') || '01'}月`
+                            : `${hoveredPoint.data.year}年${'month' in hoveredPoint.data ? hoveredPoint.data.month.toString().padStart(2, '0') : '01'}月`
                           }
                         </div>
                         <div className="text-gray-300">
@@ -811,7 +811,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {selectedData && (selectedData.month
+              {selectedData && ('month' in selectedData
                 ? formatMonthLabel(selectedData.year, selectedData.month)
                 : `${selectedData.year}年`
               )}
@@ -856,7 +856,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               )}
 
               {/* 账户快照 */}
-              {selectedData.month && (
+              {('month' in selectedData) && (
                 <div className="border-t border-gray-100 pt-4">
                   <button
                     className="flex items-center justify-between w-full text-sm font-medium text-gray-700 mb-2"
@@ -898,7 +898,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   variant="outline"
                   className="flex-1"
                   onClick={() => {
-                    if (selectedData.month) {
+                    if ('month' in selectedData) {
                       onPageChange('record-logs', { year: selectedData.year, month: selectedData.month, mode: 'monthly' });
                     } else {
                       onPageChange('record-logs', { year: selectedData.year, mode: 'yearly' });
@@ -910,7 +910,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => goToRecordForAttribution(selectedData.year, selectedData.month)}
+                  onClick={() => goToRecordForAttribution(selectedData.year, 'month' in selectedData ? selectedData.month : undefined)}
                 >
                   <Edit3 size={14} className="mr-1" />
                   {selectedData.attribution ? '编辑备注' : '补充记录'}

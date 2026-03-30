@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Calendar, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Calendar, AlertTriangle, BarChart3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
@@ -19,7 +19,7 @@ import {
   getAttributionTagEmoji,
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { calculateTotalAssets, calculateTotalLiabilities, calculateNetWorth } from '@/lib/calculator';
+import { calculateNetWorth } from '@/lib/calculator';
 import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
 
 interface RecordLogsPageProps {
