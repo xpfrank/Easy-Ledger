@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
-import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel } from '@/types';
-import { NORMAL_TAGS, ABNORMAL_TAGS } from '@/types';
+import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag, AccountSnapshot } from '@/types';
+import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -16,6 +16,10 @@ import {
   saveMonthlyAttribution,
   getMonthlyAttribution,
   calculateFluctuationLevel,
+  saveYearlyAttribution,
+  getYearlyAttribution,
+  getAccountSnapshotsByMonth,
+  getMonthlyAttributionsByYear,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -273,6 +277,12 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
   const [attributionNote, setAttributionNote] = useState('');
 
+  // 年度归因弹窗状态
+  const [showYearlyAttributionDialog, setShowYearlyAttributionDialog] = useState(false);
+  const [yearlySelectedTags, setYearlySelectedTags] = useState<YearlyAttributionTag[]>([]);
+  const [yearlyAttributionNote, setYearlyAttributionNote] = useState('');
+  const [yearlyKeyMonths, setYearlyKeyMonths] = useState<string[]>([]);
+
   const themeConfig = THEMES[theme];
 
   useEffect(() => {
@@ -473,6 +483,81 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     setShowPreviewDialog(false);
     setSelectedTags([]);
     setAttributionNote('');
+  };
+
+  // 触发年度归因弹窗
+  const triggerYearlyAttribution = () => {
+    // 加载已有年度归因记录
+    const existingAttribution = getYearlyAttribution(year);
+    if (existingAttribution) {
+      setYearlySelectedTags(existingAttribution.tags);
+      setYearlyAttributionNote(existingAttribution.note || '');
+      setYearlyKeyMonths(existingAttribution.keyMonths);
+    } else {
+      setYearlySelectedTags([]);
+      setYearlyAttributionNote('');
+      setYearlyKeyMonths([]);
+    }
+    setShowYearlyAttributionDialog(true);
+  };
+
+  // 从月度生成年度归因
+  const generateYearlyFromMonthly = () => {
+    const monthlyAttributions = getMonthlyAttributionsByYear(year);
+    if (monthlyAttributions.length === 0) return;
+
+    // 统计各标签出现次数
+    const tagCounts: Record<string, number> = {};
+    monthlyAttributions.forEach(attr => {
+      attr.tags.forEach(tag => {
+        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+      });
+    });
+
+    // 选择出现次数最多的标签（最多选3个）
+    const sortedTags = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([tag]) => tag as YearlyAttributionTag);
+
+    setYearlySelectedTags(sortedTags);
+  };
+
+  // 保存年度归因
+  const handleSaveYearlyAttribution = () => {
+    const lastYearNetWorth = calculateNetWorth(year - 1, 12);
+    const yearlyChange = netWorth - lastYearNetWorth;
+    const yearlyChangePercent = lastYearNetWorth !== 0 ? (yearlyChange / Math.abs(lastYearNetWorth)) * 100 : 0;
+
+    saveYearlyAttribution(
+      year,
+      netWorth,
+      yearlyChange,
+      yearlyChangePercent,
+      yearlySelectedTags,
+      yearlyAttributionNote || undefined,
+      yearlyKeyMonths
+    );
+
+    setShowYearlyAttributionDialog(false);
+  };
+
+  // 处理年度标签选择（多选）
+  const handleYearlyTagToggle = (tag: YearlyAttributionTag) => {
+    setYearlySelectedTags(prev =>
+      prev.includes(tag)
+        ? prev.filter(t => t !== tag)
+        : [...prev, tag]
+    );
+  };
+
+  // 处理关键月份选择
+  const handleKeyMonthToggle = (month: string) => {
+    setYearlyKeyMonths(prev =>
+      prev.includes(month)
+        ? prev.filter(m => m !== month)
+        : [...prev, month]
+    );
   };
 
   // 处理标签选择（正常波动多选，异常波动单选）
@@ -676,6 +761,18 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               完成本月记账
             </Button>
           </>
+        )}
+
+        {/* 年度归因按钮（仅年度模式） */}
+        {recordMode === 'yearly' && (
+          <Button
+            variant="outline"
+            className="w-full h-12"
+            onClick={triggerYearlyAttribution}
+          >
+            <BarChart3 size={18} className="mr-2" />
+            年度归因
+          </Button>
         )}
 
         {/* 账户余额列表 */}
@@ -1016,6 +1113,124 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               {previewData?.fluctuationLevel === 'abnormal' && selectedTags.length === 0
                 ? '请选择原因'
                 : '保存记录'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 年度归因对话框 */}
+      <Dialog open={showYearlyAttributionDialog} onOpenChange={setShowYearlyAttributionDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{year}年年度归因</DialogTitle>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4">
+            {/* 年度变化摘要 */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="text-center mb-3">
+                <div className="text-xs text-gray-400 mb-1">年末净资产</div>
+                <div className="text-2xl font-bold text-sky-600">
+                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(netWorth)}`}
+                </div>
+              </div>
+              <div className="flex items-center justify-center gap-4">
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">较年初</div>
+                  <div className={`font-medium ${change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {hideBalance ? '******' : `${change >= 0 ? '+' : ''}${formatAmountNoSymbol(change)}`}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">变化率</div>
+                  <div className={`font-medium ${changePercent >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {hideBalance ? '******' : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(1)}%`}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 关键月份 */}
+            <div>
+              <div className="text-sm text-gray-600 mb-2">关键月份（可选）</div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+                  <button
+                    key={month}
+                    onClick={() => handleKeyMonthToggle(String(month))}
+                    className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                      yearlyKeyMonths.includes(String(month))
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {month}月
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 年度标签选择 */}
+            <div>
+              <div className="text-sm text-gray-600 mb-2">选择原因（可选）</div>
+              <div className="flex flex-wrap gap-2">
+                {YEARLY_TAGS.map((tag) => {
+                  const isSelected = yearlySelectedTags.includes(tag.value);
+                  return (
+                    <button
+                      key={tag.value}
+                      onClick={() => handleYearlyTagToggle(tag.value)}
+                      className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1 transition-colors ${
+                        isSelected
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <span>{tag.emoji}</span>
+                      <span>{tag.label}</span>
+                      {isSelected && <Check size={14} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 备注输入 */}
+            <div>
+              <div className="text-sm text-gray-600 mb-2">详细备注（可选）</div>
+              <textarea
+                value={yearlyAttributionNote}
+                onChange={(e) => setYearlyAttributionNote(e.target.value)}
+                placeholder="添加年度总结说明..."
+                className="w-full p-3 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={3}
+              />
+            </div>
+
+            {/* 从月度生成按钮 */}
+            <Button
+              variant="outline"
+              onClick={generateYearlyFromMonthly}
+              className="w-full"
+            >
+              从月度归因生成
+            </Button>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowYearlyAttributionDialog(false)}
+              className="sm:flex-1"
+            >
+              取消
+            </Button>
+            <Button
+              onClick={handleSaveYearlyAttribution}
+              className="text-white sm:flex-1"
+              style={{ backgroundColor: themeConfig.primary }}
+            >
+              保存年度归因
             </Button>
           </DialogFooter>
         </DialogContent>
