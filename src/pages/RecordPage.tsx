@@ -4,8 +4,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
-import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag, AccountSnapshot } from '@/types';
-import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
+import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
+import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -18,7 +18,6 @@ import {
   calculateFluctuationLevel,
   saveYearlyAttribution,
   getYearlyAttribution,
-  getAccountSnapshotsByMonth,
   getMonthlyAttributionsByYear,
 } from '@/lib/storage';
 import {

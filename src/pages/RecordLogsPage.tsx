@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, BarChart3, Calendar, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Calendar, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
-import type { PageRoute, RecordLog, RecordMode, MonthlyAttribution, YearlyAttribution, AccountSnapshot } from '@/types';
+import type { PageRoute, RecordLog, RecordMode, MonthlyAttribution, YearlyAttribution } from '@/types';
 import {
   getRecordLogs,
   formatAmountNoSymbol,
@@ -14,15 +14,13 @@ import {
   saveRecordLogsExpandedGroups,
   getAllAttributions,
   getAllYearlyAttributions,
-  getYearlyAttribution,
-  getMonthlyAttribution,
   getAccountSnapshotsByMonth,
-  calculateNetWorth,
-  getMonthlyAttributionsByYear,
+  getAttributionTagLabel,
+  getAttributionTagEmoji,
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
-import { getAttributionTagLabel, getAttributionTagEmoji, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
+import { calculateTotalAssets, calculateTotalLiabilities, calculateNetWorth } from '@/lib/calculator';
+import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
 
 interface RecordLogsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;

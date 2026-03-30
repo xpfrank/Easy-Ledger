@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle, BarChart3 } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, ThemeType, MonthlyNetWorth, AccountSnapshot } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAccountSnapshotsByMonth } from '@/lib/storage';
+import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAccountSnapshotsByMonth, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { THEMES, getAttributionTagLabel, getAttributionTagEmoji } from '@/types';
+import { THEMES } from '@/types';
 import { Icon } from '@/components/Icon';
 
 interface TrendPageProps {
@@ -25,6 +25,12 @@ interface YearlyNetWorth {
   totalLiabilities: number;
   change: number;
   changePercent: number;
+  attribution?: {
+    tags: string[];
+    note?: string;
+    fluctuationLevel: 'normal' | 'warning' | 'abnormal';
+  };
+  isFiltered?: boolean;
 }
 
 interface TrendPoint extends MonthlyNetWorth {
@@ -36,16 +42,19 @@ interface TrendPoint extends MonthlyNetWorth {
   isFiltered?: boolean;
 }
 
+// 用于选中和悬停数据的联合类型
+type TrendData = TrendPoint | YearlyNetWorth;
+
 export function TrendPage({ onPageChange }: TrendPageProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('12');
   const [trendType, setTrendType] = useState<TrendType>('monthly');
   const [showTrendDropdown, setShowTrendDropdown] = useState(false);
   const [monthlyHistory, setMonthlyHistory] = useState<TrendPoint[]>([]);
   const [yearlyHistory, setYearlyHistory] = useState<YearlyNetWorth[]>([]);
-  const [selectedData, setSelectedData] = useState<TrendPoint | null>(null);
+  const [selectedData, setSelectedData] = useState<TrendData | null>(null);
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [hideBalance, setHideBalance] = useState(false);
-  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: TrendPoint } | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: TrendData } | null>(null);
   const [filterTag, setFilterTag] = useState<FilterTag>('all');
   const [expandedSnapshots, setExpandedSnapshots] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
