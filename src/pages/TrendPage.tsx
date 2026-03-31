@@ -69,15 +69,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
-  // 获取节点样式（根据变化幅度）- 优化视觉层级，精致小点设计
+  // 获取节点样式（根据变化幅度）- 精致小点设计
   const getNodeStyle = (changePercent: number, isFiltered: boolean): {
     size: number;
     color: string;
     pulse: boolean;
-    pulseColor: string;
-    isAbnormal: boolean;
-    // 新增：脉冲外圈参数
-    pulseRingSize: number;
     strokeWidth: number;
   } => {
     const absPercent = Math.abs(changePercent);
@@ -88,23 +84,17 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         size: 2,
         color: '#d1d5db',
         pulse: false,
-        pulseColor: 'transparent',
-        isAbnormal: false,
-        pulseRingSize: 0,
         strokeWidth: 0
       };
     }
 
     if (absPercent > 30) {
-      // 异常波动：6px精致小圆点 + 独立脉冲光环（使用主题色）
+      // 异常波动：5px精致小圆点 + 轻微扩散脉冲动画
       return {
         size: 5,
         color: themeConfig.primary,
         pulse: true,
-        pulseColor: themeConfig.primary,
-        isAbnormal: true,
-        pulseRingSize: 14, // 脉冲外圈直径，约节点3倍
-        strokeWidth: 1.5
+        strokeWidth: 1
       };
     } else if (absPercent > 10) {
       // 警告波动：4px精致小圆点
@@ -112,9 +102,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         size: 4,
         color: themeConfig.primary,
         pulse: false,
-        pulseColor: 'transparent',
-        isAbnormal: false,
-        pulseRingSize: 0,
         strokeWidth: 1
       };
     } else {
@@ -123,9 +110,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         size: 3,
         color: themeConfig.primary,
         pulse: false,
-        pulseColor: 'transparent',
-        isAbnormal: false,
-        pulseRingSize: 0,
         strokeWidth: 0
       };
     }
@@ -751,16 +735,15 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           <stop offset="100%" stopColor={themeConfig.primary} />
                         </linearGradient>
                         
-                        {/* 脉冲动画定义 - 精致柔和的外发光效果 */}
+                        {/* 脉冲动画定义 - 精致的小点扩散效果 */}
                         <style>{`
-                          @keyframes pulse-ring {
-                            0% { transform: scale(0.8); opacity: 0.5; }
-                            50% { transform: scale(1.5); opacity: 0; }
-                            100% { transform: scale(0.8); opacity: 0.5; }
+                          @keyframes pulse-dot {
+                            0% { r: 5; opacity: 1; }
+                            50% { r: 7; opacity: 0.6; }
+                            100% { r: 5; opacity: 1; }
                           }
-                          .pulse-animation {
-                            animation: pulse-ring 2s ease-in-out infinite;
-                            transform-origin: center;
+                          .pulse-dot {
+                            animation: pulse-dot 2s ease-in-out infinite;
                           }
                         `}</style>
                       </defs>
@@ -806,33 +789,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {/* 可见的数据点 */}
                             {isValidPoint ? (
                               <>
-                                        {/* 脉冲动画光环（独立外圈，不影响节点本体） */}
-                                {nodeStyle.pulse && (
-                                  <>
-                                    <circle
-                                      cx={point.x}
-                                      cy={point.y}
-                                      r={nodeStyle.pulseRingSize}
-                                      fill="none"
-                                      stroke={nodeStyle.pulseColor}
-                                      strokeWidth="1"
-                                      opacity="0.3"
-                                      className="pulse-animation"
-                                    />
-                                    <circle
-                                      cx={point.x}
-                                      cy={point.y}
-                                      r={nodeStyle.pulseRingSize}
-                                      fill="none"
-                                      stroke={nodeStyle.pulseColor}
-                                      strokeWidth="1"
-                                      opacity="0.3"
-                                      className="pulse-animation"
-                                      style={{ animationDelay: '0.8s' }}
-                                    />
-                                  </>
-                                )}
-
                                 {/* 普通/警告节点：无白边或极细白边 */}
                                 {nodeStyle.strokeWidth > 0 && (
                                   <circle
@@ -844,13 +800,13 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                   />
                                 )}
 
-                                {/* 节点本体 - 精致小点 */}
+                                {/* 节点本体 - 精致小点（脉冲动画在内部，5px→7px 轻微扩散） */}
                                 <circle
                                   cx={point.x}
                                   cy={point.y}
-                                  r={isSelected ? nodeStyle.size + 1 : (isHovered ? nodeStyle.size + 0.5 : nodeStyle.size)}
+                                  r={nodeStyle.size}
                                   fill={nodeStyle.color}
-                                  className="cursor-pointer transition-all duration-200"
+                                  className={`cursor-pointer ${nodeStyle.pulse ? 'pulse-dot' : 'transition-all duration-200'}`}
                                   onMouseEnter={() => setHoveredPoint(point)}
                                   onClick={() => setSelectedData(point.data)}
                                 />
