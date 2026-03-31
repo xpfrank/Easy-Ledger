@@ -97,7 +97,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
     if (absPercent > 30) {
       // 异常波动：6px精致小圆点 + 独立脉冲光环（使用主题色）
-      const isPositive = changePercent > 0;
       return {
         size: 5,
         color: themeConfig.primary,
@@ -498,23 +497,13 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       // 月度趋势：智能显示标签，带年份感知
       const totalPoints = validPoints.length;
       let lastYear = -1;
-      
+
       validPoints.forEach((point, index) => {
         const data = point.data as TrendPoint;
         const isFirst = index === 0;
         const isLast = index === totalPoints - 1;
         const isYearBoundary = data.year !== lastYear;
-        
-        // 年份边界：显示年份标签
-        if (isYearBoundary && !isFirst) {
-          labels.push({
-            x: point.x,
-            label: `${data.year}`,
-            isYear: true,
-            isBoundary: true
-          });
-        }
-        
+
         // 常规月份标签显示策略
         let shouldShowMonth = false;
         if (totalPoints <= 8) {
@@ -524,16 +513,42 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         } else {
           shouldShowMonth = index % 3 === 0 || isFirst || isLast;
         }
-        
-        // 避免年份边界和月份标签重叠
-        if (shouldShowMonth && !isYearBoundary) {
+
+        // 年份边界：显示年份 + 月份组合（如"1月 2026"），避免月份被吞掉
+        if (isYearBoundary && !isFirst) {
+          if (data.month === 1) {
+            // 1月：显示"1月 2026"，年份单独放上方
+            labels.push({
+              x: point.x,
+              label: `${data.month}月`,
+              isYear: false,
+              isBoundary: true
+            });
+            // 在更上方单独添加年份标签
+            labels.push({
+              x: point.x,
+              label: `${data.year}`,
+              isYear: true,
+              isBoundary: true
+            });
+          } else {
+            // 其他跨年月份：正常显示月份，年份在下方
+            labels.push({
+              x: point.x,
+              label: `${data.month}月`,
+              isYear: false,
+              isBoundary: true
+            });
+          }
+        } else if (shouldShowMonth) {
+          // 常规月份标签显示
           labels.push({
             x: point.x,
             label: `${data.month}月`,
             isYear: false
           });
         }
-        
+
         lastYear = data.year;
       });
     }
@@ -917,13 +932,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                     {xAxisLabels.map((label, index) => (
                       <span
                         key={index}
-                        className={`absolute transform -translate-x-1/2 ${label.isYear ? 'font-semibold text-gray-600' : ''}`}
-                        style={{ 
+                        className={`absolute whitespace-nowrap ${label.isYear ? 'font-semibold text-gray-600' : ''}`}
+                        style={{
                           left: `${label.x}%`,
+                          transform: 'translateX(-50%)',
                         }}
                       >
                         {label.isBoundary ? (
-                          <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">
+                          <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] inline-block">
                             {label.label}
                           </span>
                         ) : (
