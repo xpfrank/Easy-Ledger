@@ -69,58 +69,68 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
-  // 获取节点样式（根据变化幅度）- 优化视觉层级
-  const getNodeStyle = (changePercent: number, isFiltered: boolean): { 
-    size: number; 
-    color: string; 
-    pulse: boolean; 
+  // 获取节点样式（根据变化幅度）- 优化视觉层级，精致小点设计
+  const getNodeStyle = (changePercent: number, isFiltered: boolean): {
+    size: number;
+    color: string;
+    pulse: boolean;
     pulseColor: string;
     isAbnormal: boolean;
+    // 新增：脉冲外圈参数
+    pulseRingSize: number;
+    strokeWidth: number;
   } => {
     const absPercent = Math.abs(changePercent);
 
     if (!isFiltered && filterTag !== 'all') {
-      // 非目标月份：更小的灰色空心点
-      return { 
-        size: 3, 
-        color: '#d1d5db', 
+      // 非目标月份：极小灰色点
+      return {
+        size: 2,
+        color: '#d1d5db',
         pulse: false,
         pulseColor: 'transparent',
-        isAbnormal: false
+        isAbnormal: false,
+        pulseRingSize: 0,
+        strokeWidth: 0
       };
     }
 
     if (absPercent > 30) {
-      // 异常波动：脉冲动画 + 品牌色
-      const isPeak = changePercent > 0;
-      return {
-        size: 6,
-        color: isPeak ? '#52c41a' : '#ff4d4f',
-        pulse: true,
-        pulseColor: isPeak ? 'rgba(82, 196, 26, 0.6)' : 'rgba(255, 77, 79, 0.6)',
-        isAbnormal: true
-      };
-    } else if (absPercent > 10) {
-      // 警告波动：稍大的圆点，无脉冲
+      // 异常波动：6px精致小圆点 + 独立脉冲光环（使用主题色）
+      const isPositive = changePercent > 0;
       return {
         size: 5,
-        color: changePercent > 0 ? '#52c41a' : '#ff4d4f',
-        pulse: false,
-        pulseColor: 'transparent',
-        isAbnormal: false
+        color: themeConfig.primary,
+        pulse: true,
+        pulseColor: themeConfig.primary,
+        isAbnormal: true,
+        pulseRingSize: 14, // 脉冲外圈直径，约节点3倍
+        strokeWidth: 1.5
       };
-    } else {
-      // 正常波动：精致小圆点
+    } else if (absPercent > 10) {
+      // 警告波动：4px精致小圆点
       return {
         size: 4,
         color: themeConfig.primary,
         pulse: false,
         pulseColor: 'transparent',
-        isAbnormal: false
+        isAbnormal: false,
+        pulseRingSize: 0,
+        strokeWidth: 1
+      };
+    } else {
+      // 正常波动：3px超精致小圆点，无描边，融入线条
+      return {
+        size: 3,
+        color: themeConfig.primary,
+        pulse: false,
+        pulseColor: 'transparent',
+        isAbnormal: false,
+        pulseRingSize: 0,
+        strokeWidth: 0
       };
     }
   };
-
   // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
   const getConsistentNetWorthHistory = (months: number): TrendPoint[] => {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
@@ -726,15 +736,15 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           <stop offset="100%" stopColor={themeConfig.primary} />
                         </linearGradient>
                         
-                        {/* 脉冲动画定义 */}
+                        {/* 脉冲动画定义 - 精致柔和的外发光效果 */}
                         <style>{`
                           @keyframes pulse-ring {
-                            0% { transform: scale(1); opacity: 0.6; }
-                            50% { transform: scale(2.2); opacity: 0; }
-                            100% { transform: scale(1); opacity: 0.6; }
+                            0% { transform: scale(0.8); opacity: 0.5; }
+                            50% { transform: scale(1.5); opacity: 0; }
+                            100% { transform: scale(0.8); opacity: 0.5; }
                           }
                           .pulse-animation {
-                            animation: pulse-ring 2.5s ease-in-out infinite;
+                            animation: pulse-ring 2s ease-in-out infinite;
                             transform-origin: center;
                           }
                         `}</style>
@@ -781,50 +791,66 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {/* 可见的数据点 */}
                             {isValidPoint ? (
                               <>
-                                {/* 脉冲动画光环（仅异常波动） */}
+                                        {/* 脉冲动画光环（独立外圈，不影响节点本体） */}
                                 {nodeStyle.pulse && (
+                                  <>
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={nodeStyle.pulseRingSize}
+                                      fill="none"
+                                      stroke={nodeStyle.pulseColor}
+                                      strokeWidth="1"
+                                      opacity="0.3"
+                                      className="pulse-animation"
+                                    />
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={nodeStyle.pulseRingSize}
+                                      fill="none"
+                                      stroke={nodeStyle.pulseColor}
+                                      strokeWidth="1"
+                                      opacity="0.3"
+                                      className="pulse-animation"
+                                      style={{ animationDelay: '0.8s' }}
+                                    />
+                                  </>
+                                )}
+
+                                {/* 普通/警告节点：无白边或极细白边 */}
+                                {nodeStyle.strokeWidth > 0 && (
                                   <circle
                                     cx={point.x}
                                     cy={point.y}
-                                    r={nodeStyle.size}
-                                    fill="none"
-                                    stroke={nodeStyle.pulseColor}
-                                    strokeWidth="2"
-                                    className="pulse-animation"
+                                    r={nodeStyle.size + nodeStyle.strokeWidth}
+                                    fill="#ffffff"
+                                    className="transition-all duration-200"
                                   />
                                 )}
-                                
-                                {/* 外圈白边 - 选中时加粗 */}
+
+                                {/* 节点本体 - 精致小点 */}
                                 <circle
                                   cx={point.x}
                                   cy={point.y}
-                                  r={isSelected ? nodeStyle.size + 3 : (isHovered ? nodeStyle.size + 2 : nodeStyle.size + 1.5)}
-                                  fill="#ffffff"
-                                  className="transition-all duration-200"
-                                />
-                                
-                                {/* 内圈彩色 - 选中时放大 */}
-                                <circle
-                                  cx={point.x}
-                                  cy={point.y}
-                                  r={isSelected ? nodeStyle.size + 1.5 : (isHovered ? nodeStyle.size + 1 : nodeStyle.size)}
+                                  r={isSelected ? nodeStyle.size + 1 : (isHovered ? nodeStyle.size + 0.5 : nodeStyle.size)}
                                   fill={nodeStyle.color}
                                   className="cursor-pointer transition-all duration-200"
                                   onMouseEnter={() => setHoveredPoint(point)}
                                   onClick={() => setSelectedData(point.data)}
                                 />
-                                
-                                {/* 选中状态指示器 */}
+
+                                {/* 选中状态：极细虚线环（1px） */}
                                 {isSelected && (
                                   <circle
                                     cx={point.x}
                                     cy={point.y}
-                                    r={nodeStyle.size + 4}
+                                    r={nodeStyle.size + 3}
                                     fill="none"
-                                    stroke={nodeStyle.color}
-                                    strokeWidth="1.5"
-                                    strokeDasharray="3,2"
-                                    opacity="0.6"
+                                    stroke={themeConfig.primary}
+                                    strokeWidth="0.8"
+                                    strokeDasharray="2,1.5"
+                                    opacity="0.7"
                                   />
                                 )}
                               </>
@@ -908,19 +934,19 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   </div>
                 </div>
 
-                {/* 图例说明 - 异常标记叙事性 */}
+                {/* 图例说明 - 异常标记使用主题色 */}
                 {abnormalLegend && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <div className="flex items-center gap-4 text-xs text-gray-500">
                       {abnormalLegend.maxPoint && (
                         <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: themeConfig.primary }}></span>
                           <span>历史最高: {'month' in abnormalLegend.maxPoint ? `${abnormalLegend.maxPoint.month}月` : ''} {formatBalance(abnormalLegend.maxPoint.netWorth)}</span>
                         </div>
                       )}
                       {abnormalLegend.hasBoth && abnormalLegend.minPoint && (
                         <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                          <span className="w-2 h-2 rounded-full border-2 animate-pulse" style={{ borderColor: themeConfig.primary }}></span>
                           <span>需关注低谷: {'month' in abnormalLegend.minPoint ? `${abnormalLegend.minPoint.month}月` : ''}</span>
                         </div>
                       )}
