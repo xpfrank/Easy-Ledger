@@ -770,7 +770,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                       {chartData?.points.map((point, index) => {
                         const nodeStyle = getNodeStyle(point.data.changePercent, point.data.isFiltered || false);
                         const isValidPoint = !point.data.isFiltered;
-                        const isHovered = hoveredPoint?.index === index;
                         const isSelected = selectedData === point.data;
                         
                         return (
