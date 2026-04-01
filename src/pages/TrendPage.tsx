@@ -605,20 +605,19 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const showYearInLabel = allYears.size > 1;
 
     // Bug 1修复：返回包含完整年月信息的高低谷数据
-    const maxPointInfo = {
-      year: maxPoint.year,
-      month: ('month' in maxPoint) ? maxPoint.month : 1,
-      netWorth: maxPoint.netWorth,
-      showYear: showYearInLabel
-    };
+	const maxPointInfo: LowPointInfo & { showYear: boolean } = {
+	  year: maxPoint.year,
+	  month: ('month' in maxPoint) ? (maxPoint as TrendPoint).month : 1,
+	  netWorth: maxPoint.netWorth,
+	  showYear: showYearInLabel
+	};
 
-    const minPointInfo: LowPointInfo & { showYear: boolean } = {
-      year: minPoint.year,
-      month: ('month' in minPoint) ? minPoint.month : 1,
-      netWorth: minPoint.netWorth,
-      showYear: showYearInLabel
-    };
-
+	const minPointInfo: LowPointInfo & { showYear: boolean } = {
+	  year: minPoint.year,
+	  month: ('month' in minPoint) ? (minPoint as TrendPoint).month : 1,
+	  netWorth: minPoint.netWorth,
+	  showYear: showYearInLabel
+	};
     return {
       maxPoint: maxPointInfo,
       minPoint: minPointInfo,
