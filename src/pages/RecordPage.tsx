@@ -58,10 +58,10 @@ function MonthPicker({
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
-  
+
   const defaultYear = year || currentYear;
   const defaultMonth = month || currentMonth;
-  
+
   const [viewYear, setViewYear] = useState(defaultYear);
   const [viewMonth, setViewMonth] = useState(defaultMonth);
   const [showYearSelector, setShowYearSelector] = useState(false);
@@ -148,7 +148,7 @@ function MonthPicker({
         <button onClick={prevMonth} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
           <ChevronLeft size={20} className="text-gray-500" />
         </button>
-        <button 
+        <button
           onClick={() => setShowYearSelector(true)}
           className="flex items-center gap-1 font-medium text-base hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors"
         >
@@ -178,14 +178,14 @@ function MonthPicker({
               aspect-square flex items-center justify-center rounded-full text-sm transition-all duration-200
               ${day === null ? 'invisible' : ''}
               ${day !== null && viewYear === year && viewMonth === month
-                ? 'text-white shadow-md scale-110' 
+                ? 'text-white shadow-md scale-110'
                 : 'hover:bg-gray-100 hover:scale-105'
               }
             `}
-            style={{ 
-              backgroundColor: day !== null && viewYear === year && viewMonth === month 
-                ? themeConfig.primary 
-                : undefined 
+            style={{
+              backgroundColor: day !== null && viewYear === year && viewMonth === month
+                ? themeConfig.primary
+                : undefined
             }}
           >
             {day}
@@ -194,13 +194,13 @@ function MonthPicker({
       </div>
 
       <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
-        <button 
+        <button
           onClick={onClose}
           className="px-5 py-2.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
         >
           取消
         </button>
-        <button 
+        <button
           onClick={() => {
             onSelect(viewYear, viewMonth);
             onClose();
@@ -243,6 +243,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     change: number;
     changePercent: number;
     fluctuationLevel: FluctuationLevel;
+    topAccountChanges: Array<{ accountId: string; accountName: string; accountIcon: string; change: number }>;
   } | null>(null);
   const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
   const [attributionNote, setAttributionNote] = useState('');
@@ -333,7 +334,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     setBalances(prev => ({ ...prev, [accountId]: numValue }));
     setMonthlyRecord(accountId, year, month, numValue);
     setHasChanges(true);
-    
+
     setTimeout(() => {
       setNetWorth(calculateNetWorth(year, month));
       setTotalAssets(calculateTotalAssets(year, month));
@@ -413,6 +414,27 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     const changePct = lastNW !== 0 ? (changeAmt / Math.abs(lastNW)) * 100 : 0;
     const level = calculateFluctuationLevel(changePct);
 
+    // 计算账户变化 Top 3
+    const allAccounts = getAllAccounts().filter(a => !a.isHidden);
+    const accountChanges = allAccounts.map(account => {
+      const lastRecord = getMonthlyRecord(account.id, lastYear, lastMonthNum);
+      const currentRecord = getMonthlyRecord(account.id, year, month);
+      const lastBalance = lastRecord ? lastRecord.balance : account.balance;
+      const currentBalance = currentRecord ? currentRecord.balance : account.balance;
+      return {
+        accountId: account.id,
+        accountName: account.name,
+        accountIcon: account.icon,
+        change: currentBalance - lastBalance,
+      };
+    });
+
+    // 按变化量绝对值排序，取 Top 3
+    const topAccountChanges = accountChanges
+      .filter(a => a.change !== 0)
+      .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+      .slice(0, 3);
+
     const existingAttribution = getMonthlyAttribution(year, month);
     if (existingAttribution) {
       setSelectedTags(existingAttribution.tags);
@@ -428,6 +450,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
       change: changeAmt,
       changePercent: changePct,
       fluctuationLevel: level,
+      topAccountChanges,
     });
     setShowPreviewDialog(true);
   };
@@ -592,7 +615,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               {recordMode === 'monthly' ? '月度记账' : '年度记账'}
               <ChevronDown size={18} className={`text-gray-400 transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
             </button>
-            
+
             {showModeDropdown && (
               <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-200">
                 <button
@@ -619,7 +642,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             )}
           </div>
         </div>
-        
+
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -629,9 +652,9 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
           >
             {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
           </Button>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             style={{ color: themeConfig.primary }}
             onClick={() => onPageChange('record-logs', { year, month, mode: recordMode })}
           >
@@ -649,9 +672,9 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               <Button variant="ghost" size="icon" onClick={goToPrev} className="hover:bg-gray-100">
                 <ChevronLeft size={24} />
               </Button>
-              
+
               {recordMode === 'monthly' ? (
-                <button 
+                <button
                   className="text-center hover:bg-gray-50 px-6 py-2 rounded-xl transition-all"
                   onClick={() => setShowMonthPicker(true)}
                 >
@@ -664,7 +687,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   <div className="text-xs text-gray-400 mt-1">年度汇总</div>
                 </div>
               )}
-              
+
               <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100">
                 <ChevronRight size={24} />
               </Button>
@@ -673,7 +696,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
         </Card>
 
         {/* 净资产汇总 */}
-        <Card 
+        <Card
           className="text-white shadow-lg"
           style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
         >
@@ -682,23 +705,22 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               <span className="text-white/80 text-sm font-medium">
                 {recordMode === 'monthly' ? '本月净资产' : '年度净资产'}
               </span>
-              <span className={`text-xs px-2 py-1 rounded-full bg-white/20 backdrop-blur-sm ${
+              <span className={`text-sm px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
                 change >= 0 ? 'text-white' : 'text-red-100'
               }`}>
-                较{recordMode === 'monthly' ? '上月' : '上年'} {change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%
+                较{recordMode === 'monthly' ? '上月' : '上年'} {hideBalance ? '******' : (
+                  <>
+                    {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                    <span className="ml-1 opacity-80">
+                      ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                    </span>
+                  </>
+                )}
               </span>
             </div>
-            
+
             <div className="text-3xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
-            
-            <div className="flex items-center gap-2 text-sm">
-              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg ${
-                change >= 0 ? 'bg-white/20 text-white' : 'bg-red-500/30 text-red-100'
-              }`}>
-                {change >= 0 ? '+' : ''}{formatHiddenAmount(change, hideBalance)}
-              </span>
-            </div>
-            
+
             <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-2 gap-4">
               <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
                 <div className="text-xs text-white/70 mb-1">总资产</div>
@@ -714,16 +736,16 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
 
         {/* 悬浮预览按钮 - 固定在底部导航栏上方 */}
         {recordMode === 'monthly' && (
-          <div 
+          <div
             className={`
               fixed left-4 right-4 z-40 transition-all duration-300 ease-in-out
               ${hasChanges ? 'bottom-20 opacity-100 translate-y-0' : 'bottom-0 opacity-0 translate-y-full pointer-events-none'}
             `}
             style={{ bottom: hasChanges ? '80px' : '0px' }}
           >
-            <div 
+            <div
               className="glass-panel rounded-2xl p-1.5 border-2 alert-pulse bg-gradient-to-br from-white to-gray-50 shadow-2xl"
-              style={{ 
+              style={{
                 '--theme-color': themeConfig.primary,
                 borderColor: themeConfig.primary
               } as React.CSSProperties}
@@ -793,7 +815,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               管理账户
             </Button>
           </div>
-          
+
           {accounts.length === 0 ? (
             <Card className="bg-white">
               <CardContent className="p-8 text-center">
@@ -801,7 +823,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   <Icon name="wallet" size={28} className="text-gray-400" />
                 </div>
                 <p className="text-gray-500 font-medium mb-4">还没有账户</p>
-                <Button 
+                <Button
                   className="text-white px-6"
                   style={{ backgroundColor: themeConfig.primary }}
                   onClick={() => onPageChange('account-edit')}
@@ -828,15 +850,15 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div 
+                          <div
                             className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
                               isCredit || isDebt ? 'bg-red-50' : ''
                             }`}
                             style={{ backgroundColor: isCredit || isDebt ? undefined : `${themeConfig.primary}15` }}
                           >
-                            <Icon 
-                              name={account.icon} 
-                              size={18} 
+                            <Icon
+                              name={account.icon}
+                              size={18}
                               className={isCredit || isDebt ? 'text-red-500' : ''}
                               color={isCredit || isDebt ? undefined : themeConfig.primary}
                             />
@@ -851,7 +873,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                             </div>
                           </div>
                         </div>
-                        
+
                         {isEditing ? (
                           <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                             <div className="relative">
@@ -944,7 +966,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             <Button variant="outline" onClick={() => setShowCopyDialog(false)}>
               取消
             </Button>
-            <Button 
+            <Button
               className="text-white"
               style={{ backgroundColor: themeConfig.primary }}
               onClick={handleCopyLastMonth}
@@ -991,14 +1013,14 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
           {previewData && (
             <div className="py-4 space-y-5">
               {/* 变化摘要卡片 */}
-              <div 
+              <div
                 className="rounded-xl p-5 text-white"
-                style={{ 
+                style={{
                   background: `linear-gradient(135deg, ${
                     previewData.change >= 0 ? '#22c55e' : '#ef4444'
                   } 0%, ${
                     previewData.change >= 0 ? '#16a34a' : '#dc2626'
-                  } 100%)` 
+                  } 100%)`
                 }}
               >
                 <div className="flex items-center justify-between mb-4">
@@ -1007,7 +1029,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                     {getFluctuationLevelLabel(previewData.fluctuationLevel).label}
                   </span>
                 </div>
-                
+
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-center">
                     <div className="text-xs text-white/70 mb-1">上月</div>
@@ -1023,7 +1045,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="text-center pt-3 border-t border-white/20">
                   <span className="text-2xl font-bold">
                     {hideBalance ? '******' : (
@@ -1046,23 +1068,62 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   <span>需关注</span>
                   <span>异常</span>
                 </div>
-                <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
-                  <div className="h-full bg-green-500" style={{ width: '33.33%' }} />
-                  <div className="h-full bg-yellow-500" style={{ width: '33.33%' }} />
-                  <div className="h-full bg-red-500" style={{ width: '33.34%' }} />
+                <div className="relative">
+                  <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
+                    <div className="h-full bg-green-500" style={{ width: '33.33%' }} />
+                    <div className="h-full bg-yellow-500" style={{ width: '33.33%' }} />
+                    <div className="h-full bg-red-500" style={{ width: '33.34%' }} />
+                  </div>
+                  <div
+                    className="absolute top-0 w-4 h-3 -ml-2"
+                    style={{
+                      left: `${Math.min(Math.max(Math.abs(previewData.changePercent), 0), 100)}%`,
+                    }}
+                  >
+                    <div className="w-4 h-4 bg-white border-2 rounded-full shadow-md -mt-0.5" style={{ borderColor: themeConfig.primary }} />
+                  </div>
                 </div>
-                <div
-                  className="relative h-3 -mt-3"
-                  style={{
-                    marginLeft: `${Math.min(Math.max(Math.abs(previewData.changePercent), 0), 100)}%`,
-                  }}
-                >
-                  <div className="w-4 h-4 bg-white border-2 rounded-full shadow-md" style={{ borderColor: themeConfig.primary }} />
-                </div>
-                <div className="text-center text-xs text-gray-400 mt-2">
+                <div className="text-center text-xs text-gray-400 mt-3">
                   当前波动: {Math.abs(previewData.changePercent).toFixed(1)}%
                 </div>
               </div>
+
+              {/* 账户变化 Top 3 */}
+              {previewData.topAccountChanges.length > 0 && (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="text-sm font-medium text-gray-700 mb-3">变化最大的账户</div>
+                  <div className="space-y-2">
+                    {previewData.topAccountChanges.map((item, index) => (
+                      <div
+                        key={item.accountId}
+                        className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => {
+                          setShowPreviewDialog(false);
+                          onPageChange('account-detail', { accountId: item.accountId });
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center"
+                            style={{ backgroundColor: `${themeConfig.primary}15` }}
+                          >
+                            <Icon name={item.accountIcon} size={16} color={themeConfig.primary} />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{item.accountName}</div>
+                            <div className="text-xs text-gray-400">点击查看详情</div>
+                          </div>
+                        </div>
+                        <div className={`text-sm font-semibold ${
+                          item.change >= 0 ? 'text-green-600' : 'text-red-500'
+                        }`}>
+                          {item.change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(Math.abs(item.change))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 异常波动警告 */}
               {previewData.fluctuationLevel === 'abnormal' && (
@@ -1121,20 +1182,20 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             </div>
           )}
 
-          <DialogFooter className="flex-col sm:flex-row gap-3 pt-4 border-t">
+          <DialogFooter className="flex-row gap-3 pt-4 border-t">
             {previewData?.fluctuationLevel !== 'abnormal' && (
               <Button
                 variant="outline"
                 onClick={handleSkipAttribution}
-                className="sm:flex-1 h-11"
+                className="flex-1 h-11"
               >
-                跳过
+                取消
               </Button>
             )}
             <Button
               onClick={handleSaveAttribution}
               disabled={previewData?.fluctuationLevel === 'abnormal' && selectedTags.length === 0}
-              className="text-white sm:flex-1 h-11 font-semibold transition-all duration-200"
+              className="flex-1 h-11 font-semibold transition-all duration-200"
               style={{
                 backgroundColor: themeConfig.primary,
                 opacity: previewData?.fluctuationLevel === 'abnormal' && selectedTags.length === 0 ? 0.5 : 1
@@ -1157,10 +1218,10 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
 
           <div className="py-4 space-y-5">
             {/* 年度变化摘要 */}
-            <div 
+            <div
               className="rounded-xl p-5 text-white"
-              style={{ 
-                background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` 
+              style={{
+                background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`
               }}
             >
               <div className="text-center mb-4">
