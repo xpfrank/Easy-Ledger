@@ -45,6 +45,13 @@ interface TrendPoint extends MonthlyNetWorth {
 // 用于选中和悬停数据的联合类型
 type TrendData = TrendPoint | YearlyNetWorth;
 
+// 低谷点详细信息接口
+interface LowPointInfo {
+  year: number;
+  month: number;
+  netWorth: number;
+}
+
 export function TrendPage({ onPageChange }: TrendPageProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('12');
   const [trendType, setTrendType] = useState<TrendType>('monthly');
@@ -123,6 +130,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       isMin: point.netWorth === stats.minNetWorth
     };
   };
+
   // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
   const getConsistentNetWorthHistory = (months: number): TrendPoint[] => {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
@@ -297,13 +305,25 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     });
   }, [history, filterTag, trendType]);
 
-  // 计算统计数据
+  // 计算统计数据 - 只计算有效数据点
   const stats = useMemo(() => {
-    if (filteredHistory.length === 0) return null;
+    // Bug 2修复：只使用有效数据点计算统计数据
+    const validData = filteredHistory.filter(h => !h.isFiltered);
 
-    const netWorths = filteredHistory.filter(h => !h.isFiltered).map(h => h.netWorth);
-    if (netWorths.length === 0) return null;
+    if (validData.length === 0) return null;
+    if (validData.length === 1) {
+      // Bug 2修复：只有1个有效节点时，不显示高低谷
+      return {
+        maxNetWorth: validData[0].netWorth,
+        minNetWorth: validData[0].netWorth,
+        avgNetWorth: validData[0].netWorth,
+        totalChange: 0,
+        totalChangePercent: 0,
+        hasOnlyOneValidPoint: true
+      };
+    }
 
+    const netWorths = validData.map(h => h.netWorth);
     const maxNetWorth = Math.max(...netWorths);
     const minNetWorth = Math.min(...netWorths);
     const avgNetWorth = netWorths.reduce((a, b) => a + b, 0) / netWorths.length;
@@ -319,6 +339,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       avgNetWorth,
       totalChange,
       totalChangePercent,
+      hasOnlyOneValidPoint: false
     };
   }, [filteredHistory]);
 
@@ -330,7 +351,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const netWorths = validHistory.map(h => h.netWorth);
     const max = Math.max(...netWorths, 0);
     const min = Math.min(...netWorths, 0);
-    
+
     // 增加上下边距，让曲线不贴边
     const padding = (max - min) * 0.12 || max * 0.12 || 1000;
     const chartMax = max + padding;
@@ -348,35 +369,35 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
     // 生成平滑的 SVG 路径
     const validPoints = points.filter(p => !p.data.isFiltered);
-    
+
     // 生成平滑曲线 - 使用 Catmull-Rom 样条
     const generateSmoothPath = (points: typeof validPoints) => {
       if (points.length === 0) return '';
       if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-      
+
       let path = `M ${points[0].x} ${points[0].y}`;
-      
+
       for (let i = 0; i < points.length - 1; i++) {
         const curr = points[i];
         const next = points[i + 1];
-        
+
         // 计算控制点，使曲线更平滑
         const tension = 0.35;
         const cp1x = curr.x + (next.x - curr.x) * tension;
         const cp1y = curr.y;
         const cp2x = next.x - (next.x - curr.x) * tension;
         const cp2y = next.y;
-        
+
         path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
       }
-      
+
       return path;
     };
 
     const pathD = generateSmoothPath(validPoints);
 
     // 生成填充区域路径 - 添加渐变填充
-    const fillD = validPoints.length > 0 
+    const fillD = validPoints.length > 0
       ? pathD + ` L ${validPoints[validPoints.length - 1].x} 100 L ${validPoints[0].x} 100 Z`
       : '';
 
@@ -471,12 +492,12 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   // 生成X轴标签 - 年份感知优化
   const xAxisLabels = useMemo(() => {
     if (!chartData) return [];
-    
+
     const validPoints = chartData.validPoints;
     if (validPoints.length === 0) return [];
-    
+
     const labels: { x: number; label: string; isYear: boolean; isBoundary?: boolean }[] = [];
-    
+
     if (trendType === 'yearly') {
       // 年度趋势：显示所有年份
       validPoints.forEach((point) => {
@@ -545,7 +566,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         lastYear = data.year;
       });
     }
-    
+
     return labels;
   }, [chartData, trendType]);
 
@@ -564,15 +585,47 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return getAccountSnapshotsByMonth(selectedData.year, selectedData.month);
   };
 
-  // 获取异常点说明
+  // Bug 1 & Bug 2 修复：获取异常点说明 - 修正低谷识别逻辑
   const getAbnormalLegend = () => {
-    const abnormalPoints = filteredHistory.filter(h => !h.isFiltered && Math.abs(h.changePercent) > 30);
-    if (abnormalPoints.length === 0) return null;
-    
-    const maxPoint = abnormalPoints.reduce((max, p) => p.netWorth > max.netWorth ? p : max, abnormalPoints[0]);
-    const minPoint = abnormalPoints.reduce((min, p) => p.netWorth < min.netWorth ? p : min, abnormalPoints[0]);
-    
-    return { maxPoint, minPoint, hasBoth: maxPoint !== minPoint };
+    // Bug 2修复：只遍历有效数据点，排除isFiltered的节点
+    const validData = filteredHistory.filter(h => !h.isFiltered);
+
+    // Bug 2修复：兜底逻辑 - 若所有节点数据为空或只有1个，隐藏标注
+    if (validData.length <= 1) return null;
+
+    // Bug 2修复：重新计算有效节点的净资产值，精准识别实际最低值
+    const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
+    const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
+
+    // Bug 2修复：确保minPoint有有效的month属性（月度趋势）
+    if (!('month' in minPoint)) return null;
+
+    // Bug 1修复：检查是否需要显示年份（同年度数据可简化）
+    const allYears = new Set(validData.map(p => p.year));
+    const showYearInLabel = allYears.size > 1;
+
+    // Bug 1修复：返回包含完整年月信息的高低谷数据
+    const maxPointInfo = {
+      year: maxPoint.year,
+      month: ('month' in maxPoint) ? maxPoint.month : 1,
+      netWorth: maxPoint.netWorth,
+      showYear: showYearInLabel
+    };
+
+    const minPointInfo: LowPointInfo & { showYear: boolean } = {
+      year: minPoint.year,
+      month: ('month' in minPoint) ? minPoint.month : 1,
+      netWorth: minPoint.netWorth,
+      showYear: showYearInLabel
+    };
+
+    return {
+      maxPoint: maxPointInfo,
+      minPoint: minPointInfo,
+      hasBoth: maxPoint !== minPoint,
+      // Bug 3修复：统一使用主题色
+      themeColor: themeConfig.primary
+    };
   };
 
   const abnormalLegend = getAbnormalLegend();
@@ -743,7 +796,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           <stop offset="0%" stopColor={themeConfig.primary} />
                           <stop offset="100%" stopColor={themeConfig.primary} />
                         </linearGradient>
-                        
+
                         {/* 脉冲动画定义 - 精致的小点扩散效果 */}
                         <style>{`
                           @keyframes pulse-dot {
@@ -804,7 +857,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {isValidPoint ? (
                               <>
                                 {/* 普通/警告节点：悬停/选中时显示小圆点 */}
-                                {shouldShowDot && nodeStyle.size > 0 && (
+                                {shouldShowDot && nodeStyle.size > 0 && !isExtreme && (
                                   <>
                                     {/* 白边背景 */}
                                     <circle
@@ -828,26 +881,26 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                   </>
                                 )}
 
-                                {/* 最高/最低净资产特殊强调 - 始终显示但更精致 */}
+                                {/* Bug 3修复：最高/最低净资产特殊强调 - 统一使用主题色 */}
                                 {isExtreme && (
                                   <>
-                                    {/* 外圈强调效果 */}
+                                    {/* 外圈强调效果 - 统一使用主题色 */}
                                     <circle
                                       cx={point.x}
                                       cy={point.y}
                                       r={4}
                                       fill="none"
-                                      stroke={extreme.isMax ? themeConfig.primary : '#f59e0b'}
+                                      stroke={themeConfig.primary}
                                       strokeWidth="1"
                                       opacity="0.5"
                                     />
-                                    {/* 核心圆点 */}
+                                    {/* 核心圆点 - 统一使用主题色 */}
                                     <circle
                                       cx={point.x}
                                       cy={point.y}
                                       r={2}
-                                      fill={extreme.isMax ? themeConfig.primary : '#f59e0b'}
-                                      className={extreme.isMax ? 'pulse-dot' : ''}
+                                      fill={themeConfig.primary}
+                                      className="pulse-dot"
                                       onMouseEnter={() => setHoveredPoint(point)}
                                       onClick={() => setSelectedData(point.data)}
                                     />
@@ -944,20 +997,28 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   </div>
                 </div>
 
-                {/* 图例说明 - 异常标记使用主题色 */}
+                {/* 图例说明 - Bug 1 & Bug 3 修复：统一颜色 + 完整年月信息 */}
                 {abnormalLegend && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <div className="flex items-center gap-4 text-xs text-gray-500">
                       {abnormalLegend.maxPoint && (
                         <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: themeConfig.primary }}></span>
-                          <span>历史最高: {'month' in abnormalLegend.maxPoint ? `${abnormalLegend.maxPoint.month}月` : ''} {formatBalance(abnormalLegend.maxPoint.netWorth)}</span>
+                          {/* Bug 3修复：统一使用主题色实心圆点 */}
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: abnormalLegend.themeColor }}></span>
+                          <span>
+                            {/* Bug 1修复：显示完整年月信息 */}
+                            历史最高: {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.month}月 ¥{formatBalance(abnormalLegend.maxPoint.netWorth)}
+                          </span>
                         </div>
                       )}
                       {abnormalLegend.hasBoth && abnormalLegend.minPoint && (
                         <div className="flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full border-2 animate-pulse" style={{ borderColor: themeConfig.primary }}></span>
-                          <span>需关注低谷: {'month' in abnormalLegend.minPoint ? `${abnormalLegend.minPoint.month}月` : ''}</span>
+                          {/* Bug 3修复：统一使用主题色，与历史最高一致 */}
+                          <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: abnormalLegend.themeColor }}></span>
+                          <span>
+                            {/* Bug 1修复：显示完整年月信息 */}
+                            需关注低谷: {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.month}月
+                          </span>
                         </div>
                       )}
                     </div>
@@ -971,7 +1032,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             </Card>
 
             {/* 数据摘要 */}
-            {stats && (
+            {stats && !stats.hasOnlyOneValidPoint && (
               <div className="grid grid-cols-2 gap-3">
                 <Card className="bg-white shadow-sm">
                   <CardContent className="p-4">

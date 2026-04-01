@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Edit3, Trash2, TrendingUp, History, ChevronRight, TrendingDown } from 'lucide-react';
+import { ArrowLeft, Edit3, Trash2, TrendingUp, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
