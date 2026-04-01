@@ -69,7 +69,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
-  // 获取节点样式 - 默认不显示，悬停/选中时显示小圆点
+  // 获取节点样式 - 默认不显示，悬停/选中时显示小圆点（参考 recharts 默认 3px）
   const getNodeStyle = (changePercent: number, isFiltered: boolean): {
     size: number;
     color: string;
@@ -91,21 +91,21 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
 
     if (absPercent > 30) {
-      // 异常波动：4px小圆点 + 轻微扩散脉冲动画
+      // 异常波动：3px小圆点 + 轻微扩散脉冲动画
       return {
-        size: 4,
+        size: 3,
         color: themeConfig.primary,
         pulse: true,
         strokeWidth: 1,
         visible: false // 默认不显示，只有交互时才显示
       };
     } else if (absPercent > 10) {
-      // 警告波动：3px小圆点
+      // 警告波动：2px超精致小圆点
       return {
-        size: 3,
+        size: 2,
         color: themeConfig.primary,
         pulse: false,
-        strokeWidth: 1,
+        strokeWidth: 0.5,
         visible: false
       };
     } else {
@@ -752,9 +752,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         {/* 脉冲动画定义 - 精致的小点扩散效果 */}
                         <style>{`
                           @keyframes pulse-dot {
-                            0% { r: 5; opacity: 1; }
-                            50% { r: 7; opacity: 0.6; }
-                            100% { r: 5; opacity: 1; }
+                            0% { r: 2; opacity: 1; }
+                            50% { r: 4; opacity: 0.6; }
+                            100% { r: 2; opacity: 1; }
                           }
                           .pulse-dot {
                             animation: pulse-dot 2s ease-in-out infinite;
@@ -840,17 +840,17 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                     <circle
                                       cx={point.x}
                                       cy={point.y}
-                                      r={6}
+                                      r={4}
                                       fill="none"
                                       stroke={extreme.isMax ? themeConfig.primary : '#f59e0b'}
-                                      strokeWidth="1.5"
-                                      opacity="0.6"
+                                      strokeWidth="1"
+                                      opacity="0.5"
                                     />
                                     {/* 核心圆点 */}
                                     <circle
                                       cx={point.x}
                                       cy={point.y}
-                                      r={3}
+                                      r={2}
                                       fill={extreme.isMax ? themeConfig.primary : '#f59e0b'}
                                       className={extreme.isMax ? 'pulse-dot' : ''}
                                       onMouseEnter={() => setHoveredPoint(point)}
