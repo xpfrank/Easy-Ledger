@@ -69,13 +69,12 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
-  // 获取节点样式 - 默认不显示，悬停/选中时显示小圆点（参考 recharts 默认 3px）
+  // 获取节点样式 - 默认不显示，悬停/选中时显示小圆点（缩小约一半）
   const getNodeStyle = (changePercent: number, isFiltered: boolean): {
     size: number;
     color: string;
     pulse: boolean;
     strokeWidth: number;
-    visible: boolean;
   } => {
     const absPercent = Math.abs(changePercent);
 
@@ -85,37 +84,33 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         size: 0,
         color: '#d1d5db',
         pulse: false,
-        strokeWidth: 0,
-        visible: false
+        strokeWidth: 0
       };
     }
 
     if (absPercent > 30) {
-      // 异常波动：3px小圆点 + 轻微扩散脉冲动画
+      // 异常波动：1.5px小圆点 + 轻微扩散脉冲动画
       return {
-        size: 3,
+        size: 1.5,
         color: themeConfig.primary,
         pulse: true,
-        strokeWidth: 1,
-        visible: false // 默认不显示，只有交互时才显示
+        strokeWidth: 0.5
       };
     } else if (absPercent > 10) {
-      // 警告波动：2px超精致小圆点
+      // 警告波动：1px超精致小圆点
       return {
-        size: 2,
+        size: 1,
         color: themeConfig.primary,
         pulse: false,
-        strokeWidth: 0.5,
-        visible: false
+        strokeWidth: 0.3
       };
     } else {
-      // 正常波动：默认不显示
+      // 正常波动：悬停时显示1px小圆点
       return {
-        size: 0,
+        size: 1,
         color: themeConfig.primary,
         pulse: false,
-        strokeWidth: 0,
-        visible: false
+        strokeWidth: 0.2
       };
     }
   };
