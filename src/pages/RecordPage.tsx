@@ -1093,7 +1093,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                 <div className="bg-gray-50 rounded-xl p-4">
                   <div className="text-sm font-medium text-gray-700 mb-3">变化最大的账户</div>
                   <div className="space-y-2">
-                    {previewData.topAccountChanges.map((item, index) => (
+                    {previewData.topAccountChanges.map((item) => (
                       <div
                         key={item.accountId}
                         className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"

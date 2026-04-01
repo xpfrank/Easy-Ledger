@@ -69,50 +69,64 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
-  // 获取节点样式（根据变化幅度）- 精致小点设计
+  // 获取节点样式 - 默认不显示，悬停/选中时显示小圆点
   const getNodeStyle = (changePercent: number, isFiltered: boolean): {
     size: number;
     color: string;
     pulse: boolean;
     strokeWidth: number;
+    visible: boolean;
   } => {
     const absPercent = Math.abs(changePercent);
 
     if (!isFiltered && filterTag !== 'all') {
-      // 非目标月份：极小灰色点
+      // 非目标月份：不显示
       return {
-        size: 2,
+        size: 0,
         color: '#d1d5db',
         pulse: false,
-        strokeWidth: 0
+        strokeWidth: 0,
+        visible: false
       };
     }
 
     if (absPercent > 30) {
-      // 异常波动：5px精致小圆点 + 轻微扩散脉冲动画
-      return {
-        size: 5,
-        color: themeConfig.primary,
-        pulse: true,
-        strokeWidth: 1
-      };
-    } else if (absPercent > 10) {
-      // 警告波动：4px精致小圆点
+      // 异常波动：4px小圆点 + 轻微扩散脉冲动画
       return {
         size: 4,
         color: themeConfig.primary,
-        pulse: false,
-        strokeWidth: 1
+        pulse: true,
+        strokeWidth: 1,
+        visible: false // 默认不显示，只有交互时才显示
       };
-    } else {
-      // 正常波动：3px超精致小圆点，无描边，融入线条
+    } else if (absPercent > 10) {
+      // 警告波动：3px小圆点
       return {
         size: 3,
         color: themeConfig.primary,
         pulse: false,
-        strokeWidth: 0
+        strokeWidth: 1,
+        visible: false
+      };
+    } else {
+      // 正常波动：默认不显示
+      return {
+        size: 0,
+        color: themeConfig.primary,
+        pulse: false,
+        strokeWidth: 0,
+        visible: false
       };
     }
+  };
+
+  // 检查是否为最高/最低净资产点
+  const isExtremePoint = (point: TrendData): { isMax: boolean; isMin: boolean } => {
+    if (!stats || !('netWorth' in point)) return { isMax: false, isMin: false };
+    return {
+      isMax: point.netWorth === stats.maxNetWorth,
+      isMin: point.netWorth === stats.minNetWorth
+    };
   };
   // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
   const getConsistentNetWorthHistory = (months: number): TrendPoint[] => {
@@ -766,12 +780,18 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         />
                       )}
 
-                      {/* 数据点 - 视觉层级优化 */}
+                      {/* 数据点 - 默认不显示，悬停/选中时显示 */}
                       {chartData?.points.map((point, index) => {
                         const nodeStyle = getNodeStyle(point.data.changePercent, point.data.isFiltered || false);
                         const isValidPoint = !point.data.isFiltered;
                         const isSelected = selectedData === point.data;
-                        
+                        const isHovered = hoveredPoint?.index === index;
+                        const extreme = isExtremePoint(point.data);
+                        const isExtreme = extreme.isMax || extreme.isMin;
+
+                        // 只有悬停、选中或极端点才显示圆点
+                        const shouldShowDot = isValidPoint && (isHovered || isSelected || isExtreme);
+
                         return (
                           <g key={index}>
                             {/* 悬停热区（更大，便于触摸） */}
@@ -784,38 +804,67 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                               onMouseEnter={() => setHoveredPoint(point)}
                               onClick={() => setSelectedData(point.data)}
                             />
-                            
-                            {/* 可见的数据点 */}
+
+                            {/* 可见的数据点 - 默认隐藏，交互时显示 */}
                             {isValidPoint ? (
                               <>
-                                {/* 普通/警告节点：无白边或极细白边 */}
-                                {nodeStyle.strokeWidth > 0 && (
-                                  <circle
-                                    cx={point.x}
-                                    cy={point.y}
-                                    r={nodeStyle.size + nodeStyle.strokeWidth}
-                                    fill="#ffffff"
-                                    className="transition-all duration-200"
-                                  />
+                                {/* 普通/警告节点：悬停/选中时显示小圆点 */}
+                                {shouldShowDot && nodeStyle.size > 0 && (
+                                  <>
+                                    {/* 白边背景 */}
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={nodeStyle.size + nodeStyle.strokeWidth + 1}
+                                      fill="#ffffff"
+                                      className="transition-all duration-200"
+                                    />
+
+                                    {/* 节点本体 */}
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={nodeStyle.size}
+                                      fill={nodeStyle.color}
+                                      className={`cursor-pointer transition-all duration-200 ${nodeStyle.pulse ? 'pulse-dot' : ''}`}
+                                      onMouseEnter={() => setHoveredPoint(point)}
+                                      onClick={() => setSelectedData(point.data)}
+                                    />
+                                  </>
                                 )}
 
-                                {/* 节点本体 - 精致小点（脉冲动画在内部，5px→7px 轻微扩散） */}
-                                <circle
-                                  cx={point.x}
-                                  cy={point.y}
-                                  r={nodeStyle.size}
-                                  fill={nodeStyle.color}
-                                  className={`cursor-pointer ${nodeStyle.pulse ? 'pulse-dot' : 'transition-all duration-200'}`}
-                                  onMouseEnter={() => setHoveredPoint(point)}
-                                  onClick={() => setSelectedData(point.data)}
-                                />
+                                {/* 最高/最低净资产特殊强调 - 始终显示但更精致 */}
+                                {isExtreme && (
+                                  <>
+                                    {/* 外圈强调效果 */}
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={6}
+                                      fill="none"
+                                      stroke={extreme.isMax ? themeConfig.primary : '#f59e0b'}
+                                      strokeWidth="1.5"
+                                      opacity="0.6"
+                                    />
+                                    {/* 核心圆点 */}
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={3}
+                                      fill={extreme.isMax ? themeConfig.primary : '#f59e0b'}
+                                      className={extreme.isMax ? 'pulse-dot' : ''}
+                                      onMouseEnter={() => setHoveredPoint(point)}
+                                      onClick={() => setSelectedData(point.data)}
+                                    />
+                                  </>
+                                )}
 
-                                {/* 选中状态：极细虚线环（1px） */}
-                                {isSelected && (
+                                {/* 选中状态：虚线环 */}
+                                {isSelected && !isExtreme && (
                                   <circle
                                     cx={point.x}
                                     cy={point.y}
-                                    r={nodeStyle.size + 3}
+                                    r={nodeStyle.size + 4}
                                     fill="none"
                                     stroke={themeConfig.primary}
                                     strokeWidth="0.8"
@@ -825,13 +874,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                 )}
                               </>
                             ) : (
-                              /* 过滤掉的点：很小的灰色点 */
-                              <circle
-                                cx={point.x}
-                                cy={point.y}
-                                r="2"
-                                fill="#d1d5db"
-                              />
+                              /* 过滤掉的点：不显示 */
+                              null
                             )}
                           </g>
                         );
