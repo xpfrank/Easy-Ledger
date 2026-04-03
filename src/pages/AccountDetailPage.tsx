@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Edit3, Trash2, TrendingUp, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, ThemeType } from '@/types';
@@ -11,7 +10,6 @@ import {
   getMonthlyRecord,
   formatAmountNoSymbol,
   getSettings,
-  updateAccount,
   deleteAccount,
 } from '@/lib/storage';
 import { getAccountTypeLabel, getAccountHistory, calculateTotalAssets } from '@/lib/calculator';
@@ -165,19 +163,22 @@ function getCreditTrendData(accountId: string, months: number) {
   }));
 }
 
-// 计算年度分割线位置
-function getYearBoundaryIndices(data: any[]): number[] {
-  const indices: number[] = [];
+// 计算年度分割线位置（返回年份边界信息，包含年份和对应的数据索引）
+function getYearBoundaries(data: any[]): { index: number; year: number }[] {
+  const boundaries: { index: number; year: number }[] = [];
   let lastYear = -1;
 
   data.forEach((item, index) => {
-    if (item.year !== lastYear && index > 0) {
-      indices.push(index);
+    if (item.year !== lastYear) {
+      if (index > 0) {
+        // 在年份切换处添加边界（前一年的最后一个数据点之后）
+        boundaries.push({ index, year: item.year });
+      }
+      lastYear = item.year;
     }
-    lastYear = item.year;
   });
 
-  return indices;
+  return boundaries;
 }
 
 export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPageProps) {
@@ -207,20 +208,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
     }
   };
 
-  const handleToggleIncludeInTotal = () => {
-    if (account) {
-      updateAccount(account.id, { includeInTotal: !account.includeInTotal });
-      loadAccountData();
-    }
-  };
-
-  const handleToggleHidden = () => {
-    if (account) {
-      updateAccount(account.id, { isHidden: !account.isHidden });
-      loadAccountData();
-    }
-  };
-
   const handleDelete = () => {
     if (account) {
       deleteAccount(account.id);
@@ -239,8 +226,8 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
   }, [account, trendRange]);
 
   // 计算年度分割线位置
-  const yearBoundaryIndices = useMemo(() => {
-    return getYearBoundaryIndices(trendData);
+  const yearBoundaries = useMemo(() => {
+    return getYearBoundaries(trendData);
   }, [trendData]);
 
   // 计算统计数据
@@ -391,34 +378,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
           </CardContent>
         </Card>
 
-        {/* 配置开关 */}
-        <Card className="bg-white">
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium text-sm">计入总资产</div>
-                <div className="text-xs text-gray-400">该账户余额计入净资产计算</div>
-              </div>
-              <Switch
-                checked={account.includeInTotal}
-                onCheckedChange={handleToggleIncludeInTotal}
-                style={{ backgroundColor: account.includeInTotal ? themeConfig.primary : undefined }}
-              />
-            </div>
-            <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
-              <div>
-                <div className="font-medium text-sm">隐藏账户</div>
-                <div className="text-xs text-gray-400">不在首页账户列表中显示</div>
-              </div>
-              <Switch
-                checked={account.isHidden}
-                onCheckedChange={handleToggleHidden}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 新增：账户资产贡献度模块 */}
+        {/* 账户资产贡献度模块 */}
         <Card className="bg-white">
           <CardContent className="p-4 space-y-4">
             {/* 模块标题 */}
@@ -475,15 +435,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                 较上月：暂无历史数据
               </div>
             )}
-
-            {/* 趋势入口 */}
-            <button
-              className="flex items-center justify-between w-full pt-3 border-t border-gray-100 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-              onClick={() => onPageChange('account-flow', { accountId: account.id, mode: 'contribution' })}
-            >
-              <span>查看该账户月度变化趋势</span>
-              <ChevronRight size={16} className="text-gray-400" />
-            </button>
           </CardContent>
         </Card>
 
@@ -531,22 +482,17 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '欠款']}
                           labelFormatter={(l) => `${l}`}
                         />
-                        {/* 年度分割线 */}
-                        {yearBoundaryIndices.map((index) => {
-                          const dataPoint = trendData[index];
+                        {/* 年度分割线 - 参考 TrendPage.tsx 的实现方式 */}
+                        {yearBoundaries.map((boundary) => {
+                          const dataPoint = trendData[boundary.index];
                           if (dataPoint) {
                             return (
                               <ReferenceLine
-                                key={`boundary-${index}`}
+                                key={`boundary-${boundary.index}`}
                                 x={dataPoint.label}
                                 stroke="#d1d5db"
                                 strokeDasharray="3 3"
-                                label={{
-                                  value: String(dataPoint.year),
-                                  position: 'bottom',
-                                  fill: '#9ca3af',
-                                  fontSize: 10,
-                                }}
+                                ifOverflow="extendDomain"
                               />
                             );
                           }
@@ -580,22 +526,17 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '余额']}
                           labelFormatter={(l) => `${l}`}
                         />
-                        {/* 年度分割线 */}
-                        {yearBoundaryIndices.map((index) => {
-                          const dataPoint = trendData[index];
+                        {/* 年度分割线 - 参考 TrendPage.tsx 的实现方式 */}
+                        {yearBoundaries.map((boundary) => {
+                          const dataPoint = trendData[boundary.index];
                           if (dataPoint) {
                             return (
                               <ReferenceLine
-                                key={`boundary-${index}`}
+                                key={`boundary-${boundary.index}`}
                                 x={dataPoint.label}
                                 stroke="#d1d5db"
                                 strokeDasharray="3 3"
-                                label={{
-                                  value: String(dataPoint.year),
-                                  position: 'bottom',
-                                  fill: '#9ca3af',
-                                  fontSize: 10,
-                                }}
+                                ifOverflow="extendDomain"
                               />
                             );
                           }
