@@ -1153,8 +1153,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.month}月
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.themeColor }}>
-                            {/* 问题2修复：金额超过6位数用万为单位显示 */}
-                            ¥{abnormalLegend.maxPoint.netWorth >= 1000000 
+                            {/* 问题2修复：金额超过10万用万为单位显示 */}
+                            ¥{abnormalLegend.maxPoint.netWorth >= 100000 
                               ? (abnormalLegend.maxPoint.netWorth / 10000).toFixed(1) + '万'
                               : formatBalance(abnormalLegend.maxPoint.netWorth)}
                           </span>
@@ -1175,8 +1175,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.month}月
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.lowPointColor }}>
-                            {/* 问题2修复：金额超过6位数用万为单位显示 */}
-                            ¥{abnormalLegend.minPoint.netWorth >= 1000000 
+                            {/* 问题2修复：金额超过10万用万为单位显示 */}
+                            ¥{abnormalLegend.minPoint.netWorth >= 100000 
                               ? (abnormalLegend.minPoint.netWorth / 10000).toFixed(1) + '万'
                               : formatBalance(abnormalLegend.minPoint.netWorth)}
                           </span>
