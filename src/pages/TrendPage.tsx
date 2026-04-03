@@ -131,13 +131,24 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
   };
 
-  // 检查是否为最高/最低净资产点（问题1修复：只识别全局最高和全局最低）
+  // 问题1修复：计算极值点信息（移到stats之后，避免闭包问题）
+  const extremePointsInfo = useMemo(() => {
+    const validData = filteredHistory.filter(h => !h.isFiltered);
+    if (validData.length === 0) return { maxPoint: null as TrendData | null, minPoint: null as TrendData | null };
+
+    const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
+    const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
+
+    return { maxPoint, minPoint };
+  }, [filteredHistory]);
+
+  // 检查是否为最高/最低净资产点（问题1修复：使用extremePointsInfo判断）
   const isExtremePoint = (point: TrendData): { isMax: boolean; isMin: boolean } => {
-    if (!stats || !('netWorth' in point)) return { isMax: false, isMin: false };
+    if (!('netWorth' in point)) return { isMax: false, isMin: false };
     // 只判断是否是全局最高点和全局最低点
     return {
-      isMax: point.netWorth === stats.maxNetWorth,
-      isMin: point.netWorth === stats.minNetWorth
+      isMax: extremePointsInfo.maxPoint !== null && point.netWorth === extremePointsInfo.maxPoint.netWorth,
+      isMin: extremePointsInfo.minPoint !== null && point.netWorth === extremePointsInfo.minPoint.netWorth
     };
   };
 
@@ -1123,48 +1134,55 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   </div>
                 </div>
 
-                {/* 图例说明 - 问题1 & 问题2修复：高低谷颜色区分 + 上下分行排版 */}
+                {/* 图例说明 - 问题1 & 问题2修复：高低谷颜色区分 + 左右排版 + 金额格式化 */}
                 {abnormalLegend && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                    {/* 最高点 - 上行 */}
-                    {abnormalLegend.maxPoint && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5">
-                          {/* 问题1修复：最高点使用主题色，带描边 */}
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm"
-                            style={{ backgroundColor: abnormalLegend.themeColor }}
-                          ></span>
-                          <span className="text-xs font-medium text-gray-600">最高点</span>
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-center gap-4 sm:gap-6">
+                      {/* 最高点 - 左侧 */}
+                      {abnormalLegend.maxPoint && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
+                            {/* 问题1修复：最高点使用主题色，带描边 */}
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm"
+                              style={{ backgroundColor: abnormalLegend.themeColor }}
+                            ></span>
+                            <span className="text-xs font-medium text-gray-600">最高点</span>
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.month}月
+                          </span>
+                          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.themeColor }}>
+                            {/* 问题2修复：金额超过6位数用万为单位显示 */}
+                            ¥{abnormalLegend.maxPoint.netWorth >= 1000000 
+                              ? (abnormalLegend.maxPoint.netWorth / 10000).toFixed(1) + '万'
+                              : formatBalance(abnormalLegend.maxPoint.netWorth)}
+                          </span>
                         </div>
-                        <span className="text-xs text-gray-500">
-                          {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.month}月
-                        </span>
-                        <span className="text-xs font-semibold" style={{ color: abnormalLegend.themeColor }}>
-                          ¥{formatBalance(abnormalLegend.maxPoint.netWorth)}
-                        </span>
-                      </div>
-                    )}
-                    {/* 最低点 - 下行 */}
-                    {abnormalLegend.hasBoth && abnormalLegend.minPoint && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5">
-                          {/* 问题1修复：最低谷使用淡红色，带描边和脉冲动画 */}
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm animate-pulse"
-                            style={{ backgroundColor: abnormalLegend.lowPointColor }}
-                          ></span>
-                          <span className="text-xs font-medium text-gray-600">最低点</span>
+                      )}
+                      {/* 最低点 - 右侧 */}
+                      {abnormalLegend.hasBoth && abnormalLegend.minPoint && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
+                            {/* 问题1修复：最低谷使用淡红色，带描边和脉冲动画 */}
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm animate-pulse"
+                              style={{ backgroundColor: abnormalLegend.lowPointColor }}
+                            ></span>
+                            <span className="text-xs font-medium text-gray-600">最低点</span>
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.month}月
+                          </span>
+                          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.lowPointColor }}>
+                            {/* 问题2修复：金额超过6位数用万为单位显示 */}
+                            ¥{abnormalLegend.minPoint.netWorth >= 1000000 
+                              ? (abnormalLegend.minPoint.netWorth / 10000).toFixed(1) + '万'
+                              : formatBalance(abnormalLegend.minPoint.netWorth)}
+                          </span>
                         </div>
-                        <span className="text-xs text-gray-500">
-                          {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.month}月
-                        </span>
-                        <span className="text-xs font-semibold" style={{ color: abnormalLegend.lowPointColor }}>
-                          {/* 问题2修复：完整显示低谷金额 */}
-                          ¥{formatBalance(abnormalLegend.minPoint.netWorth)}
-                        </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
 
