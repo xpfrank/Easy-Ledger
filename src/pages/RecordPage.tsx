@@ -58,6 +58,7 @@ function MonthPicker({
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate(); // 获取系统当前日期
 
   const defaultYear = year || currentYear;
   const defaultMonth = month || currentMonth;
@@ -177,13 +178,13 @@ function MonthPicker({
             className={`
               aspect-square flex items-center justify-center rounded-full text-sm transition-all duration-200
               ${day === null ? 'invisible' : ''}
-              ${day !== null && viewYear === year && viewMonth === month
+              ${day !== null && day === currentDay && viewYear === currentYear && viewMonth === currentMonth
                 ? 'text-white shadow-md scale-110'
                 : 'hover:bg-gray-100 hover:scale-105'
               }
             `}
             style={{
-              backgroundColor: day !== null && viewYear === year && viewMonth === month
+              backgroundColor: day !== null && day === currentDay && viewYear === currentYear && viewMonth === currentMonth
                 ? themeConfig.primary
                 : undefined
             }}
@@ -231,6 +232,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
+  const [showYearPicker, setShowYearPicker] = useState(false); // 年度记账年份选择器
   const [editingAccount, setEditingAccount] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
@@ -501,6 +503,32 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     setShowYearlyAttributionDialog(true);
   };
 
+  // 计算年度账户变化 Top 3
+  const getYearlyAccountChanges = () => {
+    const allAccounts = getAllAccounts().filter(a => !a.isHidden);
+    const lastMonth = getLastRecordedMonth(year) || 12;
+
+    const accountChanges = allAccounts.map(account => {
+      // 年初余额（上年度12月）
+      const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
+      const lastBalance = lastRecord ? lastRecord.balance : account.balance;
+      // 年末余额（今年最后有记录的月份）
+      const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
+      const currentBalance = currentRecord ? currentRecord.balance : account.balance;
+      return {
+        accountId: account.id,
+        accountName: account.name,
+        accountIcon: account.icon,
+        change: currentBalance - lastBalance,
+      };
+    });
+
+    return accountChanges
+      .filter(a => a.change !== 0)
+      .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+      .slice(0, 3);
+  };
+
   // 从月度生成年度归因
   const generateYearlyFromMonthly = () => {
     const monthlyAttributions = getMonthlyAttributionsByYear(year);
@@ -682,10 +710,13 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                   <div className="text-xs text-gray-400 mt-1">点击切换月份</div>
                 </button>
               ) : (
-                <div className="text-center px-6 py-2">
+                <button
+                  className="text-center px-6 py-2 rounded-xl hover:bg-gray-50 transition-colors"
+                  onClick={() => setShowYearPicker(true)}
+                >
                   <div className="text-xl font-bold text-gray-900">{year}年</div>
-                  <div className="text-xs text-gray-400 mt-1">年度汇总</div>
-                </div>
+                  <div className="text-xs text-gray-400 mt-1">点击切换年份</div>
+                </button>
               )}
 
               <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100">
@@ -1117,7 +1148,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                         <div className={`text-sm font-semibold ${
                           item.change >= 0 ? 'text-green-600' : 'text-red-500'
                         }`}>
-                          {item.change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(Math.abs(item.change))}
+                          {item.change >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                         </div>
                       </div>
                     ))}
@@ -1209,6 +1240,45 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
         </DialogContent>
       </Dialog>
 
+      {/* 年度记账年份选择器 */}
+      <Dialog open={showYearPicker} onOpenChange={setShowYearPicker}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>选择年份</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+              {Array.from({ length: 50 }, (_, i) => {
+                const y = new Date().getFullYear() - 20 + i;
+                return (
+                  <button
+                    key={y}
+                    onClick={() => {
+                      setYear(y);
+                      setShowYearPicker(false);
+                      setHasChanges(false);
+                    }}
+                    className={`p-3 rounded-lg text-sm transition-all duration-200 ${
+                      year === y
+                        ? 'text-white shadow-md scale-105'
+                        : 'bg-gray-100 hover:bg-gray-200'
+                    }`}
+                    style={{ backgroundColor: year === y ? themeConfig.primary : undefined }}
+                  >
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex justify-end pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowYearPicker(false)}>
+              取消
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* 年度归因对话框 */}
       <Dialog open={showYearlyAttributionDialog} onOpenChange={setShowYearlyAttributionDialog}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
@@ -1243,6 +1313,54 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                 </div>
               </div>
             </div>
+
+            {/* 变化最大的账户 TOP3 */}
+            {(() => {
+              const yearlyChanges = getYearlyAccountChanges();
+              if (yearlyChanges.length === 0) {
+                return (
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <div className="text-sm font-medium text-gray-700 mb-2">变化最大的账户 TOP3</div>
+                    <div className="text-xs text-gray-400 text-center py-4">暂无账户变动数据</div>
+                  </div>
+                );
+              }
+              return (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="text-sm font-medium text-gray-700 mb-3">变化最大的账户 TOP3</div>
+                  <div className="space-y-2">
+                    {yearlyChanges.map((item) => (
+                      <div
+                        key={item.accountId}
+                        className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => {
+                          setShowYearlyAttributionDialog(false);
+                          onPageChange('account-detail', { accountId: item.accountId });
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center"
+                            style={{ backgroundColor: `${themeConfig.primary}15` }}
+                          >
+                            <Icon name={item.accountIcon} size={16} color={themeConfig.primary} />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{item.accountName}</div>
+                            <div className="text-xs text-gray-400">点击查看详情</div>
+                          </div>
+                        </div>
+                        <div className={`text-sm font-semibold ${
+                          item.change >= 0 ? 'text-green-600' : 'text-red-500'
+                        }`}>
+                          {item.change >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* 关键月份 */}
             <div>
