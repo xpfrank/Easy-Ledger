@@ -1,0 +1,15 @@
+```
+# Dependencies
+node_modules/
+
+# Compiled and build artifacts
+*.d.ts
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Editors
+.vscode/
+.idea/
+```
