@@ -131,27 +131,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
   };
 
-  // 问题1修复：计算极值点信息（移到stats之后，避免闭包问题）
-  const extremePointsInfo = useMemo(() => {
-    const validData = filteredHistory.filter(h => !h.isFiltered);
-    if (validData.length === 0) return { maxPoint: null as TrendData | null, minPoint: null as TrendData | null };
-
-    const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
-    const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
-
-    return { maxPoint, minPoint };
-  }, [filteredHistory]);
-
-  // 检查是否为最高/最低净资产点（问题1修复：使用extremePointsInfo判断）
-  const isExtremePoint = (point: TrendData): { isMax: boolean; isMin: boolean } => {
-    if (!('netWorth' in point)) return { isMax: false, isMin: false };
-    // 只判断是否是全局最高点和全局最低点
-    return {
-      isMax: extremePointsInfo.maxPoint !== null && point.netWorth === extremePointsInfo.maxPoint.netWorth,
-      isMin: extremePointsInfo.minPoint !== null && point.netWorth === extremePointsInfo.minPoint.netWorth
-    };
-  };
-
   // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
   const getConsistentNetWorthHistory = (months: number): TrendPoint[] => {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
@@ -363,6 +342,27 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       hasOnlyOneValidPoint: false
     };
   }, [filteredHistory]);
+  // 问题1修复：计算极值点信息（使用filteredHistory）
+  const extremePointsInfo = useMemo(() => {
+    const validData = filteredHistory.filter(h => !h.isFiltered);
+    if (validData.length === 0) return { maxPoint: null as TrendData | null, minPoint: null as TrendData | null };
+
+    const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
+    const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
+
+    return { maxPoint, minPoint };
+  }, [filteredHistory]);
+
+  // 检查是否为最高/最低净资产点（问题1修复：使用extremePointsInfo判断）
+  const isExtremePoint = (point: TrendData): { isMax: boolean; isMin: boolean } => {
+    if (!('netWorth' in point)) return { isMax: false, isMin: false };
+    // 只判断是否是全局最高点和全局最低点
+    return {
+      isMax: extremePointsInfo.maxPoint !== null && point.netWorth === extremePointsInfo.maxPoint.netWorth,
+      isMin: extremePointsInfo.minPoint !== null && point.netWorth === extremePointsInfo.minPoint.netWorth
+    };
+  };
+
 
   // 计算图表数据 - 优化为更平滑的曲线和年份感知
   const chartData = useMemo(() => {
