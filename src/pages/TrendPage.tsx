@@ -77,10 +77,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
   const themeConfig = THEMES[theme] || THEMES.blue;
 
-  // 格式化金额，支持隐藏显示
+  // 格式化金额，支持隐藏显示，金额超过 10 万时以"万"为单位
   const formatBalance = (amount: number): string => {
     if (hideBalance) {
       return '******';
+    }
+    // 金额超过 10 万时，以"万"为单位显示
+    if (Math.abs(amount) >= 100000) {
+      return (amount / 10000).toFixed(1) + '万';
     }
     return formatAmountNoSymbol(amount);
   };
@@ -353,13 +357,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return { maxPoint, minPoint };
   }, [filteredHistory]);
 
-  // 检查是否为最高/最低净资产点（问题1修复：使用extremePointsInfo判断）
+
+  // 检查是否为最高/最低净资产点（问题 1 修复：使用 extremePointsInfo 判断，确保只有一个最高点和一个最低点）
   const isExtremePoint = (point: TrendData): { isMax: boolean; isMin: boolean } => {
     if (!('netWorth' in point)) return { isMax: false, isMin: false };
-    // 只判断是否是全局最高点和全局最低点
+    // 只判断是否是全局最高点和全局最低点（通过引用比较，确保只有一个点）
     return {
-      isMax: extremePointsInfo.maxPoint !== null && point.netWorth === extremePointsInfo.maxPoint.netWorth,
-      isMin: extremePointsInfo.minPoint !== null && point.netWorth === extremePointsInfo.minPoint.netWorth
+      isMax: extremePointsInfo.maxPoint !== null && point === extremePointsInfo.maxPoint,
+      isMin: extremePointsInfo.minPoint !== null && point === extremePointsInfo.minPoint
     };
   };
 
@@ -1153,10 +1158,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.month}月
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.themeColor }}>
-                            {/* 问题2修复：金额超过10万用万为单位显示 */}
-                            ¥{abnormalLegend.maxPoint.netWorth >= 100000 
-                              ? (abnormalLegend.maxPoint.netWorth / 10000).toFixed(1) + '万'
-                              : formatBalance(abnormalLegend.maxPoint.netWorth)}
+                            ¥{formatBalance(abnormalLegend.maxPoint.netWorth)}
                           </span>
                         </div>
                       )}
@@ -1175,10 +1177,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.month}月
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.lowPointColor }}>
-                            {/* 问题2修复：金额超过10万用万为单位显示 */}
-                            ¥{abnormalLegend.minPoint.netWorth >= 100000 
-                              ? (abnormalLegend.minPoint.netWorth / 10000).toFixed(1) + '万'
-                              : formatBalance(abnormalLegend.minPoint.netWorth)}
+                            ¥{formatBalance(abnormalLegend.minPoint.netWorth)}
                           </span>
                         </div>
                       )}
