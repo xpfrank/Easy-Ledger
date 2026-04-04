@@ -368,8 +368,33 @@ export function updateAccount(id: string, updates: Partial<Account>): Account | 
   return null;
 }
 
-export function deleteAccount(id: string): boolean {
+export function deleteAccount(id: string, year?: number, month?: number): boolean {
   const data = loadData();
+
+  // 如果指定了年月，则只删除该月份的账户记录（快照机制）
+  if (year !== undefined && month !== undefined) {
+    // 删除指定月份的记录
+    data.records = data.records.filter(r => !(r.accountId === id && r.year === year && r.month === month));
+    // 添加删除日志
+    const account = data.accounts.find(a => a.id === id);
+    if (account) {
+      data.logs.push({
+        id: generateId(),
+        accountId: id,
+        accountName: account.name,
+        year,
+        month,
+        oldBalance: 0,
+        newBalance: 0,
+        timestamp: Date.now(),
+        operationType: 'account_delete',
+      });
+    }
+    saveData(data);
+    return true;
+  }
+
+  // 否则完全删除账户（原有逻辑）
   const index = data.accounts.findIndex(a => a.id === id);
   if (index !== -1) {
     data.accounts.splice(index, 1);
@@ -983,4 +1008,53 @@ export function getAccountSnapshotsByMonth(year: number, month: number): Account
   }
 
   return snapshots;
+}
+
+// 获取指定月份的账户列表（快照机制）
+export function getAccountsByMonth(year: number, month: number): Account[] {
+  const data = loadData();
+
+  // 获取该月份有记录的账户ID
+  const monthRecordIds = new Set(
+    data.records
+      .filter(r => r.year === year && r.month === month)
+      .map(r => r.accountId)
+  );
+
+  // 返回这些账户的完整信息
+  return data.accounts.filter(a => monthRecordIds.has(a.id));
+}
+
+// 获取指定月份账户的余额（支持继承机制）
+export function getAccountBalanceForMonth(accountId: string, year: number, month: number): number {
+  const data = loadData();
+
+  // 1. 先查找指定月份的记录
+  const record = data.records.find(
+    r => r.accountId === accountId && r.year === year && r.month === month
+  );
+  if (record) {
+    return record.balance;
+  }
+
+  // 2. 如果没有，向前查找最近月份的记录（继承机制）
+  const previousRecords = data.records
+    .filter(r => r.accountId === accountId)
+    .filter(r => {
+      if (r.year < year) return true;
+      if (r.year === year && r.month < month) return true;
+      return false;
+    })
+    .sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return b.month - a.month;
+    });
+
+  if (previousRecords.length > 0) {
+    return previousRecords[0].balance;
+  }
+
+  // 3. 如果没有历史记录，返回账户默认余额
+  const account = data.accounts.find(a => a.id === accountId);
+  return account?.balance || 0;
 }
