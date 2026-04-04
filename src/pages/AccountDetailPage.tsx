@@ -352,20 +352,34 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
 
             {/* 信用卡专属信息 */}
             {isCredit && (
-              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/20">
-                <div>
-                  <div className="text-white/60 text-xs">账单日</div>
-                  <div className="font-medium">{account.billDay || 1}日</div>
+              <>
+                {/* 额度信息 */}
+                <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/20">
+                  <div className="text-center">
+                    <div className="text-white/60 text-xs mb-1">总额度</div>
+                    <div className="font-medium">¥{formatHiddenAmount(account.creditLimit || 0, hideBalance)}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-xs mb-1">剩余额度</div>
+                    <div className="font-medium">¥{formatHiddenAmount(Math.max(0, (account.creditLimit || 0) - Math.abs(currentBalance)), hideBalance)}</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-white/60 text-xs">还款日</div>
-                  <div className="font-medium">{account.repaymentDay || 10}日</div>
+                {/* 账单信息 - 居中对齐 */}
+                <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/20 text-center">
+                  <div>
+                    <div className="text-white/60 text-xs mb-1">账单日</div>
+                    <div className="font-medium">{account.billDay || 1}日</div>
+                  </div>
+                  <div>
+                    <div className="text-white/60 text-xs mb-1">还款日</div>
+                    <div className="font-medium">{account.repaymentDay || 10}日</div>
+                  </div>
+                  <div>
+                    <div className="text-white/60 text-xs mb-1">顺延天数</div>
+                    <div className="font-medium">{account.graceDays || 0}天</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-white/60 text-xs">顺延天数</div>
-                  <div className="font-medium">{account.graceDays || 0}天</div>
-                </div>
-              </div>
+              </>
             )}
 
             {/* 备注 */}
@@ -389,30 +403,25 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
               </span>
             </div>
 
-            {/* 本月资产数据 */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-500">
-                本月：<span className="font-medium text-gray-900">¥{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)}</span>
-              </span>
-              <span className="text-gray-400">/ 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}</span>
+            {/* 本月资产数据 - 单行紧凑显示 */}
+            <div className="text-sm text-gray-500">
+              本月：¥{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)} / 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}
             </div>
 
-            {/* 占比 + 进度条 */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">
-                  占比：<span className="font-semibold" style={{ color: themeConfig.primary }}>{(contribution?.percentage || 0).toFixed(1)}%</span>
-                </span>
-                <Progress
-                  value={Math.min(contribution?.percentage || 0, 100)}
-                  className="h-2 flex-1 mx-3"
-                  style={{
-                    // @ts-ignore
-                    '--tw-progress-bg': '#e5e7eb', // 灰色背景
-                    '--tw-progress-fill': themeConfig.primary, // 主题色填充
-                  } as React.CSSProperties}
-                />
-              </div>
+            {/* 占比 + 进度条 - 占比在进度条右侧 */}
+            <div className="flex items-center gap-3">
+              <Progress
+                value={Math.min(contribution?.percentage || 0, 100)}
+                className="h-2 flex-1"
+                style={{
+                  // @ts-ignore
+                  '--tw-progress-bg': '#e5e7eb', // 灰色背景
+                  '--tw-progress-fill': themeConfig.primary, // 主题色填充
+                } as React.CSSProperties}
+              />
+              <span className="text-sm font-semibold whitespace-nowrap" style={{ color: themeConfig.primary }}>
+                {(contribution?.percentage || 0).toFixed(1)}%
+              </span>
             </div>
 
             {/* 环比变化 */}

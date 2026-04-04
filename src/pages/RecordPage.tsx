@@ -29,6 +29,7 @@ import {
   getLastRecordedMonth,
 } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { THEMES } from '@/types';
 
 interface RecordPageProps {
@@ -416,13 +417,13 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
     const changePct = lastNW !== 0 ? (changeAmt / Math.abs(lastNW)) * 100 : 0;
     const level = calculateFluctuationLevel(changePct);
 
-    // 计算账户变化 Top 3
+    // 计算账户资产变动 Top 3（按变动量排序）
     const allAccounts = getAllAccounts().filter(a => !a.isHidden);
     const accountChanges = allAccounts.map(account => {
-      const lastRecord = getMonthlyRecord(account.id, lastYear, lastMonthNum);
       const currentRecord = getMonthlyRecord(account.id, year, month);
-      const lastBalance = lastRecord ? lastRecord.balance : account.balance;
       const currentBalance = currentRecord ? currentRecord.balance : account.balance;
+      const lastRecord = getMonthlyRecord(account.id, lastYear, lastMonthNum);
+      const lastBalance = lastRecord ? lastRecord.balance : account.balance;
       return {
         accountId: account.id,
         accountName: account.name,
@@ -431,7 +432,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
       };
     });
 
-    // 按变化量绝对值排序，取 Top 3
+    // 按变动量绝对值排序，取 Top 3
     const topAccountChanges = accountChanges
       .filter(a => a.change !== 0)
       .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
@@ -496,11 +497,54 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
       setYearlyAttributionNote(existingAttribution.note || '');
       setYearlyKeyMonths(existingAttribution.keyMonths);
     } else {
-      setYearlySelectedTags([]);
-      setYearlyAttributionNote('');
+      // 智能预填充：从月度归因数据生成
+      const monthlyAttributions = getMonthlyAttributionsByYear(year);
+      if (monthlyAttributions.length > 0) {
+        const { topTags, summaryText } = generateYearlyAttributionFromMonthly(monthlyAttributions);
+        setYearlySelectedTags(topTags);
+        setYearlyAttributionNote(summaryText);
+      } else {
+        setYearlySelectedTags([]);
+        setYearlyAttributionNote('');
+      }
       setYearlyKeyMonths([]);
     }
     setShowYearlyAttributionDialog(true);
+  };
+
+  // 从月度归因生成年度归因（智能预填充）
+  const generateYearlyAttributionFromMonthly = (monthlyAttributions: any[]) => {
+    // 统计标签出现频次和金额贡献
+    const tagStats: Record<string, { count: number; totalChange: number; months: number[] }> = {};
+
+    monthlyAttributions.forEach(attr => {
+      attr.tags.forEach((tag: string) => {
+        if (!tagStats[tag]) {
+          tagStats[tag] = { count: 0, totalChange: 0, months: [] };
+        }
+        tagStats[tag].count++;
+        tagStats[tag].totalChange += attr.change;
+        if (!tagStats[tag].months.includes(attr.month)) {
+          tagStats[tag].months.push(attr.month);
+        }
+      });
+    });
+
+    // 按金额贡献排序，取 TOP3
+    const sortedTags = Object.entries(tagStats)
+      .sort((a, b) => Math.abs(b[1].totalChange) - Math.abs(a[1].totalChange))
+      .slice(0, 3);
+
+    const topTags = sortedTags.map(([tag]) => tag as YearlyAttributionTag);
+
+    // 生成汇总说明
+    const summaryParts = sortedTags.map(([tag, stats]) => {
+      const label = getYearlyAttributionTagLabel(tag as YearlyAttributionTag);
+      return `${label}(${stats.count}次)`;
+    });
+    const summaryText = `本年度月度归因汇总：${summaryParts.join('、')}`;
+
+    return { topTags, summaryText, tagStats };
   };
 
   // 计算年度账户变化 Top 3
@@ -1043,15 +1087,11 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
 
           {previewData && (
             <div className="py-4 space-y-5">
-              {/* 变化摘要卡片 */}
+              {/* 变化摘要卡片 - 使用主题色 */}
               <div
                 className="rounded-xl p-5 text-white"
                 style={{
-                  background: `linear-gradient(135deg, ${
-                    previewData.change >= 0 ? '#22c55e' : '#ef4444'
-                  } 0%, ${
-                    previewData.change >= 0 ? '#16a34a' : '#dc2626'
-                  } 100%)`
+                  background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`
                 }}
               >
                 <div className="flex items-center justify-between mb-4">
@@ -1119,10 +1159,10 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                 </div>
               </div>
 
-              {/* 账户变化 Top 3 */}
+              {/* 账户资产变动 Top 3 */}
               {previewData.topAccountChanges.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <div className="text-sm font-medium text-gray-700 mb-3">变化最大的账户</div>
+                  <div className="text-sm font-medium text-gray-700 mb-3">账户资产变动TOP3</div>
                   <div className="space-y-2">
                     {previewData.topAccountChanges.map((item) => (
                       <div
@@ -1169,34 +1209,49 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
                 </div>
               )}
 
-              {/* 原因标签 */}
+              {/* 原因选择 - 下拉选择器 */}
               <div>
                 <div className="text-sm font-medium text-gray-700 mb-3">
                   {previewData.fluctuationLevel === 'abnormal' ? (
-                    <span className="text-red-600">* 请选择原因（必选）</span>
-                  ) : '选择原因（可选）'}
+                    <span className="text-red-600">* 请选择归因原因（必选）</span>
+                  ) : '选择归因原因（可选）'}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).map((tag) => {
-                    const isSelected = selectedTags.includes(tag.value);
-                    return (
-                      <button
-                        key={tag.value}
-                        onClick={() => handleTagToggle(tag.value, previewData.fluctuationLevel === 'abnormal')}
-                        className={`px-4 py-2 rounded-full text-sm flex items-center gap-1.5 transition-all duration-200 ${
-                          isSelected
-                            ? 'text-white shadow-md scale-105'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        style={{ backgroundColor: isSelected ? themeConfig.primary : undefined }}
-                      >
-                        <span className="text-base">{tag.emoji}</span>
-                        <span className="font-medium">{tag.label}</span>
-                        {isSelected && <Check size={14} />}
-                      </button>
-                    );
-                  })}
-                </div>
+                <Select
+                  value={selectedTags[0] || ''}
+                  onValueChange={(value) => {
+                    if (value) {
+                      setSelectedTags([value as AttributionTag]);
+                    } else {
+                      setSelectedTags([]);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full h-11">
+                    <SelectValue placeholder="请选择归因原因" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).map((tag) => (
+                      <SelectItem key={tag.value} value={tag.value}>
+                        <span className="flex items-center gap-2">
+                          <span>{tag.emoji}</span>
+                          <span>{tag.label}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedTags.length > 0 && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-sm text-gray-500">已选择：</span>
+                    <span 
+                      className="px-3 py-1 rounded-full text-sm text-white flex items-center gap-1"
+                      style={{ backgroundColor: themeConfig.primary }}
+                    >
+                      {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).find(t => t.value === selectedTags[0])?.emoji}
+                      {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).find(t => t.value === selectedTags[0])?.label}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* 备注输入 */}
@@ -1362,6 +1417,41 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
               );
             })()}
 
+            {/* 归因排行 TOP3 */}
+            {(() => {
+              const monthlyAttributions = getMonthlyAttributionsByYear(year);
+              if (monthlyAttributions.length === 0) return null;
+
+              const { tagStats } = generateYearlyAttributionFromMonthly(monthlyAttributions);
+              const sortedTags = Object.entries(tagStats)
+                .sort((a, b) => Math.abs(b[1].totalChange) - Math.abs(a[1].totalChange))
+                .slice(0, 3);
+
+              if (sortedTags.length === 0) return null;
+
+              return (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="text-sm font-medium text-gray-700 mb-3">归因排行 TOP3</div>
+                  <div className="space-y-2">
+                    {sortedTags.map(([tag, stats], index) => (
+                      <div key={tag} className="flex items-center justify-between p-2 bg-white rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-gray-100 text-xs flex items-center justify-center font-medium">
+                            {index + 1}
+                          </span>
+                          <span className="text-sm">{getYearlyAttributionTagLabel(tag as YearlyAttributionTag)}</span>
+                          <span className="text-xs text-gray-400">{stats.months.length}个月</span>
+                        </div>
+                        <span className={`text-sm font-medium ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          {stats.totalChange >= 0 ? '+' : ''}¥{formatAmountNoSymbol(Math.abs(stats.totalChange))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* 关键月份 */}
             <div>
               <div className="text-sm font-medium text-gray-700 mb-3">关键月份（可选）</div>
@@ -1431,17 +1521,17 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
             </Button>
           </div>
 
-          <DialogFooter className="flex-col sm:flex-row gap-3 pt-4 border-t">
+          <DialogFooter className="flex-row gap-3 pt-4 border-t">
             <Button
               variant="outline"
               onClick={() => setShowYearlyAttributionDialog(false)}
-              className="sm:flex-1 h-11"
+              className="flex-1 h-11 bg-white hover:bg-gray-50"
             >
               取消
             </Button>
             <Button
               onClick={handleSaveYearlyAttribution}
-              className="text-white sm:flex-1 h-11 font-semibold"
+              className="flex-1 h-11 font-semibold text-white"
               style={{ backgroundColor: themeConfig.primary }}
             >
               保存年度归因

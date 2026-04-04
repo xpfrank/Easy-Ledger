@@ -68,6 +68,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: TrendData; index: number } | null>(null);
   const [filterTag, setFilterTag] = useState<FilterTag>('all');
   const [expandedSnapshots, setExpandedSnapshots] = useState(false);
+  // 年份区间选择器状态
+  const [yearRange, setYearRange] = useState<{ start: number; end: number }>(() => {
+    const now = new Date();
+    return { start: now.getFullYear() - 4, end: now.getFullYear() };
+  });
   // 问题3修复：聚合节点展开状态
   const [expandedAggregate, setExpandedAggregate] = useState<{
     label: string;
@@ -140,20 +145,30 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
     const records = data.records || [];
 
-    // 获取所有有记录的月份
+    // 获取当前年月
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentKey = `${currentYear}-${currentMonth.toString().padStart(2, '0')}`;
+
+    // 获取所有有记录的月份（只包含当前月及之前的月份）
     const monthSet = new Set<string>([]);
     records.forEach((r: any) => {
-      monthSet.add(`${r.year}-${r.month.toString().padStart(2, '0')}`);
+      const recordKey = `${r.year}-${r.month.toString().padStart(2, '0')}`;
+      // 只添加当前月及之前的记录
+      if (recordKey <= currentKey) {
+        monthSet.add(recordKey);
+      }
     });
 
-    // 添加当前月份
-    const now = new Date();
-    monthSet.add(`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`);
+    // 添加当前月份（如果没有记录）
+    monthSet.add(currentKey);
 
-    // 排序
+    // 排序（升序）
     const sortedMonths = Array.from(monthSet).sort();
 
-    // 如果 months > 0，取最近N个月；否则取全部
+    // 如果 months > 0，取最近N个月（包括当前月）；否则取全部
+    // 例如：当前4月，近6个月 = [去年11月, 12月, 今年1月, 2月, 3月, 4月]
     const filteredMonths = months > 0 ? sortedMonths.slice(-months) : sortedMonths;
 
     const history: TrendPoint[] = [];
@@ -562,12 +577,16 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           let aggLabel: string;
 
           if (totalPoints > 36) {
-            // 数据超过3年：按半年度聚合 (H1/H2)
+            // 数据超过3年：按年聚合
+            aggKey = `${data.year}`;
+            aggLabel = `${data.year}年`;
+          } else if (totalPoints > 24) {
+            // 数据在2-3年：按半年度聚合
             const halfYear = data.month <= 6 ? 'H1' : 'H2';
             aggKey = `${data.year}-${halfYear}`;
             aggLabel = `${data.year}年${halfYear === 'H1' ? '上半年' : '下半年'}`;
           } else {
-            // 数据在1-3年：按季度聚合
+            // 数据在1-2年：按季度聚合
             const quarter = Math.ceil(data.month / 3);
             aggKey = `${data.year}-Q${quarter}`;
             aggLabel = `${data.year}Q${quarter}`;
@@ -783,8 +802,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             )}
           </div>
 
-          {/* 时间范围选择（仅月度趋势显示） */}
-          {trendType === 'monthly' && (
+          {/* 时间范围选择（月度趋势）/ 年份区间选择（年度趋势） */}
+          {trendType === 'monthly' ? (
             <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)} className="flex-1">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="6">近6月</TabsTrigger>
@@ -792,34 +811,34 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 <TabsTrigger value="all">全部</TabsTrigger>
               </TabsList>
             </Tabs>
+          ) : (
+            <YearRangeSelector value={yearRange} onChange={setYearRange} />
           )}
         </div>
 
-        {/* 筛选栏（仅月度趋势显示） */}
-        {trendType === 'monthly' && (
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
-            {[
-              { key: 'all', label: '全部', emoji: '📊' },
-              { key: 'salary', label: '工资', emoji: '💰' },
-              { key: 'bonus', label: '奖金', emoji: '🎁' },
-              { key: 'investment', label: '投资', emoji: '📈' },
-              { key: 'expense', label: '支出', emoji: '🛒' },
-              { key: 'abnormal', label: '异常', emoji: '⚠️' },
-            ].map(item => (
-              <button
-                key={item.key}
-                className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap transition-colors ${
-                  filterTag === item.key
-                    ? 'bg-white shadow text-gray-800'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-                onClick={() => setFilterTag(item.key as FilterTag)}
-              >
-                {item.emoji} {item.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* 筛选栏（月度趋势和年度趋势都显示） */}
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
+          {[
+            { key: 'all', label: '全部', emoji: '📊' },
+            { key: 'salary', label: '工资', emoji: '💰' },
+            { key: 'bonus', label: '奖金', emoji: '🎁' },
+            { key: 'investment', label: '投资', emoji: '📈' },
+            { key: 'expense', label: '支出', emoji: '🛒' },
+            { key: 'abnormal', label: '异常', emoji: '⚠️' },
+          ].map(item => (
+            <button
+              key={item.key}
+              className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap transition-colors ${
+                filterTag === item.key
+                  ? 'bg-white shadow text-gray-800'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+              onClick={() => setFilterTag(item.key as FilterTag)}
+            >
+              {item.emoji} {item.label}
+            </button>
+          ))}
+        </div>
 
         {filteredHistory.filter(h => !h.isFiltered).length === 0 ? (
           <Card className="bg-white">
@@ -897,7 +916,70 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         </linearGradient>
 
                         {/* 脉冲动画定义 - 精致的小点扩散效果 */}
-                        <style>{`
+                        
+
+// 年份区间选择器组件
+function YearRangeSelector({ 
+  value, 
+  onChange 
+}: { 
+  value: { start: number; end: number }; 
+  onChange: (range: { start: number; end: number }) => void;
+}) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  // 快捷选项
+  const quickOptions = [
+    { label: '近5年', start: currentYear - 4, end: currentYear },
+    { label: '近10年', start: currentYear - 9, end: currentYear },
+    { label: '全部', start: currentYear - 50, end: currentYear },
+  ];
+
+  return (
+    <div className="flex-1 flex items-center gap-2">
+      {/* 快捷选项 */}
+      <div className="flex gap-1">
+        {quickOptions.map(opt => (
+          <button
+            key={opt.label}
+            onClick={() => onChange({ start: opt.start, end: opt.end })}
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              value.start === opt.start && value.end === opt.end
+                ? 'bg-white shadow text-gray-800'
+                : 'text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      {/* 自定义区间 */}
+      <div className="flex items-center gap-1 text-xs">
+        <select
+          value={value.start}
+          onChange={(e) => onChange({ ...value, start: parseInt(e.target.value) })}
+          className="bg-white border border-gray-200 rounded px-1 py-1"
+        >
+          {Array.from({ length: 30 }, (_, i) => currentYear - 29 + i).map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+        <span className="text-gray-400">-</span>
+        <select
+          value={value.end}
+          onChange={(e) => onChange({ ...value, end: parseInt(e.target.value) })}
+          className="bg-white border border-gray-200 rounded px-1 py-1"
+        >
+          {Array.from({ length: 30 }, (_, i) => currentYear - 29 + i).map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+<style>{`
                           @keyframes pulse-dot {
                             0% { r: 2; opacity: 1; }
                             50% { r: 4; opacity: 0.6; }
