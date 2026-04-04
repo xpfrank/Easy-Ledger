@@ -812,7 +812,26 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               </TabsList>
             </Tabs>
           ) : (
-            <YearRangeSelector value={yearRange} onChange={setYearRange} />
+            <div className="flex items-center gap-2 px-2">
+              <span className="text-sm text-gray-600">年份区间:</span>
+              <input
+                type="number"
+                value={yearRange.start}
+                onChange={(e) => setYearRange({ ...yearRange, start: parseInt(e.target.value) || 2020 })}
+                className="w-20 px-2 py-1 border rounded text-sm"
+                min="2000"
+                max="2100"
+              />
+              <span>-</span>
+              <input
+                type="number"
+                value={yearRange.end}
+                onChange={(e) => setYearRange({ ...yearRange, end: parseInt(e.target.value) || 2025 })}
+                className="w-20 px-2 py-1 border rounded text-sm"
+                min="2000"
+                max="2100"
+              />
+            </div>
           )}
         </div>
 
