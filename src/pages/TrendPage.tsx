@@ -916,70 +916,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         </linearGradient>
 
                         {/* 脉冲动画定义 - 精致的小点扩散效果 */}
-                        
-
-// 年份区间选择器组件
-function YearRangeSelector({ 
-  value, 
-  onChange 
-}: { 
-  value: { start: number; end: number }; 
-  onChange: (range: { start: number; end: number }) => void;
-}) {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-
-  // 快捷选项
-  const quickOptions = [
-    { label: '近5年', start: currentYear - 4, end: currentYear },
-    { label: '近10年', start: currentYear - 9, end: currentYear },
-    { label: '全部', start: currentYear - 50, end: currentYear },
-  ];
-
-  return (
-    <div className="flex-1 flex items-center gap-2">
-      {/* 快捷选项 */}
-      <div className="flex gap-1">
-        {quickOptions.map(opt => (
-          <button
-            key={opt.label}
-            onClick={() => onChange({ start: opt.start, end: opt.end })}
-            className={`px-2 py-1 text-xs rounded transition-colors ${
-              value.start === opt.start && value.end === opt.end
-                ? 'bg-white shadow text-gray-800'
-                : 'text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      {/* 自定义区间 */}
-      <div className="flex items-center gap-1 text-xs">
-        <select
-          value={value.start}
-          onChange={(e) => onChange({ ...value, start: parseInt(e.target.value) })}
-          className="bg-white border border-gray-200 rounded px-1 py-1"
-        >
-          {Array.from({ length: 30 }, (_, i) => currentYear - 29 + i).map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-        <span className="text-gray-400">-</span>
-        <select
-          value={value.end}
-          onChange={(e) => onChange({ ...value, end: parseInt(e.target.value) })}
-          className="bg-white border border-gray-200 rounded px-1 py-1"
-        >
-          {Array.from({ length: 30 }, (_, i) => currentYear - 29 + i).map(y => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
-<style>{`
+                        <style>{`
                           @keyframes pulse-dot {
                             0% { r: 2; opacity: 1; }
                             50% { r: 4; opacity: 0.6; }
