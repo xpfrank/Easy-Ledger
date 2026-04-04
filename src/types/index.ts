@@ -22,6 +22,7 @@ export interface Account {
   billDay?: number;
   repaymentDay?: number;
   graceDays?: number;
+  creditLimit?: number;
 }
 
 // 月度记录
@@ -43,7 +44,7 @@ export interface RecordLog {
   oldBalance: number;
   newBalance: number;
   timestamp: number;
-  operationType?: 'balance_change' | 'account_create' | 'account_edit';
+  operationType?: 'balance_change' | 'account_create' | 'account_edit' | 'account_delete';
 }
 
 // 应用状态

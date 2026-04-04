@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
-import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS } from '@/types';
+import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS, getYearlyAttributionTagLabel } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -628,19 +628,6 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
         ? prev.filter(m => m !== month)
         : [...prev, month]
     );
-  };
-
-  // 处理标签选择
-  const handleTagToggle = (tag: AttributionTag, isAbnormal: boolean) => {
-    if (isAbnormal) {
-      setSelectedTags([tag]);
-    } else {
-      setSelectedTags(prev =>
-        prev.includes(tag)
-          ? prev.filter(t => t !== tag)
-          : [...prev, tag]
-      );
-    }
   };
 
   // 获取变化等级标签
