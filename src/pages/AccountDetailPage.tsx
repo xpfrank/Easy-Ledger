@@ -350,36 +350,39 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
               )}
             </div>
 
-            {/* 信用卡专属信息 */}
+            {/* 信用卡专属信息 - 居中布局，新增总额度和剩余额度 */}
             {isCredit && (
-              <>
-                {/* 额度信息 */}
-                <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/20">
+              <div className="pt-4 border-t border-white/20">
+                <div className="grid grid-cols-3 gap-3 mb-3">
                   <div className="text-center">
+                    <div className="text-white/60 text-xs">账单日</div>
+                    <div className="font-medium text-white">{account.billDay || 1}日</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-xs">还款日</div>
+                    <div className="font-medium text-white">{account.repaymentDay || 10}日</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-white/60 text-xs">顺延天数</div>
+                    <div className="font-medium text-white">{account.graceDays || 0}天</div>
+                  </div>
+                </div>
+                {/* 总额度与剩余额度 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/10 rounded-lg p-3 text-center">
                     <div className="text-white/60 text-xs mb-1">总额度</div>
-                    <div className="font-medium">¥{formatHiddenAmount(account.creditLimit || 0, hideBalance)}</div>
+                    <div className="text-lg font-bold text-white">
+                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(currentBalance) + (account.note ? 0 : 0))}
+                    </div>
                   </div>
-                  <div className="text-center">
+                  <div className="bg-white/10 rounded-lg p-3 text-center">
                     <div className="text-white/60 text-xs mb-1">剩余额度</div>
-                    <div className="font-medium">¥{formatHiddenAmount(Math.max(0, (account.creditLimit || 0) - Math.abs(currentBalance)), hideBalance)}</div>
+                    <div className={`text-lg font-bold ${currentBalance >= 0 ? 'text-green-200' : 'text-white'}`}>
+                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(currentBalance))}
+                    </div>
                   </div>
                 </div>
-                {/* 账单信息 - 居中对齐 */}
-                <div className="grid grid-cols-3 gap-3 pt-4 border-t border-white/20 text-center">
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">账单日</div>
-                    <div className="font-medium">{account.billDay || 1}日</div>
-                  </div>
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">还款日</div>
-                    <div className="font-medium">{account.repaymentDay || 10}日</div>
-                  </div>
-                  <div>
-                    <div className="text-white/60 text-xs mb-1">顺延天数</div>
-                    <div className="font-medium">{account.graceDays || 0}天</div>
-                  </div>
-                </div>
-              </>
+              </div>
             )}
 
             {/* 备注 */}
@@ -392,7 +395,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
           </CardContent>
         </Card>
 
-        {/* 账户资产贡献度模块 */}
+        {/* 账户资产贡献度模块 - 优化：占比移至右侧、单行显示 */}
         <Card className="bg-white">
           <CardContent className="p-4 space-y-4">
             {/* 模块标题 */}
@@ -403,26 +406,27 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
               </span>
             </div>
 
-            {/* 本月资产数据 - 单行紧凑显示 */}
-            <div className="text-sm text-gray-500">
-              本月：¥{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)} / 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}
-            </div>
-
-            {/* 占比 + 进度条 - 占比在进度条右侧 */}
-            <div className="flex items-center gap-3">
-              <Progress
-                value={Math.min(contribution?.percentage || 0, 100)}
-                className="h-2 flex-1"
-                style={{
-                  // @ts-ignore
-                  '--tw-progress-bg': '#e5e7eb', // 灰色背景
-                  '--tw-progress-fill': themeConfig.primary, // 主题色填充
-                } as React.CSSProperties}
-              />
-              <span className="text-sm font-semibold whitespace-nowrap" style={{ color: themeConfig.primary }}>
+            {/* 本月资产数据 + 占比（单行显示） */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">
+                本月：<span className="font-medium text-gray-900">¥{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)}</span>
+                <span className="text-gray-400 ml-1">/ 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}</span>
+              </span>
+              <span className="font-semibold" style={{ color: themeConfig.primary }}>
                 {(contribution?.percentage || 0).toFixed(1)}%
               </span>
             </div>
+
+            {/* 进度条 - 填充色跟随主题色 */}
+            <Progress
+              value={Math.min(contribution?.percentage || 0, 100)}
+              className="h-2.5"
+              style={{
+                // @ts-ignore
+                '--tw-progress-bg': '#e5e7eb', // 灰色背景
+                '--tw-progress-fill': themeConfig.primary, // 主题色填充
+              } as React.CSSProperties}
+            />
 
             {/* 环比变化 */}
             {contribution?.hasHistory ? (
