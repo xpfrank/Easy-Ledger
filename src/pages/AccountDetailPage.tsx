@@ -186,42 +186,6 @@ function aggregateToQuarter(data: any[], isCredit: boolean): any[] {
   });
 }
 
-// 生成智能X轴标签（处理密集标签）
-function generateSmartXAxis(data: any[], maxLabels: number = 8): { index: number; label: string; showYear?: boolean }[] {
-  if (data.length <= maxLabels) {
-    // 数据点较少，全部显示
-    return data.map((item, index) => ({
-      index,
-      label: `${item.month}月`,
-      showYear: index === 0 || data[index - 1]?.year !== item.year,
-    }));
-  }
-
-  // 数据点较多，智能抽取
-  const result: { index: number; label: string; showYear?: boolean }[] = [];
-  const step = Math.ceil(data.length / maxLabels);
-  let lastYear = -1;
-
-  data.forEach((item, index) => {
-    if (index === 0 || index === data.length - 1 || index % step === 0) {
-      // 首尾必须显示，中间按步长抽取
-      if (item.year !== lastYear) {
-        result.push({ index, label: `${item.month}月`, showYear: true });
-        lastYear = item.year;
-      } else {
-        result.push({ index, label: `${item.month}月` });
-      }
-    }
-  });
-
-  // 确保最后一个点被包含
-  const lastIndex = data.length - 1;
-  if (!result.some(r => r.index === lastIndex)) {
-    result.push({ index: lastIndex, label: `${data[lastIndex].month}月` });
-  }
-
-  return result;
-}
 
 // 计算账户资产贡献度数据
 interface ContributionData {
