@@ -11,6 +11,7 @@ import {
   formatAmountNoSymbol,
   getSettings,
   deleteAccount,
+  loadData,
 } from '@/lib/storage';
 import { getAccountTypeLabel, getAccountHistory, calculateTotalAssets } from '@/lib/calculator';
 import { THEMES } from '@/types';
@@ -57,6 +58,166 @@ function formatHiddenAmount(amount: number, hide: boolean): string {
 function getAccountMonthBalance(account: Account, year: number, month: number): number {
   const record = getMonthlyRecord(account.id, year, month);
   return record ? record.balance : account.balance;
+}
+
+// ========== 新增：获取历史趋势数据（从当前月向前统计）==========
+interface TrendRecord {
+  year: number;
+  month: number;
+  balance: number;
+}
+
+// 获取账户趋势数据（从当前月向前统计历史数据）
+function getAccountTrendHistory(accountId: string, months: number): TrendRecord[] {
+  const data = loadData();
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  // 获取该账户所有记录
+  const allRecords = data.records
+    .filter(r => r.accountId === accountId)
+    .sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    });
+
+  if (months === 0) {
+    // 全部：返回所有历史记录（从最早到当前月）
+    return allRecords;
+  }
+
+  // 计算起始月份
+  let startYear = currentYear;
+  let startMonth = currentMonth - months;
+  if (startMonth <= 0) {
+    startYear--;
+    startMonth += 12;
+  }
+
+  // 过滤出符合时间范围的历史记录
+  const filteredRecords = allRecords.filter(r => {
+    if (r.year < startYear) return false;
+    if (r.year === startYear && r.month < startMonth) return false;
+    if (r.year > currentYear) return false;
+    if (r.year === currentYear && r.month > currentMonth) return false;
+    return true;
+  });
+
+  // 确保包含当前月（如果存在）
+  const hasCurrentMonth = filteredRecords.some(
+    r => r.year === currentYear && r.month === currentMonth
+  );
+
+  if (!hasCurrentMonth) {
+    // 添加当前月（使用账户当前余额）
+    const account = data.accounts.find(a => a.id === accountId);
+    if (account) {
+      filteredRecords.push({
+        year: currentYear,
+        month: currentMonth,
+        balance: account.balance,
+      });
+    }
+  }
+
+  // 重新排序
+  return filteredRecords.sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    return a.month - b.month;
+  });
+}
+
+// 获取储蓄卡趋势数据（带年份信息用于分割线）
+function getSavingsTrendData(accountId: string, months: number) {
+  const records = getAccountTrendHistory(accountId, months);
+  return records.map((r) => ({
+    month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
+    label: `${r.month}月`,
+    year: r.year,
+    balance: r.balance,
+  }));
+}
+
+// 获取信用卡趋势数据
+function getCreditTrendData(accountId: string, months: number) {
+  const records = getAccountTrendHistory(accountId, months);
+  return records.map((r) => ({
+    month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
+    label: `${r.month}月`,
+    year: r.year,
+    debt: r.balance > 0 ? r.balance : 0,
+    surplus: r.balance < 0 ? Math.abs(r.balance) : 0,
+  }));
+}
+
+// 聚合数据按季度（用于超过24个月的数据展示）
+function aggregateToQuarter(data: any[], isCredit: boolean): any[] {
+  const quarterMap: Record<string, any[]> = {};
+
+  data.forEach((item) => {
+    const quarter = Math.ceil(item.month / 3);
+    const key = `${item.year}-Q${quarter}`;
+    if (!quarterMap[key]) {
+      quarterMap[key] = [];
+    }
+    quarterMap[key].push(item);
+  });
+
+  return Object.entries(quarterMap).map(([key, items]) => {
+    const [year, quarter] = key.split('-Q');
+    // 使用季度末月的数据作为代表
+    const quarterEndMonth = parseInt(quarter) * 3;
+    const representativeItem = items.find(i => i.month === quarterEndMonth) || items[items.length - 1];
+
+    return {
+      month: `${year}-${quarterEndMonth.toString().padStart(2, '0')}`,
+      label: `${year.slice(2)}Q${quarter}`,
+      year: parseInt(year),
+      balance: isCredit ? representativeItem.debt || 0 : representativeItem.balance,
+      debt: isCredit ? representativeItem.debt || 0 : 0,
+      surplus: isCredit ? representativeItem.surplus || 0 : 0,
+      // 保存原始数据用于tooltip
+      _originalItems: items,
+    };
+  });
+}
+
+// 生成智能X轴标签（处理密集标签）
+function generateSmartXAxis(data: any[], maxLabels: number = 8): { index: number; label: string; showYear?: boolean }[] {
+  if (data.length <= maxLabels) {
+    // 数据点较少，全部显示
+    return data.map((item, index) => ({
+      index,
+      label: `${item.month}月`,
+      showYear: index === 0 || data[index - 1]?.year !== item.year,
+    }));
+  }
+
+  // 数据点较多，智能抽取
+  const result: { index: number; label: string; showYear?: boolean }[] = [];
+  const step = Math.ceil(data.length / maxLabels);
+  let lastYear = -1;
+
+  data.forEach((item, index) => {
+    if (index === 0 || index === data.length - 1 || index % step === 0) {
+      // 首尾必须显示，中间按步长抽取
+      if (item.year !== lastYear) {
+        result.push({ index, label: `${item.month}月`, showYear: true });
+        lastYear = item.year;
+      } else {
+        result.push({ index, label: `${item.month}月` });
+      }
+    }
+  });
+
+  // 确保最后一个点被包含
+  const lastIndex = data.length - 1;
+  if (!result.some(r => r.index === lastIndex)) {
+    result.push({ index: lastIndex, label: `${data[lastIndex].month}月` });
+  }
+
+  return result;
 }
 
 // 计算账户资产贡献度数据
@@ -140,29 +301,6 @@ function calculateContribution(account: Account): ContributionData {
   };
 }
 
-// 获取储蓄卡趋势数据（带年份信息用于分割线）
-function getSavingsTrendData(accountId: string, months: number) {
-  const records = getAccountHistory(accountId, months);
-  return records.map((r) => ({
-    month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
-    label: `${r.month}月`,
-    year: r.year,
-    balance: r.balance,
-  }));
-}
-
-// 获取信用卡趋势数据
-function getCreditTrendData(accountId: string, months: number) {
-  const records = getAccountHistory(accountId, months);
-  return records.map((r) => ({
-    month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
-    label: `${r.month}月`,
-    year: r.year,
-    debt: r.balance > 0 ? r.balance : 0,
-    surplus: r.balance < 0 ? Math.abs(r.balance) : 0,
-  }));
-}
-
 // 计算年度分割线位置（返回年份边界信息，包含年份和对应的数据索引）
 function getYearBoundaries(data: any[]): { index: number; year: number }[] {
   const boundaries: { index: number; year: number }[] = [];
@@ -215,15 +353,25 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
     }
   };
 
-  // 计算趋势图数据
+  // 计算趋势图数据（带智能聚合）
   const trendData = useMemo(() => {
     if (!account) return [];
     const months = trendRange === 'all' ? 0 : parseInt(trendRange);
-    if (account.type === 'credit') {
-      return getCreditTrendData(account.id, months);
+    const rawData = account.type === 'credit'
+      ? getCreditTrendData(account.id, months)
+      : getSavingsTrendData(account.id, months);
+
+    // 超过24个月时自动按季度聚合
+    if (rawData.length > 24) {
+      return aggregateToQuarter(rawData, account.type === 'credit');
     }
-    return getSavingsTrendData(account.id, months);
+    return rawData;
   }, [account, trendRange]);
+
+  // 生成智能X轴标签
+  const smartXAxisLabels = useMemo(() => {
+    return generateSmartXAxis(trendData, 6);
+  }, [trendData]);
 
   // 计算年度分割线位置
   const yearBoundaries = useMemo(() => {
@@ -308,7 +456,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
       {/* 占位元素 */}
       <div className="h-14"></div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-3">
         {/* 核心信息卡片 - 优化：添加右上角资产变化入口 */}
         <Card
           className="text-white border-0 shadow-lg overflow-hidden"
@@ -316,68 +464,68 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
             background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`,
           }}
         >
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                  <Icon name={account.icon} size={24} className="text-white" />
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Icon name={account.icon} size={20} className="text-white" />
                 </div>
                 <div>
-                  <div className="text-white/80 text-sm">{getAccountTypeLabel(account.type)}</div>
-                  <div className="text-lg font-semibold">{account.name}</div>
+                  <div className="text-white/80 text-xs">{getAccountTypeLabel(account.type)}</div>
+                  <div className="text-base font-semibold">{account.name}</div>
                 </div>
               </div>
               {/* 资产变化入口 - 迁移到右上角 */}
               <button
-                className="flex items-center gap-1 text-white/90 text-sm hover:text-white transition-colors"
+                className="flex items-center gap-1 text-white/90 text-xs hover:text-white transition-colors"
                 onClick={() => onPageChange('account-flow', { accountId: account.id })}
               >
                 <span className="font-medium">资产变化</span>
-                <ChevronRight size={16} />
+                <ChevronRight size={14} />
               </button>
             </div>
 
             {/* 余额显示 */}
-            <div className="mb-4">
-              <div className="text-white/70 text-sm mb-1">
+            <div className="mb-2">
+              <div className="text-white/70 text-xs mb-0.5">
                 {isCredit ? '剩余欠款' : isDebt ? '借入金额' : '当前余额'}
               </div>
-              <div className="text-3xl font-bold">
+              <div className="text-2xl font-bold">
                 ¥{formatHiddenAmount(isDebt || isCredit ? Math.abs(currentBalance) : currentBalance, hideBalance)}
               </div>
               {isCredit && currentBalance < 0 && (
-                <div className="text-sm text-green-200 mt-1">溢缴款 ¥{formatHiddenAmount(Math.abs(currentBalance), hideBalance)}</div>
+                <div className="text-xs text-green-200 mt-0.5">溢缴款 ¥{formatHiddenAmount(Math.abs(currentBalance), hideBalance)}</div>
               )}
             </div>
 
-            {/* 信用卡专属信息 - 居中布局，新增总额度和剩余额度 */}
+            {/* 信用卡专属信息 - 紧凑布局 */}
             {isCredit && (
-              <div className="pt-4 border-t border-white/20">
-                <div className="grid grid-cols-3 gap-3 mb-3">
+              <div className="pt-3 border-t border-white/20">
+                <div className="grid grid-cols-3 gap-2 mb-2">
                   <div className="text-center">
-                    <div className="text-white/60 text-xs">账单日</div>
-                    <div className="font-medium text-white">{account.billDay || 1}日</div>
+                    <div className="text-white/60 text-[10px]">账单日</div>
+                    <div className="font-medium text-white text-sm">{account.billDay || 1}日</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-white/60 text-xs">还款日</div>
-                    <div className="font-medium text-white">{account.repaymentDay || 10}日</div>
+                    <div className="text-white/60 text-[10px]">还款日</div>
+                    <div className="font-medium text-white text-sm">{account.repaymentDay || 10}日</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-white/60 text-xs">顺延天数</div>
-                    <div className="font-medium text-white">{account.graceDays || 0}天</div>
+                    <div className="text-white/60 text-[10px]">顺延天数</div>
+                    <div className="font-medium text-white text-sm">{account.graceDays || 0}天</div>
                   </div>
                 </div>
                 {/* 总额度与剩余额度 */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/10 rounded-lg p-3 text-center">
-                    <div className="text-white/60 text-xs mb-1">总额度</div>
-                    <div className="text-lg font-bold text-white">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white/10 rounded-lg p-2 text-center">
+                    <div className="text-white/60 text-[10px] mb-0.5">总额度</div>
+                    <div className="text-sm font-bold text-white">
                       ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(currentBalance) + (account.note ? 0 : 0))}
                     </div>
                   </div>
-                  <div className="bg-white/10 rounded-lg p-3 text-center">
-                    <div className="text-white/60 text-xs mb-1">剩余额度</div>
-                    <div className={`text-lg font-bold ${currentBalance >= 0 ? 'text-green-200' : 'text-white'}`}>
+                  <div className="bg-white/10 rounded-lg p-2 text-center">
+                    <div className="text-white/60 text-[10px] mb-0.5">剩余额度</div>
+                    <div className={`text-sm font-bold ${currentBalance >= 0 ? 'text-green-200' : 'text-white'}`}>
                       ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(currentBalance))}
                     </div>
                   </div>
@@ -387,50 +535,50 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
 
             {/* 备注 */}
             {account.note && (
-              <div className="mt-4 pt-4 border-t border-white/20">
-                <div className="text-white/60 text-xs mb-1">备注</div>
-                <div className="text-sm">{account.note}</div>
+              <div className="mt-2 pt-2 border-t border-white/20">
+                <div className="text-white/60 text-[10px] mb-0.5">备注</div>
+                <div className="text-xs">{account.note}</div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* 账户资产贡献度模块 - 优化：占比移至右侧、单行显示 */}
+        {/* 账户资产贡献度模块 */}
         <Card className="bg-white">
-          <CardContent className="p-4 space-y-4">
+          <CardContent className="p-3 space-y-3">
             {/* 模块标题 */}
             <div className="flex items-center gap-2">
-              <TrendingUp size={18} style={{ color: themeConfig.primary }} />
+              <TrendingUp size={16} style={{ color: themeConfig.primary }} />
               <span className="font-semibold text-sm">
                 {contribution?.isDebtAccount ? '该账户负债贡献度' : '该账户资产贡献度'}
               </span>
             </div>
 
             {/* 本月资产数据 + 占比（单行显示） */}
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between text-xs">
               <span className="text-gray-500">
                 本月：<span className="font-medium text-gray-900">¥{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)}</span>
                 <span className="text-gray-400 ml-1">/ 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}</span>
               </span>
-              <span className="font-semibold" style={{ color: themeConfig.primary }}>
+              <span className="font-semibold text-sm" style={{ color: themeConfig.primary }}>
                 {(contribution?.percentage || 0).toFixed(1)}%
               </span>
             </div>
 
             {/* 进度条 - 填充色跟随主题色 */}
-            <Progress
-              value={Math.min(contribution?.percentage || 0, 100)}
-              className="h-2.5"
-              style={{
-                // @ts-ignore
-                '--tw-progress-bg': '#e5e7eb', // 灰色背景
-                '--tw-progress-fill': themeConfig.primary, // 主题色填充
-              } as React.CSSProperties}
-            />
+            <div className="relative h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className="absolute top-0 left-0 h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(contribution?.percentage || 0, 100)}%`,
+                  backgroundColor: themeConfig.primary,
+                }}
+              />
+            </div>
 
             {/* 环比变化 */}
             {contribution?.hasHistory ? (
-              <div className={`flex items-center gap-2 text-sm ${
+              <div className={`flex items-center gap-2 text-xs ${
                 (contribution.changeValue || 0) > 0 ? 'text-green-500' :
                 (contribution.changeValue || 0) < 0 ? 'text-red-500' : 'text-gray-400'
               }`}>
@@ -438,29 +586,38 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                 <span className="font-medium">
                   {(contribution.changeValue || 0) > 0 ? '+' : ''}{(contribution.changeValue || 0).toFixed(1)}%
                 </span>
-                <span className="text-xs">
+                <span className="text-[10px]">
                   ({(contribution.changeValue || 0) > 0 ? '占比上升' :
                     (contribution.changeValue || 0) < 0 ? '占比下降' : '占比不变'})
                 </span>
               </div>
             ) : (
-              <div className="text-sm text-gray-400">
+              <div className="text-xs text-gray-400">
                 较上月：暂无历史数据
               </div>
             )}
+
+            {/* 查看趋势入口 */}
+            <button
+              className="flex items-center gap-1 text-xs w-full justify-center py-1.5 text-gray-500 hover:text-gray-700 transition-colors"
+              onClick={() => onPageChange('account-detail', { accountId: account.id })}
+            >
+              <span>查看该账户月度变化趋势</span>
+              <ChevronRight size={12} />
+            </button>
           </CardContent>
         </Card>
 
-        {/* 余额趋势图 - 优化：添加年度分割线 */}
+        {/* 余额趋势图 */}
         <Card className="bg-white">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-4">
+          <CardContent className="p-3">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <TrendingUp size={18} style={{ color: themeConfig.primary }} />
+                <TrendingUp size={16} style={{ color: themeConfig.primary }} />
                 <span className="font-medium text-sm">余额趋势</span>
               </div>
               <Select value={trendRange} onValueChange={(v: '6' | '12' | 'all') => setTrendRange(v)}>
-                <SelectTrigger className="w-28 h-8 text-xs">
+                <SelectTrigger className="w-24 h-7 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -473,7 +630,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
 
             {trendData.length > 0 ? (
               <>
-                <div className="h-48 mb-4">
+                <div className="h-40 mb-3">
                   <ResponsiveContainer width="100%" height="100%">
                     {isCredit ? (
                       <AreaChart data={trendData}>
@@ -495,7 +652,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '欠款']}
                           labelFormatter={(l) => `${l}`}
                         />
-                        {/* 年度分割线 - 参考 TrendPage.tsx 的实现方式 */}
+                        {/* 年度分割线 */}
                         {yearBoundaries.map((boundary) => {
                           const dataPoint = trendData[boundary.index];
                           if (dataPoint) {
@@ -539,7 +696,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '余额']}
                           labelFormatter={(l) => `${l}`}
                         />
-                        {/* 年度分割线 - 参考 TrendPage.tsx 的实现方式 */}
+                        {/* 年度分割线 */}
                         {yearBoundaries.map((boundary) => {
                           const dataPoint = trendData[boundary.index];
                           if (dataPoint) {
@@ -569,24 +726,24 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
 
                 {/* 统计数据 */}
                 {stats && (
-                  <div className="grid grid-cols-3 gap-2 pt-4 border-t border-gray-100">
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-100">
                     {isCredit ? (
                       <>
                         <div className="text-center">
-                          <div className="text-xs text-gray-400">最高欠款</div>
-                          <div className="text-sm font-medium text-red-500">
+                          <div className="text-[10px] text-gray-400">最高欠款</div>
+                          <div className="text-xs font-medium text-red-500">
                             ¥{formatHiddenAmount((stats as any).maxDebt, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
-                          <div className="text-xs text-gray-400">平均欠款</div>
-                          <div className="text-sm font-medium">
+                          <div className="text-[10px] text-gray-400">平均欠款</div>
+                          <div className="text-xs font-medium">
                             ¥{formatHiddenAmount((stats as any).avgDebt, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
-                          <div className="text-xs text-gray-400">当前欠款</div>
-                          <div className="text-sm font-medium">
+                          <div className="text-[10px] text-gray-400">当前欠款</div>
+                          <div className="text-xs font-medium">
                             ¥{formatHiddenAmount(Math.abs(currentBalance), hideBalance)}
                           </div>
                         </div>
@@ -594,20 +751,20 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                     ) : (
                       <>
                         <div className="text-center">
-                          <div className="text-xs text-gray-400">最高余额</div>
-                          <div className="text-sm font-medium text-green-600">
+                          <div className="text-[10px] text-gray-400">最高余额</div>
+                          <div className="text-xs font-medium text-green-600">
                             ¥{formatHiddenAmount((stats as any).maxBalance, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
-                          <div className="text-xs text-gray-400">最低余额</div>
-                          <div className="text-sm font-medium">
+                          <div className="text-[10px] text-gray-400">最低余额</div>
+                          <div className="text-xs font-medium">
                             ¥{formatHiddenAmount((stats as any).minBalance, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
-                          <div className="text-xs text-gray-400">平均余额</div>
-                          <div className="text-sm font-medium">
+                          <div className="text-[10px] text-gray-400">平均余额</div>
+                          <div className="text-xs font-medium">
                             ¥{formatHiddenAmount((stats as any).avgBalance, hideBalance)}
                           </div>
                         </div>
@@ -617,7 +774,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                 )}
               </>
             ) : (
-              <div className="h-32 flex items-center justify-center text-gray-400 text-sm">
+              <div className="h-24 flex items-center justify-center text-gray-400 text-xs">
                 暂无历史数据
               </div>
             )}
