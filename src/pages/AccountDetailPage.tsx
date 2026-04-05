@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Edit3, Trash2, TrendingUp, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, ThemeType } from '@/types';
 import {
@@ -96,7 +95,11 @@ function getAccountTrendHistory(accountId: string, months: number): TrendRecord[
   }
 
   // 过滤出符合时间范围的历史记录
-  const filteredRecords = allRecords.filter(r => {
+  const filteredRecords: TrendRecord[] = allRecords.map(r => ({
+    year: r.year,
+    month: r.month,
+    balance: r.balance,
+  })).filter(r => {
     if (r.year < startYear) return false;
     if (r.year === startYear && r.month < startMonth) return false;
     if (r.year > currentYear) return false;
@@ -367,11 +370,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
     }
     return rawData;
   }, [account, trendRange]);
-
-  // 生成智能X轴标签
-  const smartXAxisLabels = useMemo(() => {
-    return generateSmartXAxis(trendData, 6);
-  }, [trendData]);
 
   // 计算年度分割线位置
   const yearBoundaries = useMemo(() => {
