@@ -114,6 +114,8 @@ function getAccountTrendHistory(accountId: string, months: number): TrendRecord[
     const account = data.accounts.find(a => a.id === accountId);
     if (account) {
       filteredRecords.push({
+        id: `${accountId}-${currentYear}-${currentMonth}`,
+        accountId: accountId,
         year: currentYear,
         month: currentMonth,
         balance: account.balance,
