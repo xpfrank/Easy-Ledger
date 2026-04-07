@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Calendar, AlertTriangle, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Calendar, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
@@ -10,6 +10,7 @@ import {
   formatDate,
   getAllAccounts,
   getSettings,
+  updateSettings,
   getRecordLogsExpandedGroups,
   saveRecordLogsExpandedGroups,
   getAllAttributions,
@@ -527,6 +528,18 @@ export function RecordLogsPage({ onPageChange, year, month, mode }: RecordLogsPa
           </Button>
           <h1 className="text-lg font-semibold">记账记录</h1>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            const newValue = !hideBalance;
+            setHideBalance(newValue);
+            updateSettings({ hideBalance: newValue });
+          }}
+          className="text-gray-500"
+        >
+          {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
+        </Button>
       </header>
 
       {/* 占位元素 */}
