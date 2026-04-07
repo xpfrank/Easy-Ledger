@@ -196,21 +196,23 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
 
             {/* 只显示净资产 */}
             <div>
-              <div className="text-white/80 text-sm mb-1">净资产（元）</div>
-              <div className="text-3xl font-bold tracking-tight">
-                ¥{formatHiddenAmount(netWorth, hideBalance)}
-              </div>
-              <div className="flex items-center justify-between text-xs mt-2">
-                <div className="flex items-center">
-                  <span className="text-white/70">较上月</span>
-                  <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                    {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
-                  </span>
-                  <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                    {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
-                  </span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-white/80 text-sm mb-1">净资产（元）</div>
+                  <div className="text-3xl font-bold tracking-tight">
+                    ¥{formatHiddenAmount(netWorth, hideBalance)}
+                    <span className="text-sm font-normal ml-3">共 {hideBalance ? '**' : getAllAccounts().filter(a => !a.isHidden).length} 个账户</span>
+                  </div>
                 </div>
-                <span className="text-white/70">共 {getAllAccounts().filter(a => !a.isHidden).length} 个账户</span>
+              </div>
+              <div className="flex items-center text-xs mt-2">
+                <span className="text-white/70">较上月</span>
+                <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
+                  {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
+                </span>
+                <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
+                  {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
+                </span>
               </div>
             </div>
           </CardContent>

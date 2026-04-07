@@ -598,11 +598,11 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
               }`}>
                 <span className="text-gray-500">较上月：</span>
                 <span className="font-medium">
-                  {(contribution.changeValue || 0) > 0 ? '+' : ''}{(contribution.changeValue || 0).toFixed(1)}%
+                  {hideBalance ? '**' : `${(contribution.changeValue || 0) > 0 ? '+' : ''}${(contribution.changeValue || 0).toFixed(1)}`}%
                 </span>
                 <span className="text-xs">
-                  ({(contribution.changeValue || 0) > 0 ? '占比上升' :
-                    (contribution.changeValue || 0) < 0 ? '占比下降' : '占比不变'})
+                  ({hideBalance ? '占比变化' : ((contribution.changeValue || 0) > 0 ? '占比上升' :
+                    (contribution.changeValue || 0) < 0 ? '占比下降' : '占比不变')})
                 </span>
               </div>
             ) : (
