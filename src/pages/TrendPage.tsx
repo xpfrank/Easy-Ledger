@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, ThemeType, MonthlyNetWorth, AccountSnapshot } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAccountSnapshotsByMonth, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
+import { formatAmountNoSymbol, getSettings, updateSettings, getMonthlyAttribution, getAccountSnapshotsByMonth, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';

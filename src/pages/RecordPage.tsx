@@ -13,6 +13,7 @@ import {
   formatAmountNoSymbol,
   formatMonth,
   getSettings,
+  updateSettings,
   saveMonthlyAttribution,
   getMonthlyAttribution,
   calculateFluctuationLevel,
@@ -706,7 +707,11 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setHideBalance(!hideBalance)}
+            onClick={() => {
+              const newValue = !hideBalance;
+              setHideBalance(newValue);
+              updateSettings({ hideBalance: newValue });
+            }}
             className="text-gray-500"
           >
             {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
