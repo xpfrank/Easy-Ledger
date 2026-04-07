@@ -269,18 +269,14 @@ function calculateContribution(account: Account): ContributionData {
   };
 }
 
-// 计算年度分割线位置（返回年份边界信息，包含年份和对应的数据索引）
+// 计算年度分割线位置（返回每年1月的数据索引，用于添加年份分割线）
 function getYearBoundaries(data: any[]): { index: number; year: number }[] {
   const boundaries: { index: number; year: number }[] = [];
-  let lastYear = -1;
 
   data.forEach((item, index) => {
-    if (item.year !== lastYear) {
-      if (index > 0) {
-        // 在年份切换处添加边界（前一年的最后一个数据点之后）
-        boundaries.push({ index, year: item.year });
-      }
-      lastYear = item.year;
+    // 在每年1月的数据点处添加分割线
+    if (item.month && item.month.endsWith('-01')) {
+      boundaries.push({ index, year: item.year });
     }
   });
 
@@ -530,13 +526,25 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                   <div className="bg-white/10 rounded-lg p-2 text-center">
                     <div className="text-white/60 text-xs mb-0.5">总额度</div>
                     <div className="text-base font-bold text-white">
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(currentBalance) + (account.note ? 0 : 0))}
+                      {account.creditLimit && account.creditLimit > 0
+                        ? `¥${hideBalance ? '******' : formatAmountNoSymbol(account.creditLimit)}`
+                        : <span className="text-white/50 text-sm">未设置</span>
+                      }
                     </div>
                   </div>
                   <div className="bg-white/10 rounded-lg p-2 text-center">
                     <div className="text-white/60 text-xs mb-0.5">剩余额度</div>
                     <div className={`text-base font-bold ${currentBalance >= 0 ? 'text-green-200' : 'text-white'}`}>
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(currentBalance))}
+                      {account.creditLimit && account.creditLimit > 0
+                        ? (() => {
+                            // 计算剩余额度：欠款为正时减少，溢缴款为负时增加
+                            const remainingLimit = currentBalance >= 0
+                              ? account.creditLimit - currentBalance
+                              : account.creditLimit + Math.abs(currentBalance);
+                            return `¥${hideBalance ? '******' : formatAmountNoSymbol(Math.max(0, remainingLimit))}`;
+                          })()
+                        : <span className="text-white/50 text-sm">未设置</span>
+                      }
                     </div>
                   </div>
                 </div>
@@ -571,7 +579,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                 <span className="text-gray-400 ml-1">/ 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}</span>
               </span>
               <span className="font-semibold text-sm" style={{ color: themeConfig.primary }}>
-                {(contribution?.percentage || 0).toFixed(1)}%
+                {hideBalance ? '******' : `${(contribution?.percentage || 0).toFixed(1)}%`}
               </span>
             </div>
 
@@ -652,13 +660,21 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis 
-                          dataKey="label" 
-                          tick={{ fontSize: 9 }} 
-                          axisLine={false} 
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 9 }}
+                          axisLine={false}
                           tickLine={false}
                           interval="preserveStartEnd"
                           minTickGap={15}
+                          tickFormatter={(value, index) => {
+                            const item = trendData[index];
+                            // 在每年1月显示年份标签
+                            if (item && item.month && item.month.endsWith('-01')) {
+                              return `${item.year}年`;
+                            }
+                            return value;
+                          }}
                         />
                         <YAxis
                           tick={{ fontSize: 9 }}
@@ -677,7 +693,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           }}
                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
                         />
-                        {/* 年度分割线 */}
+                        {/* 年度分割线 - 在每年1月位置 */}
                         {yearBoundaries.map((boundary) => {
                           const dataPoint = trendData[boundary.index];
                           if (dataPoint) {
@@ -685,8 +701,8 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                               <ReferenceLine
                                 key={`boundary-${boundary.index}`}
                                 x={dataPoint.label}
-                                stroke="#d1d5db"
-                                strokeDasharray="3 3"
+                                stroke="#9ca3af"
+                                strokeWidth={1}
                                 ifOverflow="extendDomain"
                               />
                             );
@@ -721,13 +737,21 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis 
-                          dataKey="label" 
-                          tick={{ fontSize: 9 }} 
-                          axisLine={false} 
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 9 }}
+                          axisLine={false}
                           tickLine={false}
                           interval="preserveStartEnd"
                           minTickGap={15}
+                          tickFormatter={(value, index) => {
+                            const item = trendData[index];
+                            // 在每年1月显示年份标签
+                            if (item && item.month && item.month.endsWith('-01')) {
+                              return `${item.year}年`;
+                            }
+                            return value;
+                          }}
                         />
                         <YAxis
                           tick={{ fontSize: 9 }}
@@ -746,7 +770,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           }}
                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
                         />
-                        {/* 年度分割线 */}
+                        {/* 年度分割线 - 在每年1月位置 */}
                         {yearBoundaries.map((boundary) => {
                           const dataPoint = trendData[boundary.index];
                           if (dataPoint) {
@@ -754,8 +778,8 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                               <ReferenceLine
                                 key={`boundary-${boundary.index}`}
                                 x={dataPoint.label}
-                                stroke="#d1d5db"
-                                strokeDasharray="3 3"
+                                stroke="#9ca3af"
+                                strokeWidth={1}
                                 ifOverflow="extendDomain"
                               />
                             );

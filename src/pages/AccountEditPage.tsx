@@ -37,6 +37,7 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
     billDay: 1,
     repaymentDay: 10,
     graceDays: 0,
+    creditLimit: 0,
   });
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
           billDay: account.billDay || 1,
           repaymentDay: account.repaymentDay || 10,
           graceDays: account.graceDays || 0,
+          creditLimit: account.creditLimit || 0,
         });
       }
     }
@@ -215,7 +217,29 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
           <Card className="bg-white">
             <CardContent className="p-4 space-y-4">
               <Label className="text-sm font-medium block">信用卡设置</Label>
-              
+
+              <div>
+                <Label htmlFor="creditLimit" className="text-xs text-gray-500 mb-1 block">
+                  总额度
+                </Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">¥</span>
+                  <Input
+                    id="creditLimit"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.creditLimit || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, creditLimit: parseFloat(e.target.value) || 0 }))}
+                    placeholder="0.00"
+                    className="h-11 pl-7"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  设置信用卡总额度，系统将自动计算剩余额度
+                </p>
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor="billDay" className="text-xs text-gray-500 mb-1 block">
