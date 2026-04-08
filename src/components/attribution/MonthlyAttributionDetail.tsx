@@ -1,9 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth } from '@/lib/calculator';
-import { getMonthlyAttribution, getAccountSnapshotsByMonth } from '@/lib/storage';
-import { formatAmountNoSymbol } from '@/lib/storage';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getAttributionTagEmoji, getAttributionTagLabel } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 
 interface Props {
