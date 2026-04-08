@@ -10,11 +10,27 @@ import { RecordPage } from '@/pages/RecordPage';
 import { RecordLogsPage } from '@/pages/RecordLogsPage';
 import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { getSettings, updateSettings } from '@/lib/storage';
 import './App.css';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<PageRoute>('home');
   const [pageParams, setPageParams] = useState<any>(null);
+  // 全局余额隐藏状态 - 在 App 层级管理，确保跨页面同步
+  const [hideBalance, setHideBalanceState] = useState(false);
+
+  // 初始化从本地存储读取余额隐藏状态
+  useEffect(() => {
+    const settings = getSettings();
+    setHideBalanceState(settings.hideBalance);
+  }, []);
+
+  // 全局余额隐藏状态切换函数
+  const toggleHideBalance = useCallback(() => {
+    const newValue = !hideBalance;
+    setHideBalanceState(newValue);
+    updateSettings({ hideBalance: newValue });
+  }, [hideBalance]);
   // 页面历史栈，用于返回逻辑
   const [pageHistory, setPageHistory] = useState<{ page: PageRoute; params: any }[]>([{ page: 'home', params: null }]);
   // 双击退出提示状态
@@ -148,7 +164,7 @@ function App() {
   const renderPage = () => {
     switch (currentPage) {
       case 'home':
-        return <HomePage onPageChange={handlePageChange} params={pageParams} />;
+        return <HomePage onPageChange={handlePageChange} params={pageParams} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
       case 'accounts':
         return <AccountsPage onPageChange={handlePageChange} />;
       case 'account-edit':
@@ -158,11 +174,11 @@ function App() {
       case 'account-flow':
         return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
       case 'record':
-        return <RecordPage onPageChange={handlePageChange} />;
+        return <RecordPage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
       case 'record-logs':
         return (
-          <RecordLogsPage 
-            onPageChange={handlePageChange} 
+          <RecordLogsPage
+            onPageChange={handlePageChange}
             year={pageParams?.year || new Date().getFullYear()}
             month={pageParams?.month}
             mode={pageParams?.mode || 'monthly'}
@@ -173,7 +189,7 @@ function App() {
       case 'settings':
         return <SettingsPage onPageChange={handlePageChange} />;
       default:
-        return <HomePage onPageChange={handlePageChange} />;
+        return <HomePage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
     }
   };
 
