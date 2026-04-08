@@ -3,11 +3,11 @@ import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Al
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
-import type { PageRoute, RecordLog, RecordMode, MonthlyAttribution, YearlyAttribution } from '@/types';
+import type { PageRoute, RecordLog, RecordMode, MonthlyAttribution, YearlyAttribution, ThemeType } from '@/types';
 import {
   getRecordLogs,
   formatAmountNoSymbol,
-  formatShortDate,
+  formatDate,
   getAllAccounts,
   getSettings,
   updateSettings,
@@ -18,10 +18,11 @@ import {
   getAccountSnapshotsByMonth,
   getAttributionTagLabel,
   getAttributionTagEmoji,
+  getMonthlyRecord,
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { calculateNetWorth } from '@/lib/calculator';
-import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
+import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji, THEMES } from '@/types';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionDetail';
 
@@ -49,6 +50,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideBalance, setHideBalance] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [expandedAttributionCards, setExpandedAttributionCards] = useState<Set<string>>(new Set());
   const accounts = getAllAccounts();
 
@@ -62,18 +64,24 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const [monthlyAttributions, setMonthlyAttributions] = useState<MonthlyAttribution[]>([]);
   const [yearlyAttributions, setYearlyAttributions] = useState<YearlyAttribution[]>([]);
 
+  // 主题色状态
+  const [theme, setTheme] = useState<ThemeType>('blue');
+  const themeConfig = THEMES[theme];
+
   const [selectedAttributionMonth, setSelectedAttributionMonth] = useState<{ year: number; month: number } | null>(null);
   const [selectedAttributionYear, setSelectedAttributionYear] = useState<number | null>(null);
 
   useEffect(() => {
     const settings = getSettings();
     setHideBalance(settings.hideBalance || false);
+    setTheme(settings.theme || 'blue');
     const savedExpanded = getRecordLogsExpandedGroups(selectedYear, viewMode === 'monthly' ? selectedMonth : undefined, viewMode);
     if (savedExpanded) {
       setExpandedGroups(new Set(savedExpanded));
     }
     setMonthlyAttributions(getAllAttributions());
     setYearlyAttributions(getAllYearlyAttributions());
+    setIsInitialized(true);
   }, []);
 
   const toggleGroup = (key: string) => {
@@ -327,22 +335,13 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     );
   };
 
+  // ==================== 核心修复：月度视图按日期分组，保留可视化图标 ====================
   const renderBalanceRecords = () => {
     if (viewMode === 'monthly') {
-      // 按日期维度聚合展示
+      // 获取所有记录并按日期分组
       const monthLogs = getRecordLogs(selectedYear, selectedMonth).filter(
         log => selectedAccount === 'all' || log.accountId === selectedAccount
       );
-      
-      // 按日期分组
-      const dateGroups = new Map<string, RecordLog[]>();
-      monthLogs.forEach(log => {
-        const dateKey = formatShortDate(log.timestamp);
-        if (!dateGroups.has(dateKey)) {
-          dateGroups.set(dateKey, []);
-        }
-        dateGroups.get(dateKey)!.push(log);
-      });
 
       if (monthLogs.length === 0) {
         return (
@@ -354,29 +353,30 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         );
       }
 
-      // 获取所有唯一日期并排序
-      const sortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
-        const [aMonth, aDay] = a.split('月').map(n => parseInt(n));
-        const [bMonth, bDay] = b.split('月').map(n => parseInt(n));
-        return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
+      // 按日期分组 (格式: "4月8日")
+      const dateGroups = new Map<string, RecordLog[]>();
+      monthLogs.forEach(log => {
+        const date = new Date(log.timestamp);
+        const dateStr = `${date.getMonth() + 1}月${date.getDate()}日`;
+        if (!dateGroups.has(dateStr)) {
+          dateGroups.set(dateStr, []);
+        }
+        dateGroups.get(dateStr)!.push(log);
+      });
+
+      // 按日期排序（最新的在前）
+      const sortedDates = Array.from(dateGroups.entries()).sort((a, b) => {
+        const timeA = a[1][0]?.timestamp || 0;
+        const timeB = b[1][0]?.timestamp || 0;
+        return timeB - timeA;
       });
 
       return (
         <div className="space-y-3">
-          {sortedDates.map(dateKey => {
-            const logs = dateGroups.get(dateKey)!;
-            const key = `date-${selectedYear}-${selectedMonth}-${dateKey}`;
+          {sortedDates.map(([dateStr, logs]) => {
+            const key = `${selectedYear}-${selectedMonth}-${dateStr}`;
             const isExpanded = expandedGroups.has(key);
             
-            // 获取该日期下的账户信息
-            const accountMap = new Map<string, RecordLog[]>();
-            logs.forEach(log => {
-              if (!accountMap.has(log.accountId)) {
-                accountMap.set(log.accountId, []);
-              }
-              accountMap.get(log.accountId)!.push(log);
-            });
-
             return (
               <Card key={key} className="bg-white overflow-hidden">
                 <div
@@ -385,35 +385,44 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{dateKey}</span>
+                      <span className="font-medium">{dateStr}</span>
                       <span className="text-xs text-gray-400">({logs.length}条记录)</span>
                     </div>
                   </div>
-                  {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                 </div>
+                
                 {isExpanded && (
                   <div className="divide-y">
-                    {Array.from(accountMap.entries()).map(([accountId, accountLogs]) => {
-                      const account = accounts.find(a => a.id === accountId);
+                    {logs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
+                      const account = accounts.find(a => a.id === log.accountId);
                       if (!account) return null;
+                      const change = log.newBalance - log.oldBalance;
+                      const isIncrease = change >= 0;
+                      
                       return (
-                        <div key={accountId} className="p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Icon name={account.icon} size={16} />
-                            <span className="font-medium text-sm">{account.name}</span>
-                          </div>
-                          <div className="space-y-2 pl-6">
-                            {accountLogs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
-                              const change = log.newBalance - log.oldBalance;
-                              return (
-                                <div key={log.id} className="flex items-center justify-between text-sm">
-                                  <span className="text-gray-500">{getOperationTypeLabel(log.operationType)}</span>
-                                  <span className={change >= 0 ? 'text-green-600' : 'text-red-500'}>
-                                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(log.newBalance)}`}
-                                  </span>
-                                </div>
-                              );
-                            })}
+                        <div key={log.id} className="p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              {/* 可视化图标 - 保留原始风格 */}
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isIncrease ? 'bg-green-50' : 'bg-red-50'}`}>
+                                <Icon
+                                  name={isIncrease ? 'trending-up' : 'trending-down'}
+                                  size={16}
+                                  className={isIncrease ? 'text-green-500' : 'text-red-500'}
+                                />
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium">{account.name}</div>
+                                <div className="text-xs text-gray-400">{getOperationTypeLabel(log.operationType)}</div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`text-sm font-medium ${isIncrease ? 'text-green-600' : 'text-red-500'}`}>
+                                {hideBalance ? '****** → ******' : `¥${formatAmountNoSymbol(log.oldBalance)} → ¥${formatAmountNoSymbol(log.newBalance)}`}
+                              </div>
+                              <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
+                            </div>
                           </div>
                         </div>
                       );
@@ -426,6 +435,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         </div>
       );
     } else {
+      // ==================== 年度视图：按月份分组，展示月度最终数据 ====================
       return (
         <div className="space-y-3">
           {Array.from({ length: 12 }, (_, i) => 12 - i).map(month => {
@@ -433,16 +443,16 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
               log => selectedAccount === 'all' || log.accountId === selectedAccount
             );
             if (monthLogs.length === 0) return null;
-            const netWorth = calculateNetWorth(selectedYear, month);
+            
+            // 获取该月最后一条记录的日期
+            const lastLog = monthLogs.sort((a, b) => b.timestamp - a.timestamp)[0];
+            const lastRecordDate = formatDate(lastLog.timestamp);
+            
+            // 计算该月净资产
+            const monthNetWorth = calculateNetWorth(selectedYear, month);
+            
             const key = `${selectedYear}-${month.toString().padStart(2, '0')}`;
             const isExpanded = expandedGroups.has(key);
-            const accountGroups = new Map<string, RecordLog[]>();
-            monthLogs.forEach(log => {
-              if (!accountGroups.has(log.accountId)) {
-                accountGroups.set(log.accountId, []);
-              }
-              accountGroups.get(log.accountId)!.push(log);
-            });
 
             return (
               <Card key={month} className="bg-white overflow-hidden">
@@ -453,39 +463,72 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{selectedYear}年{month}月</span>
-                      <span className="text-sm font-semibold">¥{formatHiddenAmount(netWorth, hideBalance)}</span>
+                      <span className="text-sm font-semibold">¥{formatHiddenAmount(monthNetWorth, hideBalance)}</span>
                     </div>
-                    <span className="text-xs text-gray-400">{monthLogs.length}条记录</span>
+                    <span className="text-xs text-gray-400">最后记录: {lastRecordDate} · {monthLogs.length}条记录</span>
                   </div>
                   {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                 </div>
+                
                 {isExpanded && (
                   <div className="divide-y">
-                    {Array.from(accountGroups.entries()).map(([accountId, logs]) => {
-                      const account = accounts.find(a => a.id === accountId);
-                      if (!account) return null;
-                      return (
-                        <div key={accountId} className="p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Icon name={account.icon} size={16} />
-                            <span className="font-medium text-sm">{account.name}</span>
+                    {/* 展示该月各账户的最终余额 */}
+                    <div className="p-3 bg-gray-50/50">
+                      <div className="text-xs text-gray-500 mb-2">月末账户余额</div>
+                      {accounts.map(account => {
+                        const record = getMonthlyRecord(account.id, selectedYear, month);
+                        const balance = record ? record.balance : account.balance;
+                        const isCredit = account.type === 'credit';
+                        const isDebt = account.type === 'debt';
+                        
+                        if (selectedAccount !== 'all' && selectedAccount !== account.id) return null;
+                        
+                        return (
+                          <div key={account.id} className="flex items-center justify-between py-1.5">
+                            <div className="flex items-center gap-2">
+                              <Icon name={account.icon} size={14} />
+                              <span className="text-sm">{account.name}</span>
+                            </div>
+                            <span className={`text-sm ${isCredit || isDebt ? 'text-red-500' : 'text-gray-900'}`}>
+                              ¥{formatHiddenAmount(balance, hideBalance)}
+                            </span>
                           </div>
-                          <div className="space-y-2 pl-6">
-                            {logs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
-                              const change = log.newBalance - log.oldBalance;
-                              return (
-                                <div key={log.id} className="flex items-center justify-between text-sm">
-                                  <span className="text-gray-500">{getOperationTypeLabel(log.operationType)}</span>
-                                  <span className={change >= 0 ? 'text-green-600' : 'text-red-500'}>
-                                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(log.newBalance)}`}
-                                  </span>
-                                </div>
-                              );
-                            })}
+                        );
+                      })}
+                    </div>
+                    
+                    {/* 展示该月的所有变动记录（带可视化图标） */}
+                    <div className="p-3">
+                      <div className="text-xs text-gray-500 mb-2">变动记录</div>
+                      {monthLogs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
+                        const account = accounts.find(a => a.id === log.accountId);
+                        if (!account) return null;
+                        const change = log.newBalance - log.oldBalance;
+                        const isIncrease = change >= 0;
+                        
+                        return (
+                          <div key={log.id} className="flex items-center justify-between py-2">
+                            <div className="flex items-center gap-3">
+                              {/* 可视化图标 */}
+                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isIncrease ? 'bg-green-50' : 'bg-red-50'}`}>
+                                <Icon
+                                  name={isIncrease ? 'trending-up' : 'trending-down'}
+                                  size={14}
+                                  className={isIncrease ? 'text-green-500' : 'text-red-500'}
+                                />
+                              </div>
+                              <div>
+                                <div className="text-sm">{account.name}</div>
+                                <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
+                              </div>
+                            </div>
+                            <div className={`text-sm font-medium ${isIncrease ? 'text-green-600' : 'text-red-500'}`}>
+                              {isIncrease ? '+' : ''}¥{formatHiddenAmount(Math.abs(change), hideBalance)}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </Card>
@@ -674,11 +717,13 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         {viewMode === 'yearly' && yearlySubView === 'yearly_attribution' && renderYearlyAttributionTab()}
       </div>
 
+      {/* 月度归因详情弹窗 - 传递 theme */}
       {selectedAttributionMonth && (
         <MonthlyAttributionDetail
           year={selectedAttributionMonth.year}
           month={selectedAttributionMonth.month}
           hideBalance={hideBalance}
+          theme={theme}
           onClose={() => setSelectedAttributionMonth(null)}
           onEdit={() => {
             goToRecordForAttribution(selectedAttributionMonth.year, selectedAttributionMonth.month);
@@ -687,10 +732,12 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         />
       )}
 
+      {/* 年度归因详情弹窗 - 传递 theme */}
       {selectedAttributionYear && (
         <YearlyAttributionDetail
           year={selectedAttributionYear}
           hideBalance={hideBalance}
+          theme={theme}
           onClose={() => setSelectedAttributionYear(null)}
           onEdit={() => {
             goToRecordForAttribution(selectedAttributionYear);
