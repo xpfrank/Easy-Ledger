@@ -228,7 +228,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
   const [netWorth, setNetWorth] = useState(0);
   const [totalAssets, setTotalAssets] = useState(0);
   const [totalLiabilities, setTotalLiabilities] = useState(0);
-  const [theme, setTheme] = useState<ThemeType>('blue');
+  const [theme] = useState<ThemeType>('blue');
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
