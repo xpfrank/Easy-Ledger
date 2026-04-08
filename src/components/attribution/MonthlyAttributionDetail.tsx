@@ -14,11 +14,6 @@ interface Props {
   onEdit: () => void;
 }
 
-function formatHiddenAmount(amount: number, hide: boolean): string {
-  if (hide) return '******';
-  return formatAmountNoSymbol(amount);
-}
-
 export default function MonthlyAttributionDetail({ year, month, hideBalance, theme = 'blue', onClose, onEdit }: Props) {
   const attribution = getMonthlyAttribution(year, month);
   const currentNW = calculateNetWorth(year, month);
