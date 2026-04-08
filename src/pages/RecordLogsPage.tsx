@@ -7,7 +7,7 @@ import type { PageRoute, RecordLog, RecordMode, MonthlyAttribution, YearlyAttrib
 import {
   getRecordLogs,
   formatAmountNoSymbol,
-  formatDate,
+  formatShortDate,
   getAllAccounts,
   getSettings,
   updateSettings,
