@@ -22,7 +22,7 @@ import {
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { calculateNetWorth } from '@/lib/calculator';
-import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji, THEMES } from '@/types';
+import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionDetail';
 
