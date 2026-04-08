@@ -1,14 +1,14 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth } from '@/lib/calculator';
-import { getYearlyAttribution, getAllAccounts, getMonthlyRecord } from '@/lib/storage';
-import { formatAmountNoSymbol } from '@/lib/storage';
+import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
-import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
+import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji, type ThemeType, THEMES } from '@/types';
 
 interface Props {
   year: number;
   hideBalance: boolean;
+  theme?: ThemeType;
   onClose: () => void;
   onEdit: () => void;
 }
@@ -18,12 +18,14 @@ function formatHiddenAmount(amount: number, hide: boolean): string {
   return formatAmountNoSymbol(amount);
 }
 
-export default function YearlyAttributionDetail({ year, hideBalance, onClose, onEdit }: Props) {
+export default function YearlyAttributionDetail({ year, hideBalance, theme = 'purple', onClose, onEdit }: Props) {
   const attribution = getYearlyAttribution(year);
   const currentNW = calculateNetWorth(year, 12);
   const lastNW = calculateNetWorth(year - 1, 12);
   const change = currentNW - lastNW;
   const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
+
+  const themeConfig = THEMES[theme];
 
   // 账户变动TOP3（年末较年初）
   const accounts = getAllAccounts().filter(a => !a.isHidden);
@@ -49,23 +51,35 @@ export default function YearlyAttributionDetail({ year, hideBalance, onClose, on
           <DialogTitle>{year}年 年度归因</DialogTitle>
         </DialogHeader>
         <div className="py-4 space-y-4">
-          {/* 年末净资产卡片 */}
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-5 text-white">
+          {/* 年末净资产卡片 - 使用主题色 */}
+          <div 
+            className="rounded-xl p-5 text-white"
+            style={{ 
+              background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` 
+            }}
+          >
             <div className="text-white/80 text-sm mb-2">年末净资产</div>
-            <div className="text-3xl font-bold">{formatHiddenAmount(attribution.netWorth, hideBalance)}</div>
+            <div className="text-3xl font-bold">
+              {hideBalance ? '******' : `¥${formatAmountNoSymbol(attribution.netWorth)}`}
+            </div>
             <div className="flex items-center gap-4 mt-4">
               <div>
                 <div className="text-xs text-white/70">较年初</div>
-                <div className="font-bold">{change >= 0 ? '+' : ''}{formatHiddenAmount(change, hideBalance)}</div>
+                <div className="font-bold">
+                  {change >= 0 ? '+' : ''}
+                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(change)}`}
+                </div>
               </div>
               <div>
                 <div className="text-xs text-white/70">变化率</div>
-                <div className="font-bold">{changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%</div>
+                <div className="font-bold">
+                  {changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%
+                </div>
               </div>
             </div>
           </div>
 
-          {/* 账户资产变动TOP3 */}
+          {/* 账户资产变动TOP3 - 添加 hideBalance */}
           {accountChanges.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="text-sm font-medium mb-3">账户资产变动TOP3</div>
@@ -77,7 +91,8 @@ export default function YearlyAttributionDetail({ year, hideBalance, onClose, on
                       <span className="text-sm">{item.accountName}</span>
                     </div>
                     <span className={item.change >= 0 ? 'text-green-600' : 'text-red-500'}>
-                      {item.change >= 0 ? '+' : ''}{formatHiddenAmount(item.change, hideBalance)}
+                      {item.change >= 0 ? '+' : ''}
+                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                     </span>
                   </div>
                 ))}
@@ -121,7 +136,11 @@ export default function YearlyAttributionDetail({ year, hideBalance, onClose, on
             </div>
           </div>
 
-          <Button onClick={onEdit} className="w-full">
+          <Button 
+            onClick={onEdit} 
+            className="w-full text-white"
+            style={{ backgroundColor: themeConfig.primary }}
+          >
             编辑年度归因
           </Button>
         </div>
