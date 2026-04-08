@@ -13,11 +13,6 @@ interface Props {
   onEdit: () => void;
 }
 
-function formatHiddenAmount(amount: number, hide: boolean): string {
-  if (hide) return '******';
-  return formatAmountNoSymbol(amount);
-}
-
 export default function YearlyAttributionDetail({ year, hideBalance, theme = 'purple', onClose, onEdit }: Props) {
   const attribution = getYearlyAttribution(year);
   const currentNW = calculateNetWorth(year, 12);
