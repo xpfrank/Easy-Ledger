@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Calendar, AlertTriangle, BarChart3, Eye, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Filter, ChevronDown, ChevronUp, TrendingUp, TrendingDown, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
@@ -22,9 +22,6 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { calculateNetWorth } from '@/lib/calculator';
 import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-
-// 新增：归因详情弹窗组件（实际使用时需替换为真正的组件）
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionDetail';
 
@@ -77,10 +74,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   // 独立的时间选择状态（不依赖路由）
   const [selectedYear, setSelectedYear] = useState(initialYear);
   const [selectedMonth, setSelectedMonth] = useState(initialMonth || new Date().getMonth() + 1);
-  
-  // 年份选择下拉
-  const [showYearPicker, setShowYearPicker] = useState(false);
-  const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   // 数据
   const [monthlyAttributions, setMonthlyAttributions] = useState<MonthlyAttribution[]>([]);
