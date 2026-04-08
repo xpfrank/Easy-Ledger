@@ -329,15 +329,19 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
   const renderBalanceRecords = () => {
     if (viewMode === 'monthly') {
+      // 按日期维度聚合展示
       const monthLogs = getRecordLogs(selectedYear, selectedMonth).filter(
         log => selectedAccount === 'all' || log.accountId === selectedAccount
       );
-      const accountGroups = new Map<string, RecordLog[]>();
+      
+      // 按日期分组
+      const dateGroups = new Map<string, RecordLog[]>();
       monthLogs.forEach(log => {
-        if (!accountGroups.has(log.accountId)) {
-          accountGroups.set(log.accountId, []);
+        const dateKey = formatShortDate(log.timestamp);
+        if (!dateGroups.has(dateKey)) {
+          dateGroups.set(dateKey, []);
         }
-        accountGroups.get(log.accountId)!.push(log);
+        dateGroups.get(dateKey)!.push(log);
       });
 
       if (monthLogs.length === 0) {
@@ -350,43 +354,72 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         );
       }
 
+      // 获取所有唯一日期并排序
+      const sortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
+        const [aMonth, aDay] = a.split('月').map(n => parseInt(n));
+        const [bMonth, bDay] = b.split('月').map(n => parseInt(n));
+        return (aMonth * 100 + aDay) - (bMonth * 100 + bDay);
+      });
+
       return (
-        <div className="space-y-4">
-          {Array.from(accountGroups.entries()).map(([accountId, logs]) => {
-            const account = accounts.find(a => a.id === accountId);
-            if (!account) return null;
-            const sortedLogs = logs.sort((a, b) => b.timestamp - a.timestamp);
+        <div className="space-y-3">
+          {sortedDates.map(dateKey => {
+            const logs = dateGroups.get(dateKey)!;
+            const key = `date-${selectedYear}-${selectedMonth}-${dateKey}`;
+            const isExpanded = expandedGroups.has(key);
+            
+            // 获取该日期下的账户信息
+            const accountMap = new Map<string, RecordLog[]>();
+            logs.forEach(log => {
+              if (!accountMap.has(log.accountId)) {
+                accountMap.set(log.accountId, []);
+              }
+              accountMap.get(log.accountId)!.push(log);
+            });
+
             return (
-              <Card key={accountId} className="bg-white overflow-hidden">
-                <div className="px-4 py-3 bg-gray-50 border-b">
-                  <div className="flex items-center gap-2">
-                    <Icon name={account.icon} size={18} />
-                    <span className="font-medium">{account.name}</span>
+              <Card key={key} className="bg-white overflow-hidden">
+                <div
+                  className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer"
+                  onClick={() => toggleGroup(key)}
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{dateKey}</span>
+                      <span className="text-xs text-gray-400">({logs.length}条记录)</span>
+                    </div>
                   </div>
+                  {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                 </div>
-                <div className="divide-y">
-                  {sortedLogs.map(log => {
-                    const change = log.newBalance - log.oldBalance;
-                    return (
-                      <div key={log.id} className="p-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${change >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                              <Icon name={change >= 0 ? 'trending-up' : 'trending-down'} size={16} className={change >= 0 ? 'text-green-500' : 'text-red-500'} />
-                            </div>
-                            <div>
-                              <div className="text-sm">{getOperationTypeLabel(log.operationType)}</div>
-                              <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
-                            </div>
+                {isExpanded && (
+                  <div className="divide-y">
+                    {Array.from(accountMap.entries()).map(([accountId, accountLogs]) => {
+                      const account = accounts.find(a => a.id === accountId);
+                      if (!account) return null;
+                      return (
+                        <div key={accountId} className="p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Icon name={account.icon} size={16} />
+                            <span className="font-medium text-sm">{account.name}</span>
                           </div>
-                          <div className={`text-sm font-medium ${change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                            {hideBalance ? '****** → ******' : `¥${formatAmountNoSymbol(log.oldBalance)} → ¥${formatAmountNoSymbol(log.newBalance)}`}
+                          <div className="space-y-2 pl-6">
+                            {accountLogs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
+                              const change = log.newBalance - log.oldBalance;
+                              return (
+                                <div key={log.id} className="flex items-center justify-between text-sm">
+                                  <span className="text-gray-500">{getOperationTypeLabel(log.operationType)}</span>
+                                  <span className={change >= 0 ? 'text-green-600' : 'text-red-500'}>
+                                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(log.newBalance)}`}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </Card>
             );
           })}

@@ -721,35 +721,35 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
         </div>
       </header>
 
-      <div className="p-4 space-y-4">
+      <div className="p-3 space-y-3">
         {/* 月份/年份选择器 */}
         <Card className="bg-white shadow-sm">
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <div className="flex items-center justify-between">
-              <Button variant="ghost" size="icon" onClick={goToPrev} className="hover:bg-gray-100">
-                <ChevronLeft size={24} />
+              <Button variant="ghost" size="icon" onClick={goToPrev} className="hover:bg-gray-100 h-8 w-8">
+                <ChevronLeft size={20} />
               </Button>
 
               {recordMode === 'monthly' ? (
                 <button
-                  className="text-center hover:bg-gray-50 px-6 py-2 rounded-xl transition-all"
+                  className="text-center hover:bg-gray-50 px-4 py-1.5 rounded-xl transition-all"
                   onClick={() => setShowMonthPicker(true)}
                 >
-                  <div className="text-xl font-bold text-gray-900">{formatMonth(year, month)}</div>
-                  <div className="text-xs text-gray-400 mt-1">点击切换月份</div>
+                  <div className="text-lg font-bold text-gray-900">{formatMonth(year, month)}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">点击切换月份</div>
                 </button>
               ) : (
                 <button
-                  className="text-center px-6 py-2 rounded-xl hover:bg-gray-50 transition-colors"
+                  className="text-center px-4 py-1.5 rounded-xl hover:bg-gray-50 transition-colors"
                   onClick={() => setShowYearPicker(true)}
                 >
-                  <div className="text-xl font-bold text-gray-900">{year}年</div>
-                  <div className="text-xs text-gray-400 mt-1">点击切换年份</div>
+                  <div className="text-lg font-bold text-gray-900">{year}年</div>
+                  <div className="text-xs text-gray-400 mt-0.5">点击切换年份</div>
                 </button>
               )}
 
-              <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100">
-                <ChevronRight size={24} />
+              <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100 h-8 w-8">
+                <ChevronRight size={20} />
               </Button>
             </div>
           </CardContent>
@@ -760,18 +760,18 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
           className="text-white shadow-lg"
           style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
         >
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-white/80 text-sm font-medium">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-white/80 text-xs font-medium">
                 {recordMode === 'monthly' ? '本月净资产' : '年度净资产'}
               </span>
-              <span className={`text-sm px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
+              <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
                 change >= 0 ? 'text-white' : 'text-red-100'
               }`}>
                 较{recordMode === 'monthly' ? '上月' : '上年'} {hideBalance ? '******' : (
                   <>
                     {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
-                    <span className="ml-1 opacity-80">
+                    <span className="ml-0.5 opacity-80">
                       ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
                     </span>
                   </>
@@ -779,16 +779,16 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
               </span>
             </div>
 
-            <div className="text-3xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
+            <div className="text-2xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
 
-            <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-2 gap-4">
-              <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
-                <div className="text-xs text-white/70 mb-1">总资产</div>
-                <div className="font-semibold text-lg">¥{formatHiddenAmount(totalAssets, hideBalance)}</div>
+            <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
+              <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                <div className="text-xs text-white/70 mb-0.5">总资产</div>
+                <div className="font-semibold text-base">¥{formatHiddenAmount(totalAssets, hideBalance)}</div>
               </div>
-              <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
-                <div className="text-xs text-white/70 mb-1">负资产</div>
-                <div className="font-semibold text-lg">¥{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+              <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                <div className="text-xs text-white/70 mb-0.5">负资产</div>
+                <div className="font-semibold text-base">¥{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
               </div>
             </div>
           </CardContent>
