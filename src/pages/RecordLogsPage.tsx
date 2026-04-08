@@ -49,7 +49,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideBalance, setHideBalance] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
   const [expandedAttributionCards, setExpandedAttributionCards] = useState<Set<string>>(new Set());
   const accounts = getAllAccounts();
 
@@ -75,7 +74,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     }
     setMonthlyAttributions(getAllAttributions());
     setYearlyAttributions(getAllYearlyAttributions());
-    setIsInitialized(true);
   }, []);
 
   const toggleGroup = (key: string) => {
