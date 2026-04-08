@@ -32,16 +32,6 @@ interface RecordLogsPageProps {
   mode: RecordMode;
 }
 
-interface GroupedLogs {
-  key: string;
-  label: string;
-  logs: RecordLog[];
-  totalNetWorth?: number;
-  lastOperationDate?: number;
-  year?: number;
-  month?: number;
-}
-
 // 隐藏金额显示
 function formatHiddenAmount(amount: number, hide: boolean): string {
   if (hide) {
@@ -52,13 +42,10 @@ function formatHiddenAmount(amount: number, hide: boolean): string {
 
 // 视图模式
 type ViewMode = 'monthly' | 'yearly';
-// 月度子视图（符合需求：余额记录 / 月度归因）
 type MonthlySubView = 'balance' | 'attribution';
-// 年度子视图（符合需求：余额记录 / 月度聚合 / 年度归因）
 type YearlySubView = 'balance' | 'monthly_aggregation' | 'yearly_attribution';
 
 export function RecordLogsPage({ onPageChange, year: initialYear, month: initialMonth, mode: initialMode }: RecordLogsPageProps) {
-  const [groupedLogs, setGroupedLogs] = useState<GroupedLogs[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [hideBalance, setHideBalance] = useState(false);
@@ -66,24 +53,19 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const [expandedAttributionCards, setExpandedAttributionCards] = useState<Set<string>>(new Set());
   const accounts = getAllAccounts();
 
-  // 视图模式状态
   const [viewMode, setViewMode] = useState<ViewMode>(initialMode === 'yearly' ? 'yearly' : 'monthly');
   const [monthlySubView, setMonthlySubView] = useState<MonthlySubView>('balance');
   const [yearlySubView, setYearlySubView] = useState<YearlySubView>('balance');
   
-  // 独立的时间选择状态（不依赖路由）
   const [selectedYear, setSelectedYear] = useState(initialYear);
   const [selectedMonth, setSelectedMonth] = useState(initialMonth || new Date().getMonth() + 1);
 
-  // 数据
   const [monthlyAttributions, setMonthlyAttributions] = useState<MonthlyAttribution[]>([]);
   const [yearlyAttributions, setYearlyAttributions] = useState<YearlyAttribution[]>([]);
 
-  // 归因详情弹窗状态
   const [selectedAttributionMonth, setSelectedAttributionMonth] = useState<{ year: number; month: number } | null>(null);
   const [selectedAttributionYear, setSelectedAttributionYear] = useState<number | null>(null);
 
-  // 初始化加载
   useEffect(() => {
     const settings = getSettings();
     setHideBalance(settings.hideBalance || false);
@@ -95,80 +77,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     setYearlyAttributions(getAllYearlyAttributions());
     setIsInitialized(true);
   }, []);
-
-  // 当时间或账户筛选变化时重新加载数据
-  useEffect(() => {
-    if (isInitialized) {
-      loadLogs();
-    }
-  }, [selectedYear, selectedMonth, selectedAccount, viewMode, isInitialized]);
-
-  const loadLogs = () => {
-    let allLogs: RecordLog[] = [];
-    if (viewMode === 'monthly') {
-      allLogs = getRecordLogs(selectedYear, selectedMonth);
-    } else {
-      allLogs = getRecordLogs(selectedYear);
-    }
-    if (selectedAccount !== 'all') {
-      allLogs = allLogs.filter(l => l.accountId === selectedAccount);
-    }
-
-    if (viewMode === 'yearly') {
-      // 年度模式：按月份分组
-      const monthMap = new Map<string, { logs: RecordLog[]; lastDate: number }>();
-      for (let m = 1; m <= 12; m++) {
-        const monthLogs = allLogs.filter(l => l.month === m);
-        if (monthLogs.length > 0) {
-          const key = `${selectedYear}-${m.toString().padStart(2, '0')}`;
-          const sortedLogs = monthLogs.sort((a, b) => b.timestamp - a.timestamp);
-          monthMap.set(key, { logs: sortedLogs, lastDate: sortedLogs[0]?.timestamp || Date.now() });
-        }
-      }
-      const grouped: GroupedLogs[] = Array.from(monthMap.entries()).map(([key, data]) => {
-        const [, m] = key.split('-').map(Number);
-        const netWorth = calculateNetWorth(selectedYear, m);
-        return {
-          key,
-          label: `${selectedYear}年${m.toString().padStart(2, '0')}月`,
-          logs: data.logs,
-          totalNetWorth: netWorth,
-          lastOperationDate: data.lastDate,
-          year: selectedYear,
-          month: m,
-        };
-      }).sort((a, b) => b.key.localeCompare(a.key));
-      setGroupedLogs(grouped);
-      const savedExpanded = getRecordLogsExpandedGroups(selectedYear, undefined, viewMode);
-      if (!savedExpanded && grouped.length > 0) {
-        setExpandedGroups(new Set([grouped[0].key]));
-      }
-    } else {
-      // 月度模式：按日期分组
-      const dateMap = new Map<string, RecordLog[]>();
-      allLogs.forEach(log => {
-        const date = new Date(log.timestamp);
-        const dateKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
-        if (!dateMap.has(dateKey)) {
-          dateMap.set(dateKey, []);
-        }
-        dateMap.get(dateKey)!.push(log);
-      });
-      const grouped: GroupedLogs[] = Array.from(dateMap.entries()).map(([key, logItems]) => {
-        const [, m, d] = key.split('-').map(Number);
-        return {
-          key,
-          label: `${m}月${d}日`,
-          logs: logItems.sort((a, b) => b.timestamp - a.timestamp),
-        };
-      }).sort((a, b) => b.key.localeCompare(a.key));
-      setGroupedLogs(grouped);
-      const savedExpanded = getRecordLogsExpandedGroups(selectedYear, selectedMonth, viewMode);
-      if (!savedExpanded) {
-        setExpandedGroups(new Set(grouped.map(g => g.key)));
-      }
-    }
-  };
 
   const toggleGroup = (key: string) => {
     setExpandedGroups(prev => {
@@ -200,44 +108,48 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     }
   };
 
-  // 获取所有有记录的年份
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     monthlyAttributions.forEach(attr => years.add(attr.year));
     yearlyAttributions.forEach(attr => years.add(attr.year));
-    // 添加当前选中年份
     years.add(selectedYear);
     return Array.from(years).sort((a, b) => b - a);
   }, [monthlyAttributions, yearlyAttributions, selectedYear]);
 
-  // 获取指定年份的月度归因
   const getMonthlyAttributionsForYear = (y: number) => {
     return monthlyAttributions
       .filter(attr => attr.year === y)
       .sort((a, b) => b.month - a.month);
   };
 
-  // 获取指定月份的归因记录
   const getAttributionForMonth = (y: number, m: number) => {
     return monthlyAttributions.find(attr => attr.year === y && attr.month === m);
   };
 
-  // 获取年度归因记录
   const getYearlyAttributionForYear = (y: number) => {
     return yearlyAttributions.find(attr => attr.year === y);
   };
 
-  // 处理查看月度归因详情
   const handleViewMonthlyAttribution = (year: number, month: number) => {
     setSelectedAttributionMonth({ year, month });
   };
 
-  // 处理查看年度归因详情
   const handleViewYearlyAttribution = (year: number) => {
     setSelectedAttributionYear(year);
   };
 
-  // 渲染月度归因卡片（用于月度归因Tab）
+  const toggleAttributionCard = (key: string) => {
+    setExpandedAttributionCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
   const renderMonthlyAttributionCard = (attr: MonthlyAttribution) => {
     const key = `${attr.year}-${attr.month}`;
     const isExpanded = expandedAttributionCards.has(key);
@@ -325,7 +237,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     );
   };
 
-  // 渲染年度归因卡片（用于年度归因Tab）
   const renderYearlyAttributionCard = (attr: YearlyAttribution) => {
     const key = `yearly-${attr.year}`;
     const isExpanded = expandedAttributionCards.has(key);
@@ -378,20 +289,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     );
   };
 
-  // 切换归因卡片展开
-  const toggleAttributionCard = (key: string) => {
-    setExpandedAttributionCards(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(key)) {
-        newSet.delete(key);
-      } else {
-        newSet.add(key);
-      }
-      return newSet;
-    });
-  };
-
-  // 渲染月度聚合（用于年度视图的月度聚合Tab）
   const renderMonthlyAggregation = () => {
     const attrs = getMonthlyAttributionsForYear(selectedYear);
     return (
@@ -432,14 +329,11 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     );
   };
 
-  // 渲染余额记录 Tab 的内容（符合需求：各账户余额修改明细）
   const renderBalanceRecords = () => {
     if (viewMode === 'monthly') {
-      // 月度视图：按账户分组展示当月修改明细
       const monthLogs = getRecordLogs(selectedYear, selectedMonth).filter(
         log => selectedAccount === 'all' || log.accountId === selectedAccount
       );
-      // 按账户分组
       const accountGroups = new Map<string, RecordLog[]>();
       monthLogs.forEach(log => {
         if (!accountGroups.has(log.accountId)) {
@@ -463,7 +357,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           {Array.from(accountGroups.entries()).map(([accountId, logs]) => {
             const account = accounts.find(a => a.id === accountId);
             if (!account) return null;
-            // 按日期排序
             const sortedLogs = logs.sort((a, b) => b.timestamp - a.timestamp);
             return (
               <Card key={accountId} className="bg-white overflow-hidden">
@@ -502,7 +395,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         </div>
       );
     } else {
-      // 年度视图：展示1-12月每月各账户余额（可展开看明细）
       return (
         <div className="space-y-3">
           {Array.from({ length: 12 }, (_, i) => 12 - i).map(month => {
@@ -513,7 +405,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             const netWorth = calculateNetWorth(selectedYear, month);
             const key = `${selectedYear}-${month.toString().padStart(2, '0')}`;
             const isExpanded = expandedGroups.has(key);
-            // 按账户分组
             const accountGroups = new Map<string, RecordLog[]>();
             monthLogs.forEach(log => {
               if (!accountGroups.has(log.accountId)) {
@@ -574,7 +465,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     }
   };
 
-  // 渲染月度归因Tab内容
   const renderMonthlyAttributionTab = () => {
     const attr = getAttributionForMonth(selectedYear, selectedMonth);
     if (!attr) {
@@ -593,7 +483,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     return renderMonthlyAttributionCard(attr);
   };
 
-  // 渲染年度归因Tab内容
   const renderYearlyAttributionTab = () => {
     const attr = getYearlyAttributionForYear(selectedYear);
     if (!attr) {
@@ -614,7 +503,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
   return (
     <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
-      {/* 标题栏 */}
       <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => onPageChange('record')}>
@@ -639,7 +527,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
       <div className="h-14"></div>
 
       <div className="p-4 space-y-4">
-        {/* 视图模式切换 */}
         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="monthly">月度视图</TabsTrigger>
@@ -647,7 +534,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           </TabsList>
         </Tabs>
 
-        {/* 时间选择器 */}
         <div className="flex items-center gap-2">
           {viewMode === 'monthly' ? (
             <>
@@ -692,7 +578,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           )}
         </div>
 
-        {/* 二级Tab */}
         {viewMode === 'monthly' ? (
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
             <button
@@ -731,7 +616,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           </div>
         )}
 
-        {/* 账户筛选（仅在余额记录Tab显示） */}
         {((viewMode === 'monthly' && monthlySubView === 'balance') || (viewMode === 'yearly' && yearlySubView === 'balance')) && (
           <Card className="bg-white">
             <CardContent className="p-3">
@@ -752,7 +636,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           </Card>
         )}
 
-        {/* 内容区域 */}
         {viewMode === 'monthly' && monthlySubView === 'balance' && renderBalanceRecords()}
         {viewMode === 'monthly' && monthlySubView === 'attribution' && renderMonthlyAttributionTab()}
         {viewMode === 'yearly' && yearlySubView === 'balance' && renderBalanceRecords()}
@@ -760,7 +643,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         {viewMode === 'yearly' && yearlySubView === 'yearly_attribution' && renderYearlyAttributionTab()}
       </div>
 
-      {/* 月度归因详情弹窗 */}
       {selectedAttributionMonth && (
         <MonthlyAttributionDetail
           year={selectedAttributionMonth.year}
@@ -774,7 +656,6 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
         />
       )}
 
-      {/* 年度归因详情弹窗 */}
       {selectedAttributionYear && (
         <YearlyAttributionDetail
           year={selectedAttributionYear}
