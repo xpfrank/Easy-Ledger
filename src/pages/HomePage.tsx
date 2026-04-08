@@ -8,16 +8,14 @@ import {
   getAllAccounts,
   getMonthlyRecordsByMonth,
   formatAmountNoSymbol,
-  getSettings,
-  updateSettings,
   getExpandedGroups,
   saveExpandedGroups,
 } from '@/lib/storage';
-import { 
-  calculateNetWorth, 
+import {
+  calculateNetWorth,
   calculateTotalAssets,
   calculateTotalLiabilities,
-  calculateLoanOut, 
+  calculateLoanOut,
   calculateDebtIn,
   ACCOUNT_TYPES,
 } from '@/lib/calculator';
@@ -26,6 +24,8 @@ import { THEMES } from '@/types';
 interface HomePageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
   params?: any;
+  hideBalance: boolean;
+  toggleHideBalance: () => void;
 }
 
 interface AccountGroup {
@@ -44,9 +44,8 @@ function formatHiddenAmount(amount: number, hide: boolean): string {
   return formatAmountNoSymbol(amount);
 }
 
-export function HomePage({ onPageChange, params }: HomePageProps) {
+export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance }: HomePageProps) {
   const [theme, setTheme] = useState<ThemeType>('blue');
-  const [hideBalance, setHideBalance] = useState(false);
   const [netWorth, setNetWorth] = useState(0);
   // const [totalAssets, setTotalAssets] = useState(0);
   // const [totalLiabilities, setTotalLiabilities] = useState(0);
@@ -61,11 +60,10 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
 
   // 页面显示时自动刷新数据
   useEffect(() => {
-    const settings = getSettings();
-    setHideBalance(settings.hideBalance);
-    setTheme(settings.theme || 'blue');
+    // 从全局 props 接收 hideBalance，不再从本地状态读取
+    setTheme(theme);
     loadData();
-  });
+  }, [hideBalance]);
 
   // 检测 params 中的 refresh 标记
   useEffect(() => {
@@ -129,12 +127,6 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
     });
   };
 
-  const toggleHideBalance = () => {
-    const newValue = !hideBalance;
-    setHideBalance(newValue);
-    updateSettings({ hideBalance: newValue });
-  };
-
   const toggleGroup = (type: AccountType) => {
     // 获取当前状态并更新
     setAccountGroups(prev => {
@@ -152,6 +144,9 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
       return newGroups;
     });
   };
+
+  // 获取账户数量（用于显示）
+  const visibleAccountCount = getAllAccounts().filter(a => !a.isHidden).length;
 
   const netWorthChange = netWorth - lastMonthNetWorth;
   const netWorthChangePercent = lastMonthNetWorth !== 0 
@@ -179,15 +174,15 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
 
       <div className="p-4 space-y-3">
         {/* 净资产总览卡片 - 参考图1样式 */}
-        <Card 
+        <Card
           className="text-white border-0 shadow-lg overflow-hidden relative"
-          style={{ 
-            background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` 
+          style={{
+            background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`
           }}
         >
           <CardContent className="p-5">
             {/* 余额隐藏按钮 - 右下角 */}
-            <button 
+            <button
               onClick={toggleHideBalance}
               className="absolute right-4 bottom-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
             >
@@ -201,53 +196,58 @@ export function HomePage({ onPageChange, params }: HomePageProps) {
                   <div className="text-white/80 text-sm mb-1">净资产（元）</div>
                   <div className="text-3xl font-bold tracking-tight">
                     ¥{formatHiddenAmount(netWorth, hideBalance)}
-                    <span className="text-sm font-normal ml-3">共 {hideBalance ? '**' : getAllAccounts().filter(a => !a.isHidden).length} 个账户</span>
                   </div>
                 </div>
               </div>
-              <div className="flex items-center text-xs mt-2">
-                <span className="text-white/70">较上月</span>
-                <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                  {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
-                </span>
-                <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                  {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
+              {/* 较上月 + 共 * 个账户 合并在一行 */}
+              <div className="flex items-center justify-between mt-2">
+                <div className="flex items-center text-xs">
+                  <span className="text-white/70">较上月</span>
+                  <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
+                    {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
+                  </span>
+                  <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
+                    {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
+                  </span>
+                </div>
+                <span className="text-white/70 text-xs">
+                  共 {hideBalance ? '**' : visibleAccountCount} 个账户
                 </span>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* 借出借入卡片 */}
+        {/* 借出借入卡片 - 缩小尺寸 */}
         <div className="grid grid-cols-2 gap-3">
           <Card className="bg-white">
-            <CardContent className="p-4 text-center">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <div 
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+            <CardContent className="p-3 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center"
                   style={{ backgroundColor: `${themeConfig.primary}15` }}
                 >
-                  <Handshake size={16} style={{ color: themeConfig.primary }} />
+                  <Handshake size={12} style={{ color: themeConfig.primary }} />
                 </div>
-                <div className="text-sm text-gray-500">借出</div>
+                <div className="text-xs text-gray-500">借出</div>
               </div>
-              <div className="text-lg font-semibold text-gray-800">
+              <div className="text-base font-semibold text-gray-800">
                 ¥{formatHiddenAmount(loanOut, hideBalance)}
               </div>
             </CardContent>
           </Card>
           <Card className="bg-white">
-            <CardContent className="p-4 text-center">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <div 
-                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+            <CardContent className="p-3 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1.5">
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center"
                   style={{ backgroundColor: `${themeConfig.primary}15` }}
                 >
-                  <ClipboardList size={16} style={{ color: themeConfig.primary }} />
+                  <ClipboardList size={12} style={{ color: themeConfig.primary }} />
                 </div>
-                <div className="text-sm text-gray-500">借入</div>
+                <div className="text-xs text-gray-500">借入</div>
               </div>
-              <div className="text-lg font-semibold text-gray-800">
+              <div className="text-base font-semibold text-gray-800">
                 ¥{formatHiddenAmount(debtIn, hideBalance)}
               </div>
             </CardContent>

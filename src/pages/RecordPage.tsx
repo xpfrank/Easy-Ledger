@@ -12,8 +12,6 @@ import {
   setMonthlyRecord,
   formatAmountNoSymbol,
   formatMonth,
-  getSettings,
-  updateSettings,
   saveMonthlyAttribution,
   getMonthlyAttribution,
   calculateFluctuationLevel,
@@ -35,6 +33,8 @@ import { THEMES } from '@/types';
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  hideBalance: boolean;
+  toggleHideBalance: () => void;
 }
 
 // 隐藏金额显示
@@ -218,7 +218,7 @@ function MonthPicker({
   );
 }
 
-export function RecordPage({ onPageChange }: RecordPageProps) {
+export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: RecordPageProps) {
   const now = new Date();
   const [recordMode, setRecordMode] = useState<RecordMode>('monthly');
   const [year, setYear] = useState(now.getFullYear());
@@ -228,7 +228,6 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const [netWorth, setNetWorth] = useState(0);
   const [totalAssets, setTotalAssets] = useState(0);
   const [totalLiabilities, setTotalLiabilities] = useState(0);
-  const [hideBalance, setHideBalance] = useState(false);
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -261,12 +260,10 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
   const themeConfig = THEMES[theme];
 
   useEffect(() => {
-    const settings = getSettings();
-    setHideBalance(settings.hideBalance);
-    setTheme(settings.theme || 'blue');
+    // 从全局 props 接收 hideBalance
     loadData();
     setHasChanges(false);
-  }, [year, month, recordMode]);
+  }, [year, month, recordMode, hideBalance]);
 
   const loadData = () => {
     const allAccounts = getAllAccounts().filter(a => !a.isHidden);
@@ -707,11 +704,7 @@ export function RecordPage({ onPageChange }: RecordPageProps) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {
-              const newValue = !hideBalance;
-              setHideBalance(newValue);
-              updateSettings({ hideBalance: newValue });
-            }}
+            onClick={toggleHideBalance}
             className="text-gray-500"
           >
             {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
