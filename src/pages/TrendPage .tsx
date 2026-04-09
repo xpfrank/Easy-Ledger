@@ -31,6 +31,7 @@ interface YearlyNetWorth {
     fluctuationLevel: 'normal' | 'warning' | 'abnormal';
   };
   isFiltered?: boolean;
+  hasData?: boolean;
 }
 
 interface TrendPoint extends MonthlyNetWorth {
