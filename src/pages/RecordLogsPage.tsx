@@ -21,7 +21,7 @@ import {
   getMonthlyRecord,
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { calculateNetWorth } from '@/lib/calculator';
+import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
 import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionDetail';
@@ -57,7 +57,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const [monthlySubView, setMonthlySubView] = useState<MonthlySubView>('balance');
   const [yearlySubView, setYearlySubView] = useState<YearlySubView>('balance');
   
-  const [selectedYear, setSelectedYear] = useState(initialYear);
+  const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
   const [selectedMonth, setSelectedMonth] = useState(initialMonth || new Date().getMonth() + 1);
 
   const [monthlyAttributions, setMonthlyAttributions] = useState<MonthlyAttribution[]>([]);
@@ -73,7 +73,8 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     const settings = getSettings();
     setHideBalance(settings.hideBalance || false);
     setTheme(settings.theme || 'blue');
-    const savedExpanded = getRecordLogsExpandedGroups(selectedYear, viewMode === 'monthly' ? selectedMonth : undefined, viewMode);
+    const year = typeof selectedYear === 'number' ? selectedYear : initialYear;
+    const savedExpanded = getRecordLogsExpandedGroups(year, viewMode === 'monthly' ? selectedMonth : undefined, viewMode);
     if (savedExpanded) {
       setExpandedGroups(new Set(savedExpanded));
     }
@@ -82,6 +83,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   }, []);
 
   const toggleGroup = (key: string) => {
+    const year = typeof selectedYear === 'number' ? selectedYear : initialYear;
     setExpandedGroups(prev => {
       const newSet = new Set(prev);
       if (newSet.has(key)) {
@@ -89,7 +91,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
       } else {
         newSet.add(key);
       }
-      saveRecordLogsExpandedGroups(selectedYear, viewMode === 'monthly' ? selectedMonth : undefined, viewMode, Array.from(newSet));
+      saveRecordLogsExpandedGroups(year, viewMode === 'monthly' ? selectedMonth : undefined, viewMode, Array.from(newSet));
       return newSet;
     });
   };
@@ -105,9 +107,9 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
   const goToRecordForAttribution = (targetYear: number, targetMonth?: number) => {
     if (targetMonth !== undefined) {
-      onPageChange('record', { year: targetYear, month: targetMonth, mode: 'monthly' });
+      onPageChange('record', { year: targetYear, month: targetMonth, mode: 'monthly', openAttributionEdit: true });
     } else {
-      onPageChange('record', { year: targetYear, mode: 'yearly' });
+      onPageChange('record', { year: targetYear, mode: 'yearly', openAttributionEdit: true });
     }
   };
 
@@ -115,14 +117,21 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     const years = new Set<number>();
     monthlyAttributions.forEach(attr => years.add(attr.year));
     yearlyAttributions.forEach(attr => years.add(attr.year));
-    years.add(selectedYear);
+    years.add(selectedYear === 'all' ? initialYear : selectedYear);
     return Array.from(years).sort((a, b) => b - a);
-  }, [monthlyAttributions, yearlyAttributions, selectedYear]);
+  }, [monthlyAttributions, yearlyAttributions, selectedYear, initialYear]);
 
   const getMonthlyAttributionsForYear = (y: number) => {
     return monthlyAttributions
       .filter(attr => attr.year === y)
       .sort((a, b) => b.month - a.month);
+  };
+
+  const getAllMonthlyAttributionsSorted = () => {
+    return [...monthlyAttributions].sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return b.month - a.month;
+    });
   };
 
   const getAttributionForMonth = (y: number, m: number) => {
@@ -131,6 +140,10 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
   const getYearlyAttributionForYear = (y: number) => {
     return yearlyAttributions.find(attr => attr.year === y);
+  };
+
+  const getAllYearlyAttributionsSorted = () => {
+    return [...yearlyAttributions].sort((a, b) => b.year - a.year);
   };
 
   const handleViewMonthlyAttribution = (year: number, month: number) => {
@@ -243,6 +256,9 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const renderYearlyAttributionCard = (attr: YearlyAttribution) => {
     const key = `yearly-${attr.year}`;
     const isExpanded = expandedAttributionCards.has(key);
+    const lastMonth = getLastRecordedMonth(attr.year) || 12;
+    const snapshots = getAccountSnapshotsByMonth(attr.year, lastMonth);
+    const netWorth = calculateNetWorth(attr.year, lastMonth);
 
     return (
       <Card key={key} className="bg-white overflow-hidden">
@@ -253,7 +269,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span className="font-medium text-lg">{attr.year}年</span>
-              <span className="text-lg font-bold">¥{formatHiddenAmount(attr.netWorth, hideBalance)}</span>
+              <span className="text-lg font-bold">¥{formatHiddenAmount(netWorth, hideBalance)}</span>
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
               {attr.tags.map(tag => (
@@ -288,43 +304,143 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </div>
         </div>
+
+        {isExpanded && (
+          <div className="border-t border-gray-100 p-4 space-y-4">
+            <div>
+              <div className="text-sm font-medium text-gray-600 mb-2">年末账户余额快照</div>
+              <div className="space-y-2">
+                {snapshots.map(snapshot => (
+                  <div key={snapshot.accountId} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Icon name={snapshot.accountIcon} size={16} />
+                      <span>{snapshot.accountName}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : ''}>
+                        ¥{formatHiddenAmount(snapshot.balance, hideBalance)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => goToRecordForAttribution(attr.year)}
+              >
+                编辑归因
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
     );
   };
 
   const renderMonthlyAggregation = () => {
+    if (selectedYear === 'all') {
+      const allAttrs = getAllMonthlyAttributionsSorted();
+      if (allAttrs.length === 0) {
+        return (
+          <Card className="bg-white">
+            <CardContent className="p-8 text-center">
+              <BarChart3 size={32} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">暂无月度归因记录</p>
+            </CardContent>
+          </Card>
+        );
+      }
+      return (
+        <div className="space-y-3">
+          {allAttrs.map(attr => renderMonthlyAttributionCard(attr))}
+        </div>
+      );
+    }
+
     const attrs = getMonthlyAttributionsForYear(selectedYear);
+    const y = selectedYear;
     return (
       <div className="space-y-3">
         {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
           const attr = attrs.find(a => a.month === month);
           if (!attr) return null;
+          const key = `monthly-agg-${y}-${month}`;
+          const isExpanded = expandedAttributionCards.has(key);
+          const snapshots = getAccountSnapshotsByMonth(y, month);
+          const netWorth = calculateNetWorth(y, month);
           return (
-            <Card key={month} className="bg-white">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">{selectedYear}年{month}月</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      {attr.tags.map(tag => (
-                        <span key={tag} className="text-xs text-gray-500">
-                          {getAttributionTagEmoji(tag)} {getAttributionTagLabel(tag)}
-                        </span>
-                      ))}
-                      <span className={attr.change >= 0 ? 'text-green-600' : 'text-red-500'}>
-                        {attr.change >= 0 ? '+' : ''}{formatHiddenAmount(attr.change, hideBalance)}
-                      </span>
-                    </div>
+            <Card key={month} className="bg-white overflow-hidden">
+              <div
+                className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
+                onClick={() => toggleAttributionCard(key)}
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium">{y}年{month}月</span>
+                    <span className="text-lg font-bold">¥{formatHiddenAmount(netWorth, hideBalance)}</span>
                   </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {attr.tags.map(tag => (
+                      <span key={tag} className="text-gray-600">
+                        {getAttributionTagEmoji(tag)} {getAttributionTagLabel(tag)}
+                      </span>
+                    ))}
+                    <span className={attr.change >= 0 ? 'text-green-600' : 'text-red-500'}>
+                      {attr.change >= 0 ? '+' : ''}{formatHiddenAmount(attr.change, hideBalance)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleViewMonthlyAttribution(selectedYear, month)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleViewMonthlyAttribution(y, month);
+                    }}
                   >
                     查看
                   </Button>
+                  {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                 </div>
-              </CardContent>
+              </div>
+
+              {isExpanded && (
+                <div className="border-t border-gray-100 p-4 space-y-4">
+                  <div>
+                    <div className="text-sm font-medium text-gray-600 mb-2">账户余额快照</div>
+                    <div className="space-y-2">
+                      {snapshots.map(snapshot => (
+                        <div key={snapshot.accountId} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <Icon name={snapshot.accountIcon} size={16} />
+                            <span>{snapshot.accountName}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : ''}>
+                              ¥{formatHiddenAmount(snapshot.balance, hideBalance)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => goToRecordForAttribution(y, month)}
+                    >
+                      编辑归因
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
           );
         })}
@@ -334,9 +450,11 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
   // ==================== 核心修复：月度视图按日期分组，保留可视化图标 ====================
   const renderBalanceRecords = () => {
+    const year = typeof selectedYear === 'number' ? selectedYear : initialYear;
+    
     if (viewMode === 'monthly') {
-      // 获取所有记录并按日期分组
-      const monthLogs = getRecordLogs(selectedYear, selectedMonth).filter(
+      const month = selectedMonth as number;
+      const monthLogs = getRecordLogs(year, month).filter(
         log => selectedAccount === 'all' || log.accountId === selectedAccount
       );
 
@@ -371,7 +489,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
       return (
         <div className="space-y-3">
           {sortedDates.map(([dateStr, logs]) => {
-            const key = `${selectedYear}-${selectedMonth}-${dateStr}`;
+            const key = `${year}-${selectedMonth}-${dateStr}`;
             const isExpanded = expandedGroups.has(key);
             
             return (
@@ -433,10 +551,11 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
       );
     } else {
       // ==================== 年度视图：按月份分组，展示月度最终数据 ====================
+      const y = typeof year === 'number' ? year : initialYear;
       return (
         <div className="space-y-3">
           {Array.from({ length: 12 }, (_, i) => 12 - i).map(month => {
-            const monthLogs = getRecordLogs(selectedYear, month).filter(
+            const monthLogs = getRecordLogs(y, month).filter(
               log => selectedAccount === 'all' || log.accountId === selectedAccount
             );
             if (monthLogs.length === 0) return null;
@@ -446,9 +565,9 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             const lastRecordDate = formatDate(lastLog.timestamp);
             
             // 计算该月净资产
-            const monthNetWorth = calculateNetWorth(selectedYear, month);
+            const monthNetWorth = calculateNetWorth(y, month);
             
-            const key = `${selectedYear}-${month.toString().padStart(2, '0')}`;
+            const key = `${y}-${month.toString().padStart(2, '0')}`;
             const isExpanded = expandedGroups.has(key);
 
             return (
@@ -459,7 +578,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{selectedYear}年{month}月</span>
+                      <span className="font-medium">{y}年{month}月</span>
                       <span className="text-sm font-semibold">¥{formatHiddenAmount(monthNetWorth, hideBalance)}</span>
                     </div>
                     <span className="text-xs text-gray-400">最后记录: {lastRecordDate} · {monthLogs.length}条记录</span>
@@ -473,7 +592,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                     <div className="p-3 bg-gray-50/50">
                       <div className="text-xs text-gray-500 mb-2">月末账户余额</div>
                       {accounts.map(account => {
-                        const record = getMonthlyRecord(account.id, selectedYear, month);
+                        const record = getMonthlyRecord(account.id, y, month);
                         const balance = record ? record.balance : account.balance;
                         const isCredit = account.type === 'credit';
                         const isDebt = account.type === 'debt';
@@ -537,14 +656,15 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   };
 
   const renderMonthlyAttributionTab = () => {
-    const attr = getAttributionForMonth(selectedYear, selectedMonth);
+    const y = typeof selectedYear === 'number' ? selectedYear : initialYear;
+    const attr = getAttributionForMonth(y, selectedMonth);
     if (!attr) {
       return (
         <Card className="bg-white">
           <CardContent className="p-8 text-center">
             <BarChart3 size={32} className="mx-auto text-gray-300 mb-3" />
             <p className="text-gray-500">暂无月度归因记录</p>
-            <Button className="mt-4" onClick={() => goToRecordForAttribution(selectedYear, selectedMonth)}>
+            <Button className="mt-4" onClick={() => goToRecordForAttribution(y, selectedMonth)}>
               前往记账
             </Button>
           </CardContent>
@@ -555,14 +675,33 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   };
 
   const renderYearlyAttributionTab = () => {
-    const attr = getYearlyAttributionForYear(selectedYear);
+    if (selectedYear === 'all') {
+      const allAttributions = getAllYearlyAttributionsSorted();
+      if (allAttributions.length === 0) {
+        return (
+          <Card className="bg-white">
+            <CardContent className="p-6 text-center">
+              <BarChart3 size={32} className="mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">暂无年度归因记录</p>
+            </CardContent>
+          </Card>
+        );
+      }
+      return (
+        <div className="space-y-3">
+          {allAttributions.map(attr => renderYearlyAttributionCard(attr))}
+        </div>
+      );
+    }
+
+    const attr = getYearlyAttributionForYear(selectedYear as number);
     if (!attr) {
       return (
         <Card className="bg-white">
           <CardContent className="p-6 text-center">
             <AlertTriangle size={32} className="mx-auto text-orange-400 mb-3" />
             <p className="text-gray-600 font-medium">{selectedYear}年未记录年度归因</p>
-            <Button className="mt-4" onClick={() => goToRecordForAttribution(selectedYear)}>
+            <Button className="mt-4" onClick={() => goToRecordForAttribution(selectedYear as number)}>
               补充记录
             </Button>
           </CardContent>
@@ -610,7 +749,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             <>
               <div className="relative flex-1">
                 <select
-                  value={selectedYear}
+                  value={typeof selectedYear === 'number' ? selectedYear : initialYear}
                   onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                   className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm appearance-none"
                 >
@@ -637,9 +776,10 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             <div className="relative flex-1">
               <select
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                onChange={(e) => setSelectedYear(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
                 className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm appearance-none"
               >
+                <option value="all">全部年份</option>
                 {availableYears.map(y => (
                   <option key={y} value={y}>{y}年</option>
                 ))}

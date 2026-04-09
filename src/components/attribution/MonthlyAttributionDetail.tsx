@@ -49,47 +49,61 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
               background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` 
             }}
           >
-            <div className="text-white/80 text-sm mb-2">净资产变化</div>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-white/70">上月</div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-white/80 text-sm">净资产变化</span>
+            </div>
+
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-center">
+                <div className="text-xs text-white/70 mb-1">上月</div>
                 <div className="text-lg font-bold">
                   {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNW)}`}
                 </div>
               </div>
-              <div className="text-2xl">→</div>
-              <div>
-                <div className="text-xs text-white/70">本月</div>
+              <div className="text-2xl text-white/50">→</div>
+              <div className="text-center">
+                <div className="text-xs text-white/70 mb-1">本月</div>
                 <div className="text-lg font-bold">
                   {hideBalance ? '******' : `¥${formatAmountNoSymbol(currentNW)}`}
                 </div>
               </div>
             </div>
-            <div className="mt-4 text-center">
+
+            <div className="text-center pt-3 border-t border-white/20">
               <span className="text-2xl font-bold">
                 {hideBalance ? '******' : (
                   <>
                     {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                    <span className="text-base ml-2 opacity-80">
+                      ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                    </span>
                   </>
                 )}
-              </span>
-              <span className="text-sm ml-2 opacity-80">
-                ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
               </span>
             </div>
           </div>
 
           {/* 波动等级条 */}
           <div className="bg-gray-50 rounded-xl p-4">
-            <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <div className="flex justify-between text-xs text-gray-500 mb-2 font-medium">
               <span>正常</span><span>需关注</span><span>异常</span>
             </div>
-            <div className="h-2 bg-gray-200 rounded-full flex">
-              <div className="h-full bg-green-500 w-1/3" />
-              <div className="h-full bg-yellow-500 w-1/3" />
-              <div className="h-full bg-red-500 w-1/3" />
+            <div className="relative">
+              <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
+                <div className="h-full bg-green-500" style={{ width: '33.33%' }} />
+                <div className="h-full bg-yellow-500" style={{ width: '33.33%' }} />
+                <div className="h-full bg-red-500" style={{ width: '33.34%' }} />
+              </div>
+              <div
+                className="absolute top-0 w-4 h-3 -ml-2"
+                style={{
+                  left: `${Math.min(Math.max(Math.abs(attribution.changePercent), 0), 100)}%`,
+                }}
+              >
+                <div className="w-4 h-4 bg-white border-2 rounded-full shadow-md -mt-0.5" style={{ borderColor: themeConfig.primary }} />
+              </div>
             </div>
-            <div className="text-center text-xs text-gray-400 mt-2">
+            <div className="text-center text-xs text-gray-400 mt-3">
               当前波动: {Math.abs(attribution.changePercent).toFixed(1)}%
             </div>
           </div>
@@ -144,6 +158,26 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
               )}
             </div>
           </div>
+
+          {/* 账户余额快照 */}
+          {snapshots.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="text-sm font-medium mb-3">账户余额快照</div>
+              <div className="space-y-2">
+                {snapshots.map(snapshot => (
+                  <div key={snapshot.accountId} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name={snapshot.accountIcon} size={16} />
+                      <span className="text-sm">{snapshot.accountName}</span>
+                    </div>
+                    <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : ''}>
+                      ¥{hideBalance ? '******' : formatAmountNoSymbol(snapshot.balance)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <Button 
             onClick={onEdit} 

@@ -1,9 +1,9 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { calculateNetWorth } from '@/lib/calculator';
-import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol } from '@/lib/storage';
+import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
+import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
-import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji, type ThemeType, THEMES } from '@/types';
+import { type ThemeType, THEMES } from '@/types';
 
 interface Props {
   year: number;
@@ -15,17 +15,18 @@ interface Props {
 
 export default function YearlyAttributionDetail({ year, hideBalance, theme = 'purple', onClose, onEdit }: Props) {
   const attribution = getYearlyAttribution(year);
-  const currentNW = calculateNetWorth(year, 12);
+  const lastMonth = getLastRecordedMonth(year) || 12;
+  const currentNW = calculateNetWorth(year, lastMonth);
   const lastNW = calculateNetWorth(year - 1, 12);
   const change = currentNW - lastNW;
   const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
 
   const themeConfig = THEMES[theme];
 
-  // 账户变动TOP3（年末较年初）
+  // 账户变动TOP3（年末较年初）- 按累计变动金额排序
   const accounts = getAllAccounts().filter(a => !a.isHidden);
   const accountChanges = accounts.map(account => {
-    const currentRecord = getMonthlyRecord(account.id, year, 12);
+    const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
     const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
     const currentBalance = currentRecord ? currentRecord.balance : account.balance;
     const lastBalance = lastRecord ? lastRecord.balance : account.balance;
@@ -35,7 +36,28 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
       accountIcon: account.icon,
       change: currentBalance - lastBalance,
     };
-  }).filter(a => a.change !== 0).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 3);
+  }).filter(a => a.change !== 0).sort((a, b) => b.change - a.change).slice(0, 3);
+
+  // 归因排行TOP3 - 按年度累计影响金额排序，100%同步月度归因的中文名称
+  const monthlyAttributions = getMonthlyAttributionsByYear(year);
+  const tagStats: Record<string, { totalChange: number; months: string[]; label: string; emoji: string }> = {};
+  monthlyAttributions.forEach(attr => {
+    attr.tags.forEach(tag => {
+      if (!tagStats[tag]) {
+        tagStats[tag] = { totalChange: 0, months: [], label: getAttributionTagLabel(tag), emoji: getAttributionTagEmoji(tag) };
+      }
+      tagStats[tag].totalChange += attr.change;
+      if (!tagStats[tag].months.includes(`${attr.month}月`)) {
+        tagStats[tag].months.push(`${attr.month}月`);
+      }
+    });
+  });
+  const sortedTagStats = Object.entries(tagStats)
+    .sort((a, b) => b[1].totalChange - a[1].totalChange)
+    .slice(0, 3);
+
+  // 账户余额快照
+  const snapshots = getAccountSnapshotsByMonth(year, lastMonth);
 
   if (!attribution) return null;
 
@@ -53,24 +75,62 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
               background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` 
             }}
           >
-            <div className="text-white/80 text-sm mb-2">年末净资产</div>
-            <div className="text-3xl font-bold">
-              {hideBalance ? '******' : `¥${formatAmountNoSymbol(attribution.netWorth)}`}
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-white/80 text-sm">净资产变化</span>
             </div>
-            <div className="flex items-center gap-4 mt-4">
-              <div>
-                <div className="text-xs text-white/70">较年初</div>
-                <div className="font-bold">
-                  {change >= 0 ? '+' : ''}
-                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(change)}`}
+
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-center">
+                <div className="text-xs text-white/70 mb-1">年初</div>
+                <div className="text-lg font-bold">
+                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNW)}`}
                 </div>
               </div>
-              <div>
-                <div className="text-xs text-white/70">变化率</div>
-                <div className="font-bold">
-                  {changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%
+              <div className="text-2xl text-white/50">→</div>
+              <div className="text-center">
+                <div className="text-xs text-white/70 mb-1">年末</div>
+                <div className="text-lg font-bold">
+                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(currentNW)}`}
                 </div>
               </div>
+            </div>
+
+            <div className="text-center pt-3 border-t border-white/20">
+              <span className="text-2xl font-bold">
+                {hideBalance ? '******' : (
+                  <>
+                    {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                    <span className="text-base ml-2 opacity-80">
+                      ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                    </span>
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+
+          {/* 波动进度条 */}
+          <div className="bg-gray-50 rounded-xl p-4">
+            <div className="flex justify-between text-xs text-gray-500 mb-2 font-medium">
+              <span>正常</span><span>需关注</span><span>异常</span>
+            </div>
+            <div className="relative">
+              <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
+                <div className="h-full bg-green-500" style={{ width: '33.33%' }} />
+                <div className="h-full bg-yellow-500" style={{ width: '33.33%' }} />
+                <div className="h-full bg-red-500" style={{ width: '33.34%' }} />
+              </div>
+              <div
+                className="absolute top-0 w-4 h-3 -ml-2"
+                style={{
+                  left: `${Math.min(Math.max(Math.abs(changePercent), 0), 100)}%`,
+                }}
+              >
+                <div className="w-4 h-4 bg-white border-2 rounded-full shadow-md -mt-0.5" style={{ borderColor: themeConfig.primary }} />
+              </div>
+            </div>
+            <div className="text-center text-xs text-gray-400 mt-3">
+              当前波动: {Math.abs(changePercent).toFixed(1)}%
             </div>
           </div>
 
@@ -95,22 +155,49 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
             </div>
           )}
 
-          {/* 归因排行TOP3 */}
-          <div className="bg-gray-50 rounded-xl p-4">
-            <div className="text-sm font-medium mb-3">归因排行TOP3</div>
-            <div className="space-y-2">
-              {attribution.tags.map((tag, index) => (
-                <div key={tag} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-gray-200 text-xs flex items-center justify-center">
-                      {index + 1}
+          {/* 归因排行TOP3 - 按年度累计金额排序，使用月度归因的中文名称 */}
+          {sortedTagStats.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="text-sm font-medium mb-3">归因排行TOP3</div>
+              <div className="space-y-2">
+                {sortedTagStats.map(([tag, stats], index) => (
+                  <div key={tag} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-gray-200 text-xs flex items-center justify-center font-medium">
+                        {index + 1}
+                      </span>
+                      <span>{stats.emoji} {stats.label}</span>
+                      <span className="text-xs text-gray-400">{stats.months.length}个月</span>
+                    </div>
+                    <span className={stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}>
+                      {stats.totalChange >= 0 ? '+' : ''}
+                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
                     </span>
-                    <span>{getYearlyAttributionTagEmoji(tag)} {getYearlyAttributionTagLabel(tag)}</span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* 账户余额快照 */}
+          {snapshots.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="text-sm font-medium mb-3">年末账户余额快照</div>
+              <div className="space-y-2">
+                {snapshots.map(snapshot => (
+                  <div key={snapshot.accountId} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon name={snapshot.accountIcon} size={16} />
+                      <span className="text-sm">{snapshot.accountName}</span>
+                    </div>
+                    <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : ''}>
+                      ¥{hideBalance ? '******' : formatAmountNoSymbol(snapshot.balance)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 年度总结 */}
           <div className="bg-gray-50 rounded-xl p-4">

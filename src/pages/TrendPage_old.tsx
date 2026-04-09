@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, ThemeType, MonthlyNetWorth, AccountSnapshot } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAllAccounts, getAccountBalanceForMonth } from '@/lib/storage';
+import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAccountSnapshotsByMonth, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -40,7 +40,6 @@ interface TrendPoint extends MonthlyNetWorth {
     fluctuationLevel: 'normal' | 'warning' | 'abnormal';
   };
   isFiltered?: boolean;
-  hasData?: boolean;
 }
 
 // 用于选中和悬停数据的联合类型
@@ -146,93 +145,40 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
     const records = data.records || [];
 
-    // 获取所有有记录的月份
-    const monthSet = new Set<string>([]);
-    records.forEach((r: any) => {
-      const recordKey = `${r.year}-${r.month.toString().padStart(2, '0')}`;
-      monthSet.add(recordKey);
-    });
-
     // 获取当前年月
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
+    const currentKey = `${currentYear}-${currentMonth.toString().padStart(2, '0')}`;
 
-    // 确定时间范围：找到最早有记录的月份，生成完整的月份序列
-    let startYear: number;
-    let startMonth: number;
-
-    if (monthSet.size === 0) {
-      // 没有记录时，从当前月往前推 months 个月
-      startYear = currentYear;
-      startMonth = currentMonth;
-    } else {
-      // 找到最早有记录的月份
-      const sortedMonths = Array.from(monthSet).sort();
-      const firstMonthKey = sortedMonths[0];
-      const [firstYear, firstMonth] = firstMonthKey.split('-').map(Number);
-
-      // 如果 months > 0（有限范围），从最早记录往前推一些月份作为起点
-      // 这样可以显示更完整的历史数据
-      if (months > 0) {
-        // 计算 months 个月前的年月
-        let totalMonths = (currentYear - firstYear) * 12 + (currentMonth - firstMonth);
-        // 取较大值，确保至少显示 months 个月或所有有记录的月份
-        const effectiveMonths = Math.max(months, totalMonths + 1);
-        
-        // 计算起点
-        const startTotalMonth = (currentYear * 12 + currentMonth) - effectiveMonths + 1;
-        startYear = Math.floor((startTotalMonth - 1) / 12);
-        startMonth = ((startTotalMonth - 1) % 12) + 1;
-      } else {
-        // 全部模式：从最早记录月开始
-        startYear = firstYear;
-        startMonth = firstMonth;
+    // 获取所有有记录的月份（只包含当前月及之前的月份）
+    const monthSet = new Set<string>([]);
+    records.forEach((r: any) => {
+      const recordKey = `${r.year}-${r.month.toString().padStart(2, '0')}`;
+      // 只添加当前月及之前的记录
+      if (recordKey <= currentKey) {
+        monthSet.add(recordKey);
       }
-    }
+    });
 
-    // 生成完整的月份序列（从 start 到 current）
-    const filteredMonths: string[] = [];
-    let year = startYear;
-    let month = startMonth;
-    const endYear = currentYear;
-    const endMonth = currentMonth;
+    // 添加当前月份（如果没有记录）
+    monthSet.add(currentKey);
 
-    while (year < endYear || (year === endYear && month <= endMonth)) {
-      const monthKey = `${year}-${month.toString().padStart(2, '0')}`;
-      filteredMonths.push(monthKey);
-      
-      month++;
-      if (month > 12) {
-        month = 1;
-        year++;
-      }
-    }
+    // 排序（升序）
+    const sortedMonths = Array.from(monthSet).sort();
+
+    // 如果 months > 0，取最近N个月（包括当前月）；否则取全部
+    // 例如：当前4月，近6个月 = [去年11月, 12月, 今年1月, 2月, 3月, 4月]
+    const filteredMonths = months > 0 ? sortedMonths.slice(-months) : sortedMonths;
 
     const history: TrendPoint[] = [];
-    const hasRecordSet = new Set(monthSet);
 
     for (const monthKey of filteredMonths) {
       const [year, month] = monthKey.split('-').map(Number);
-      
-      // 检查当月是否有记录
-      const hasRecord = hasRecordSet.has(monthKey);
-      
-      let netWorth: number;
-      let totalAssets: number;
-      let totalLiabilities: number;
-
-      if (hasRecord) {
-        // 有记录，使用正常计算
-        totalAssets = calculateTotalAssets(year, month);
-        totalLiabilities = calculateTotalLiabilities(year, month);
-        netWorth = totalAssets - totalLiabilities;
-      } else {
-        // 无记录，净资产设为 0（表示该月无数据）
-        totalAssets = 0;
-        totalLiabilities = 0;
-        netWorth = 0;
-      }
+      // 使用与首页一致的计算函数
+      const totalAssets = calculateTotalAssets(year, month);
+      const totalLiabilities = calculateTotalLiabilities(year, month);
+      const netWorth = totalAssets - totalLiabilities;
 
       // 计算上月数据用于对比
       let lastYear = year;
@@ -241,21 +187,12 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         lastYear--;
         lastMonth = 12;
       }
-      
-      // 上月数据：尝试获取上月记录，如果没有则用 0
-      const lastMonthKey = `${lastYear}-${lastMonth.toString().padStart(2, '0')}`;
-      let lastNetWorth: number;
-      if (hasRecordSet.has(lastMonthKey)) {
-        lastNetWorth = calculateNetWorth(lastYear, lastMonth);
-      } else {
-        lastNetWorth = 0;
-      }
-      
+      const lastNetWorth = calculateNetWorth(lastYear, lastMonth);
       const change = netWorth - lastNetWorth;
       const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
 
-      // 获取归因信息（仅当月有记录时）
-      const attribution = hasRecord ? getMonthlyAttribution(year, month) : undefined;
+      // 获取归因信息
+      const attribution = getMonthlyAttribution(year, month);
       let fluctuationLevel: 'normal' | 'warning' | 'abnormal' = 'normal';
       if (Math.abs(changePercent) > 30) {
         fluctuationLevel = 'abnormal';
@@ -276,8 +213,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           note: attribution.note,
           fluctuationLevel
         } : undefined,
-        isFiltered: false,
-        hasData: hasRecord // 标记该月是否有数据
+        isFiltered: false
       });
     }
 
@@ -343,26 +279,19 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
     setTheme(themeValue as ThemeType);
     setHideBalance(settings.hideBalance || false);
-  }, [timeRange, trendType, yearRange]);
-
-  // 加载月度历史数据
-  useEffect(() => {
+    // 当选择"全部"时，传入 0 表示获取所有数据
     const months = timeRange === 'all' ? 0 : parseInt(timeRange);
+    // 使用与首页一致的计算逻辑
     setMonthlyHistory(getConsistentNetWorthHistory(months));
+    setYearlyHistory(getConsistentYearlyNetWorthHistory());
   }, [timeRange]);
-
-  // 单独处理年度数据加载
-  useEffect(() => {
-    const yearlyData = getConsistentYearlyNetWorthHistory();
-    const filteredData = yearlyData.filter(y => y.year >= yearRange.start && y.year <= yearRange.end);
-    setYearlyHistory(filteredData);
-  }, [yearRange]);
 
   // 当前显示的历史数据
   const history = trendType === 'monthly' ? monthlyHistory : yearlyHistory;
 
   // 根据筛选标签计算是否过滤
   const filteredHistory = useMemo(() => {
+    if (trendType !== 'monthly') return history;
     if (filterTag === 'all') return history;
 
     return history.map(point => {
@@ -434,9 +363,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   }, [filteredHistory]);
   // 问题1修复：计算极值点信息（使用filteredHistory）
   const extremePointsInfo = useMemo(() => {
-    const validData = filteredHistory.filter(h => 
-      !h.isFiltered && ('hasData' in h ? h.hasData !== false : true)
-    );
+    const validData = filteredHistory.filter(h => !h.isFiltered);
     if (validData.length === 0) return { maxPoint: null as TrendData | null, minPoint: null as TrendData | null };
 
     const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
@@ -457,9 +384,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   };
 
 
-  // 计算图表数据 - 与旧版一致：遍历所有数据点，X坐标基于有效点的累计数量
+  // 计算图表数据 - 优化为更平滑的曲线和年份感知
   const chartData = useMemo(() => {
-    // 只用有效点计算 Y 轴范围
     const validHistory = filteredHistory.filter(h => !h.isFiltered);
     if (validHistory.length === 0) return null;
 
@@ -467,45 +393,51 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const max = Math.max(...netWorths, 0);
     const min = Math.min(...netWorths, 0);
 
+    // 增加上下边距，让曲线不贴边
     const padding = (max - min) * 0.12 || max * 0.12 || 1000;
     const chartMax = max + padding;
     const chartMin = Math.max(0, min - padding);
     const range = chartMax - chartMin || 1;
 
-    // 遍历所有 filteredHistory 点，X坐标基于有效点的累计数量（与旧版一致）
+    // 计算坐标点 - 使用所有数据点（包括过滤的，用于保持时间连续性）
     const points = filteredHistory.map((h, index) => {
       const validIndex = filteredHistory.slice(0, index + 1).filter(p => !p.isFiltered).length - 1;
       const validLength = validHistory.length;
       const x = validLength > 1 ? (validIndex / (validLength - 1)) * 100 : 50;
-      const y = 100 - ((h.netWorth - chartMin) / range) * 80 - 10;
+      const y = 100 - ((h.netWorth - chartMin) / range) * 80 - 10; // 10-90 的范围，留出边距
       return { x, y, data: h, index };
     });
 
-    // 只使用有效点绘制路径
+    // 生成平滑的 SVG 路径
     const validPoints = points.filter(p => !p.data.isFiltered);
 
-    // 生成平滑的 SVG 路径
-    const generateSmoothPath = (pts: typeof validPoints) => {
-      if (pts.length === 0) return '';
-      if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+    // 生成平滑曲线 - 使用 Catmull-Rom 样条
+    const generateSmoothPath = (points: typeof validPoints) => {
+      if (points.length === 0) return '';
+      if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
 
-      let path = `M ${pts[0].x} ${pts[0].y}`;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const curr = pts[i];
-        const next = pts[i + 1];
+      let path = `M ${points[0].x} ${points[0].y}`;
+
+      for (let i = 0; i < points.length - 1; i++) {
+        const curr = points[i];
+        const next = points[i + 1];
+
+        // 计算控制点，使曲线更平滑
         const tension = 0.35;
         const cp1x = curr.x + (next.x - curr.x) * tension;
         const cp1y = curr.y;
         const cp2x = next.x - (next.x - curr.x) * tension;
         const cp2y = next.y;
+
         path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
       }
+
       return path;
     };
 
     const pathD = generateSmoothPath(validPoints);
 
-    // 生成填充区域路径
+    // 生成填充区域路径 - 添加渐变填充
     const fillD = validPoints.length > 0
       ? pathD + ` L ${validPoints[validPoints.length - 1].x} 100 L ${validPoints[0].x} 100 Z`
       : '';
@@ -514,7 +446,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const yearBoundaries: { x: number; year: number }[] = [];
     if (trendType === 'monthly') {
       let lastYear = -1;
-      validPoints.forEach((point) => {
+      validPoints.forEach((point, _index) => {
         const data = point.data as TrendPoint;
         if (data.year !== lastYear) {
           yearBoundaries.push({ x: point.x, year: data.year });
@@ -598,7 +530,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return { ticks, unit };
   }, [chartData]);
 
-  // 生成X轴标签 - 与旧版一致：基于 chartData.validPoints 生成
+  // 生成X轴标签 - 年份感知优化 + 问题3修复：全部维度动态聚合
+  // 问题3修复：当数据>12个月时，按季度/半年度聚合展示
   const xAxisLabels = useMemo(() => {
     if (!chartData) return [];
 
@@ -625,29 +558,35 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         });
       });
     } else {
-      // 月度趋势：智能显示标签
+      // 月度趋势：智能显示标签，带年份感知
       const totalPoints = validPoints.length;
       let lastYear = -1;
 
+      // 问题3修复：动态聚合规则
+      // 如果是"全部"维度且数据>12个月，使用聚合展示
       const shouldAggregate = timeRange === 'all' && totalPoints > 12;
 
       if (shouldAggregate) {
-        // 聚合模式
+        // 聚合模式：按季度或半年度聚合
         const quarterMap: Record<string, { points: typeof validPoints; label: string }> = {};
 
         validPoints.forEach((point, _index) => {
           const data = point.data as TrendPoint;
+          // 确定聚合标识（季度 Q1-Q4 或半年 H1/H2）
           let aggKey: string;
           let aggLabel: string;
 
           if (totalPoints > 36) {
+            // 数据超过3年：按年聚合
             aggKey = `${data.year}`;
             aggLabel = `${data.year}年`;
           } else if (totalPoints > 24) {
+            // 数据在2-3年：按半年度聚合
             const halfYear = data.month <= 6 ? 'H1' : 'H2';
             aggKey = `${data.year}-${halfYear}`;
             aggLabel = `${data.year}年${halfYear === 'H1' ? '上半年' : '下半年'}`;
           } else {
+            // 数据在1-2年：按季度聚合
             const quarter = Math.ceil(data.month / 3);
             aggKey = `${data.year}-Q${quarter}`;
             aggLabel = `${data.year}Q${quarter}`;
@@ -659,9 +598,13 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           quarterMap[aggKey].points.push(point);
         });
 
+        // 生成聚合标签
         const sortedKeys = Object.keys(quarterMap).sort();
+        // const aggCount = sortedKeys.length; // eslint-disable-line @typescript-eslint/no-unused-vars // 聚合数量 - 保留供将来使用
+
         sortedKeys.forEach((key) => {
           const aggData = quarterMap[key];
+          // 使用聚合组第一个点的x坐标（居中）
           const firstPoint = aggData.points[0];
           const lastPoint = aggData.points[aggData.points.length - 1];
           const centerX = (firstPoint.x + lastPoint.x) / 2;
@@ -681,13 +624,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           });
         });
       } else {
-        // 非聚合模式：与旧版一致
+        // 非聚合模式：原有逻辑
         validPoints.forEach((point, index) => {
           const data = point.data as TrendPoint;
           const isFirst = index === 0;
           const isLast = index === totalPoints - 1;
           const isYearBoundary = data.year !== lastYear;
 
+          // 常规月份标签显示策略
           let shouldShowMonth = false;
           if (totalPoints <= 8) {
             shouldShowMonth = true;
@@ -697,14 +641,17 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             shouldShowMonth = index % 3 === 0 || isFirst || isLast;
           }
 
+          // 年份边界：显示年份 + 月份组合（如"1月 2026"），避免月份被吞掉
           if (isYearBoundary && !isFirst) {
             if (data.month === 1) {
+              // 1月：显示"1月 2026"，年份单独放上方
               labels.push({
                 x: point.x,
                 label: `${data.month}月`,
                 isYear: false,
                 isBoundary: true
               });
+              // 在更上方单独添加年份标签
               labels.push({
                 x: point.x,
                 label: `${data.year}`,
@@ -712,6 +659,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 isBoundary: true
               });
             } else {
+              // 其他跨年月份：正常显示月份，年份在下方
               labels.push({
                 x: point.x,
                 label: `${data.month}月`,
@@ -720,6 +668,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               });
             }
           } else if (shouldShowMonth) {
+            // 常规月份标签显示
             labels.push({
               x: point.x,
               label: `${data.month}月`,
@@ -738,46 +687,21 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   // 跳转到记账页面补充记录
   const goToRecordForAttribution = (year: number, month?: number) => {
     if (month !== undefined) {
-      onPageChange('record', { year, month, mode: 'monthly', openAttributionEdit: true });
+      onPageChange('record', { year, month, mode: 'monthly' });
     } else {
-      onPageChange('record', { year, mode: 'yearly', openAttributionEdit: true });
+      onPageChange('record', { year, mode: 'yearly' });
     }
   };
 
-  // 获取选中数据的账户快照 - 显示所有账户（不限于当月有记录的账户）
+  // 获取选中数据的账户快照
   const getSelectedSnapshots = (): AccountSnapshot[] => {
     if (!selectedData || !('month' in selectedData)) return [];
-    
-    const accounts = getAllAccounts().filter(a => !a.isHidden);
-    const year = selectedData.year;
-    const month = selectedData.month;
-    
-    // 计算上一个月
-    let lastYear = year;
-    let lastMonth = month - 1;
-    if (lastMonth === 0) {
-      lastYear--;
-      lastMonth = 12;
-    }
-    
-    return accounts.map(account => {
-      const balance = getAccountBalanceForMonth(account.id, year, month);
-      const lastBalance = getAccountBalanceForMonth(account.id, lastYear, lastMonth);
-      return {
-        accountId: account.id,
-        accountName: account.name,
-        accountIcon: account.icon,
-        accountType: account.type,
-        balance,
-        change: balance - lastBalance,
-      };
-    });
+    return getAccountSnapshotsByMonth(selectedData.year, selectedData.month);
   };
 
   // Bug 1 & Bug 2 修复：获取异常点说明 - 修正低谷识别逻辑
   // 问题1修复：确保只识别全局最高和全局最低点
   // 问题2修复：统一格式，确保低谷也显示完整金额
-  // 问题4修复：支持年度趋势显示高低点金额
   const getAbnormalLegend = () => {
     // Bug 2修复：只遍历有效数据点，排除isFiltered的节点
     const validData = filteredHistory.filter(h => !h.isFiltered);
@@ -789,28 +713,27 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
     const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
 
+    // Bug 2修复：确保minPoint有有效的month属性（月度趋势）
+    if (!('month' in minPoint)) return null;
+
     // Bug 1修复：检查是否需要显示年份（同年度数据可简化）
     const allYears = new Set(validData.map(p => p.year));
     const showYearInLabel = allYears.size > 1;
 
-    // 判断是否为年度趋势
-    const isYearlyTrend = 'netWorth' in validData[0] && !('month' in validData[0]);
-
     // Bug 1修复：返回包含完整年月信息的高低谷数据
     // 问题2修复：统一格式 - 最高点: {年份}年{月份}月 ¥{金额}
-    // 问题4修复：年度趋势只显示年份，不显示月份
     const maxPointInfo: LowPointInfo & { showYear: boolean } = {
       year: maxPoint.year,
-      month: ('month' in maxPoint) ? (maxPoint as TrendPoint).month : (isYearlyTrend ? 0 : 1),
+      month: ('month' in maxPoint) ? (maxPoint as TrendPoint).month : 1,
       netWorth: maxPoint.netWorth,
-      showYear: showYearInLabel || isYearlyTrend
+      showYear: showYearInLabel
     };
 
     const minPointInfo: LowPointInfo & { showYear: boolean } = {
       year: minPoint.year,
-      month: ('month' in minPoint) ? (minPoint as TrendPoint).month : (isYearlyTrend ? 0 : 1),
+      month: ('month' in minPoint) ? (minPoint as TrendPoint).month : 1,
       netWorth: minPoint.netWorth,
-      showYear: showYearInLabel || isYearlyTrend
+      showYear: showYearInLabel
     };
     return {
       maxPoint: maxPointInfo,
@@ -819,9 +742,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       // Bug 3修复：统一使用主题色
       themeColor: themeConfig.primary,
       // 问题1修复：最低谷使用淡红色
-      lowPointColor: LOW_POINT_COLOR,
-      // 问题4修复：标记是否为年度趋势
-      isYearly: isYearlyTrend
+      lowPointColor: LOW_POINT_COLOR
     };
   };
 
@@ -997,7 +918,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
                     <svg
                       viewBox="0 0 100 100"
-                      preserveAspectRatio="xMidYMid meet"
+                      preserveAspectRatio="none"
                       className="w-full h-full relative z-10"
                       onMouseLeave={() => setHoveredPoint(null)}
                     >
@@ -1016,14 +937,12 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         {/* 脉冲动画定义 - 精致的小点扩散效果 */}
                         <style>{`
                           @keyframes pulse-dot {
-                            0% { transform: scale(1); opacity: 1; }
-                            50% { transform: scale(1.5); opacity: 0.6; }
-                            100% { transform: scale(1); opacity: 1; }
+                            0% { r: 2; opacity: 1; }
+                            50% { r: 4; opacity: 0.6; }
+                            100% { r: 2; opacity: 1; }
                           }
                           .pulse-dot {
                             animation: pulse-dot 2s ease-in-out infinite;
-                            transform-origin: center;
-                            transform-box: fill-box;
                           }
                         `}</style>
                       </defs>
@@ -1216,11 +1135,17 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             ))}
                           </div>
                         )}
+                        {/* 问题3修复：显示聚合节点详情提示 */}
+                        {xAxisLabels.find(l => l.x === hoveredPoint.x)?.isAggregated && (
+                          <div className="text-gray-400 mt-1.5 text-[10px] border-t border-gray-700 pt-1.5">
+                            点击展开查看详情
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* X轴标签 - 年份感知优化 */}
+                  {/* X轴标签 - 年份感知优化 + 问题3修复：聚合节点可点击展开 */}
                   <div className="absolute left-12 right-2 bottom-0 h-10 flex items-end text-xs text-gray-400">
                     {xAxisLabels.map((label, index) => (
                       <span
@@ -1268,7 +1193,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             <span className="text-xs font-medium text-gray-600">最高点</span>
                           </div>
                           <span className="text-xs text-gray-500 whitespace-nowrap">
-                            {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{(abnormalLegend as any).isYearly ? '' : `${abnormalLegend.maxPoint.month}月`}
+                            {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.month}月
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.themeColor }}>
                             ¥{formatBalance(abnormalLegend.maxPoint.netWorth)}
@@ -1287,7 +1212,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             <span className="text-xs font-medium text-gray-600">最低点</span>
                           </div>
                           <span className="text-xs text-gray-500 whitespace-nowrap">
-                            {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{(abnormalLegend as any).isYearly ? '' : `${abnormalLegend.minPoint.month}月`}
+                            {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.month}月
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.lowPointColor }}>
                             ¥{formatBalance(abnormalLegend.minPoint.netWorth)}
@@ -1298,8 +1223,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   </div>
                 )}
 
-                <p className="text-center text-xs text-gray-400 mt-3 whitespace-nowrap">
-                  点击节点查看详情，悬停查看预览
+                <p className="text-center text-xs text-gray-400 mt-3">
+                  点击节点查看详情，{timeRange === 'all' && monthlyHistory.length > 12 ? '点击聚合节点展开详情，' : ''}悬停查看预览
                 </p>
               </CardContent>
             </Card>
@@ -1424,7 +1349,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                     className="flex items-center justify-between w-full text-sm font-medium text-gray-700 mb-2"
                     onClick={() => setExpandedSnapshots(!expandedSnapshots)}
                   >
-                    <span>账户余额快照</span>
+                    <span>各账户余额</span>
                     <span className={expandedSnapshots ? 'text-gray-400' : ''}>
                       {expandedSnapshots ? '收起' : '展开'}
                     </span>

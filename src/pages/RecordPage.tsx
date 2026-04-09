@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
-import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS, getYearlyAttributionTagLabel } from '@/types';
+import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -18,6 +18,8 @@ import {
   saveYearlyAttribution,
   getYearlyAttribution,
   getMonthlyAttributionsByYear,
+  getAttributionTagLabel,
+  getAttributionTagEmoji,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -35,6 +37,12 @@ interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
   hideBalance: boolean;
   toggleHideBalance: () => void;
+  params?: {
+    year?: number;
+    month?: number;
+    mode?: RecordMode;
+    openAttributionEdit?: boolean;
+  };
 }
 
 // 隐藏金额显示
@@ -218,11 +226,11 @@ function MonthPicker({
   );
 }
 
-export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: RecordPageProps) {
+export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, params }: RecordPageProps) {
   const now = new Date();
-  const [recordMode, setRecordMode] = useState<RecordMode>('monthly');
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [recordMode, setRecordMode] = useState<RecordMode>(params?.mode || 'monthly');
+  const [year, setYear] = useState(params?.year || now.getFullYear());
+  const [month, setMonth] = useState(params?.month || now.getMonth() + 1);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [netWorth, setNetWorth] = useState(0);
@@ -258,6 +266,17 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
   const [yearlyKeyMonths, setYearlyKeyMonths] = useState<string[]>([]);
 
   const themeConfig = THEMES[theme];
+
+  // 处理外部传入的参数：自动打开归因编辑弹窗
+  useEffect(() => {
+    if (params?.openAttributionEdit) {
+      if (recordMode === 'monthly') {
+        triggerPreview();
+      } else {
+        triggerYearlyAttribution();
+      }
+    }
+  }, []);
 
   useEffect(() => {
     // 从全局 props 接收 hideBalance
@@ -510,15 +529,21 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
     setShowYearlyAttributionDialog(true);
   };
 
-  // 从月度归因生成年度归因（智能预填充）
+  // 从月度归因生成年度归因（智能预填充）- 按累计影响金额排序，100%同步月度归因的中文名称
   const generateYearlyAttributionFromMonthly = (monthlyAttributions: any[]) => {
-    // 统计标签出现频次和金额贡献
-    const tagStats: Record<string, { count: number; totalChange: number; months: number[] }> = {};
+    // 统计标签出现频次和金额贡献，使用月度归因的中文名称
+    const tagStats: Record<string, { count: number; totalChange: number; months: number[]; label: string; emoji: string }> = {};
 
     monthlyAttributions.forEach(attr => {
       attr.tags.forEach((tag: string) => {
         if (!tagStats[tag]) {
-          tagStats[tag] = { count: 0, totalChange: 0, months: [] };
+          tagStats[tag] = { 
+            count: 0, 
+            totalChange: 0, 
+            months: [], 
+            label: getAttributionTagLabel(tag as any), 
+            emoji: getAttributionTagEmoji(tag as any) 
+          };
         }
         tagStats[tag].count++;
         tagStats[tag].totalChange += attr.change;
@@ -530,15 +555,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
 
     // 按金额贡献排序，取 TOP3
     const sortedTags = Object.entries(tagStats)
-      .sort((a, b) => Math.abs(b[1].totalChange) - Math.abs(a[1].totalChange))
+      .sort((a, b) => b[1].totalChange - a[1].totalChange)
       .slice(0, 3);
 
     const topTags = sortedTags.map(([tag]) => tag as YearlyAttributionTag);
 
-    // 生成汇总说明
-    const summaryParts = sortedTags.map(([tag, stats]) => {
-      const label = getYearlyAttributionTagLabel(tag as YearlyAttributionTag);
-      return `${label}(${stats.count}次)`;
+    // 生成汇总说明 - 使用月度归因的中文名称
+    const summaryParts = sortedTags.map(([, stats]) => {
+      return `${stats.emoji}${stats.label}(${stats.count}次，累计¥${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
     });
     const summaryText = `本年度月度归因汇总：${summaryParts.join('、')}`;
 
@@ -571,20 +595,29 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
       .slice(0, 3);
   };
 
-  // 从月度生成年度归因
+  // 从月度生成年度归因 - 按累计影响金额排序，使用月度归因的中文名称
   const generateYearlyFromMonthly = () => {
     const monthlyAttributions = getMonthlyAttributionsByYear(year);
     if (monthlyAttributions.length === 0) return;
 
-    const tagCounts: Record<string, number> = {};
+    const tagStats: Record<string, { totalChange: number; count: number; label: string; emoji: string }> = {};
     monthlyAttributions.forEach(attr => {
       attr.tags.forEach(tag => {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        if (!tagStats[tag]) {
+          tagStats[tag] = { 
+            totalChange: 0, 
+            count: 0, 
+            label: getAttributionTagLabel(tag), 
+            emoji: getAttributionTagEmoji(tag) 
+          };
+        }
+        tagStats[tag].totalChange += attr.change;
+        tagStats[tag].count += 1;
       });
     });
 
-    const sortedTags = Object.entries(tagCounts)
-      .sort((a, b) => b[1] - a[1])
+    const sortedTags = Object.entries(tagStats)
+      .sort((a, b) => b[1].totalChange - a[1].totalChange)
       .slice(0, 3)
       .map(([tag]) => tag as YearlyAttributionTag);
 
@@ -1334,23 +1367,62 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
                 background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`
               }}
             >
-              <div className="text-center mb-4">
-                <div className="text-white/70 text-sm mb-1">年末净资产</div>
-                <div className="text-3xl font-bold">{hideBalance ? '******' : `¥${formatAmountNoSymbol(netWorth)}`}</div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-white/80 text-sm">净资产变化</span>
               </div>
-              <div className="flex items-center justify-center gap-6 pt-4 border-t border-white/20">
+
+              <div className="flex items-center justify-between mb-4">
                 <div className="text-center">
-                  <div className="text-white/70 text-xs mb-1">较年初</div>
-                  <div className={`font-bold text-lg ${change >= 0 ? 'text-white' : 'text-red-100'}`}>
-                    {hideBalance ? '******' : `${change >= 0 ? '+' : ''}${formatAmountNoSymbol(change)}`}
+                  <div className="text-xs text-white/70 mb-1">年初</div>
+                  <div className="text-lg font-bold">
+                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNetWorth)}`}
                   </div>
                 </div>
+                <div className="text-2xl text-white/50">→</div>
                 <div className="text-center">
-                  <div className="text-white/70 text-xs mb-1">变化率</div>
-                  <div className={`font-bold text-lg ${changePercent >= 0 ? 'text-white' : 'text-red-100'}`}>
-                    {hideBalance ? '******' : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(1)}%`}
+                  <div className="text-xs text-white/70 mb-1">年末</div>
+                  <div className="text-lg font-bold">
+                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(netWorth)}`}
                   </div>
                 </div>
+              </div>
+
+              <div className="text-center pt-3 border-t border-white/20">
+                <span className="text-2xl font-bold">
+                  {hideBalance ? '******' : (
+                    <>
+                      {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                      <span className="text-base ml-2 opacity-80">
+                        ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* 波动进度条 */}
+            <div className="bg-gray-50 rounded-xl p-4">
+              <div className="flex justify-between text-xs text-gray-500 mb-2 font-medium">
+                <span>正常</span><span>需关注</span><span>异常</span>
+              </div>
+              <div className="relative">
+                <div className="h-3 bg-gray-200 rounded-full overflow-hidden flex">
+                  <div className="h-full bg-green-500" style={{ width: '33.33%' }} />
+                  <div className="h-full bg-yellow-500" style={{ width: '33.33%' }} />
+                  <div className="h-full bg-red-500" style={{ width: '33.34%' }} />
+                </div>
+                <div
+                  className="absolute top-0 w-4 h-3 -ml-2"
+                  style={{
+                    left: `${Math.min(Math.max(Math.abs(changePercent), 0), 100)}%`,
+                  }}
+                >
+                  <div className="w-4 h-4 bg-white border-2 rounded-full shadow-md -mt-0.5" style={{ borderColor: themeConfig.primary }} />
+                </div>
+              </div>
+              <div className="text-center text-xs text-gray-400 mt-3">
+                当前波动: {Math.abs(changePercent).toFixed(1)}%
               </div>
             </div>
 
@@ -1402,14 +1474,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
               );
             })()}
 
-            {/* 归因排行 TOP3 */}
+            {/* 归因排行 TOP3 - 100%同步月度归因的中文名称 */}
             {(() => {
               const monthlyAttributions = getMonthlyAttributionsByYear(year);
               if (monthlyAttributions.length === 0) return null;
 
               const { tagStats } = generateYearlyAttributionFromMonthly(monthlyAttributions);
               const sortedTags = Object.entries(tagStats)
-                .sort((a, b) => Math.abs(b[1].totalChange) - Math.abs(a[1].totalChange))
+                .sort((a, b) => b[1].totalChange - a[1].totalChange)
                 .slice(0, 3);
 
               if (sortedTags.length === 0) return null;
@@ -1424,11 +1496,11 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance }: Rec
                           <span className="w-5 h-5 rounded-full bg-gray-100 text-xs flex items-center justify-center font-medium">
                             {index + 1}
                           </span>
-                          <span className="text-sm">{getYearlyAttributionTagLabel(tag as YearlyAttributionTag)}</span>
+                          <span className="text-sm">{stats.emoji} {stats.label}</span>
                           <span className="text-xs text-gray-400">{stats.months.length}个月</span>
                         </div>
                         <span className={`text-sm font-medium ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {stats.totalChange >= 0 ? '+' : ''}¥{formatAmountNoSymbol(Math.abs(stats.totalChange))}
+                          {stats.totalChange >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
                         </span>
                       </div>
                     ))}

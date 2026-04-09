@@ -174,7 +174,7 @@ function App() {
       case 'account-flow':
         return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
       case 'record':
-        return <RecordPage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
+        return <RecordPage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} params={pageParams} />;
       case 'record-logs':
         return (
           <RecordLogsPage

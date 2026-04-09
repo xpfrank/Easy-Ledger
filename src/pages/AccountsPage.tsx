@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -17,9 +17,13 @@ import {
   parseExcelCSV,
   batchImportFromExcel,
   exportExcelTemplate,
+  getExpandedGroups,
+  saveExpandedGroups,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { THEMES } from '@/types';
+import type { ThemeType } from '@/types';
 
 // 隐藏金额显示
 function formatHiddenAmount(amount: number, hide: boolean): string {
@@ -43,11 +47,21 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   const [importMode, setImportMode] = useState<'json' | 'excel'>('json');
   const [excelData, setExcelData] = useState<ExcelImportRow[]>([]);
   const [excelError, setExcelError] = useState<string>('');
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [theme, setTheme] = useState<ThemeType>('blue');
+
+  const themeConfig = THEMES[theme] || THEMES.blue;
 
   useEffect(() => {
     const settings = getSettings();
+    const validThemes: ThemeType[] = ['blue', 'green', 'orange', 'dark', 'purple'];
+    const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
+    setTheme(themeValue as ThemeType);
     setHideBalance(settings.hideBalance || false);
     loadAccounts();
+    // 初始化分组展开状态
+    const saved = getExpandedGroups();
+    setExpandedGroups(saved);
   }, []);
 
   const loadAccounts = () => {
@@ -67,6 +81,36 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
     }
     setCurrentBalances(balances);
   };
+
+  // 计算分组总金额
+  const getGroupTotal = (groupType: string): number => {
+    const groupAccounts = accounts.filter(a => a.type === groupType);
+    let total = 0;
+    for (const account of groupAccounts) {
+      total += currentBalances[account.id] ?? account.balance;
+    }
+    return total;
+  };
+
+  const toggleGroup = (type: string) => {
+    const newExpanded = { ...expandedGroups, [type]: !expandedGroups[type] };
+    setExpandedGroups(newExpanded);
+    saveExpandedGroups(newExpanded);
+  };
+
+  // 获取账户类型图标
+  function getAccountTypeIcon(type: string): string {
+    const iconMap: Record<string, string> = {
+      'cash': 'banknote',
+      'debit': 'credit-card',
+      'credit': 'credit-card',
+      'digital': 'wallet',
+      'investment': 'trending-up',
+      'loan': 'handshake',
+      'debt': 'clipboard',
+    };
+    return iconMap[type] || 'circle';
+  }
 
   const handleDelete = (account: Account) => {
     setAccountToDelete(account);
@@ -202,12 +246,60 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
             </CardContent>
           </Card>
         ) : (
-          groupedAccounts.map((group) => (
+          groupedAccounts.map((group) => {
+            const isExpanded = expandedGroups[group.type] !== undefined ? expandedGroups[group.type] : true;
+            return (
             <div key={group.type} className="space-y-2">
               <h2 className="text-sm font-medium text-gray-500 px-1">
                 {group.label}
               </h2>
               <Card className="bg-white overflow-hidden">
+                {/* 分组标题栏 - 可点击展开/收起 */}
+                <div
+                  className="flex items-center justify-between p-3.5 bg-white cursor-pointer select-none border-b border-gray-100 hover:bg-gray-50"
+                  onClick={() => toggleGroup(group.type)}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div 
+                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-white shadow-sm"
+                      style={{ 
+                        color: group.type === 'credit' || group.type === 'debt' ? '#ef4444' : themeConfig.primary 
+                      }}
+                    >
+                      <Icon 
+                        name={getAccountTypeIcon(group.type)} 
+                        size={16} 
+                      />
+                    </div>
+                    <span className="font-semibold text-sm text-gray-800">{group.label}</span>
+                    <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full shadow-sm">{group.accounts.length}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium ${
+                      group.type === 'credit' && getGroupTotal(group.type) < 0 ? 'text-green-600' : 
+                      group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
+                    }`}>
+                      {group.type === 'credit' ? (getGroupTotal(group.type) > 0 ? '欠款' : '溢缴') : ''}
+                      ¥{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(getGroupTotal(group.type)) : getGroupTotal(group.type), hideBalance)}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleGroup(group.type);
+                      }}
+                      className="p-1.5 rounded-full bg-white hover:bg-gray-100 transition-colors text-gray-500 shadow-sm"
+                    >
+                      {isExpanded ? (
+                        <ChevronUp size={16} />
+                      ) : (
+                        <ChevronDown size={16} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                
+                {/* 账户列表 */}
+                {isExpanded && (
                 <div className="divide-y divide-gray-100">
                   {group.accounts.map((account) => (
                     <div
@@ -297,9 +389,11 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                     </div>
                   ))}
                 </div>
+                )}
               </Card>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
