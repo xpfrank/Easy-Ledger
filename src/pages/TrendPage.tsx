@@ -1020,68 +1020,91 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             <DialogTitle>{(selectedData as any)?.fullLabel || '季度详情'}</DialogTitle>
           </DialogHeader>
           {selectedData && '_originalMonths' in selectedData && (
-            <>
-              <div className="text-center p-4 bg-gray-50 rounded-xl">
+            <div className="space-y-4">
+              {/* 季度末净资产 - 居中显示 */}
+              <div className="text-center py-4 border-b border-gray-100">
                 <div className="text-sm text-gray-500 mb-1">季度末净资产</div>
                 <div className="text-3xl font-bold" style={{ color: themeConfig.primary }}>
-                  {formatBalance(selectedData.netWorth)}
+                  ¥{formatBalance(selectedData.netWorth)}
                 </div>
               </div>
-              <div className="border-t border-gray-100 pt-4">
-                <div className="text-sm font-medium text-gray-700 mb-3">🔍 本季度月度余额明细：</div>
-                <div className="space-y-3 max-h-64 overflow-y-auto">
+
+              {/* 月度明细列表 */}
+              <div>
+                <div className="flex items-center gap-2 mb-3 text-sm text-gray-700">
+                  <span className="text-lg">🔍</span>
+                  <span className="font-medium">本季度月度余额明细：</span>
+                </div>
+                
+                <div className="space-y-3 max-h-80 overflow-y-auto">
                   {(selectedData as any)._originalMonths
                     .sort((a: any, b: any) => {
                       if (a.year !== b.year) return a.year - b.year;
                       return a.month - b.month;
                     })
-                    .map((month: any, index: number) => (
-                      <div key={index} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">
-                            {month.year}年{month.month.toString().padStart(2, '0')}月
-                          </span>
-                          <span className="text-sm font-bold" style={{ color: themeConfig.primary }}>
-                            ¥{formatBalance(month.netWorth)}
-                          </span>
+                    .map((month: any, index: number, array: any[]) => (
+                      <div key={index}>
+                        {/* 月份卡片 */}
+                        <div className="flex items-start justify-between py-2">
+                          {/* 左侧：月份和标签 */}
+                          <div className="flex-1">
+                            <div className="text-sm font-medium text-gray-900 mb-1">
+                              {month.year}年{month.month.toString().padStart(2, '0')}月
+                            </div>
+                            
+                            {/* 归因标签和变化金额 */}
+                            {month.attribution && month.attribution.tags && month.attribution.tags.length > 0 ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {month.attribution.tags.slice(0, 2).map((tag: string, i: number) => (
+                                  <div key={i} className={`flex items-center gap-1 text-xs ${
+                                    month.change >= 0 ? 'text-green-600' : 'text-red-500'
+                                  }`}>
+                                    <span>{getAttributionTagEmoji(tag as any)}</span>
+                                    <span>{getAttributionTagLabel(tag as any)}</span>
+                                    <span className="font-medium ml-1">
+                                      {month.change >= 0 ? '+' : '-'}{formatBalance(Math.abs(month.change || 0))}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : month.change !== undefined && month.change !== 0 ? (
+                              <div className={`text-xs ${
+                                month.change >= 0 ? 'text-green-600' : 'text-red-500'
+                              }`}>
+                                {month.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(month.change))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {/* 右侧：金额和查看按钮 */}
+                          <div className="text-right ml-4">
+                            <div className="text-sm font-bold mb-1" style={{ color: themeConfig.primary }}>
+                              ¥{formatBalance(month.netWorth)}
+                            </div>
+                            <button
+                              className="text-xs text-blue-500 hover:text-blue-600 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                              onClick={() => {
+                                onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
+                                setSelectedData(null);
+                              }}
+                            >
+                              [查看]
+                            </button>
+                          </div>
                         </div>
-                        {month.change !== undefined && month.change !== 0 && (
-                          <div className={`text-xs mb-2 ${month.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            {month.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(month.change))}
-                          </div>
+
+                        {/* 分隔线（最后一项不显示） */}
+                        {index < array.length - 1 && (
+                          <div className="border-b border-gray-100 mt-2"></div>
                         )}
-                        {month.attribution && month.attribution.tags && month.attribution.tags.length > 0 && (
-                          <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            {month.attribution.tags.slice(0, 2).map((tag: string, i: number) => (
-                              <span key={i} className="text-xs bg-white px-2 py-1 rounded-md shadow-sm">
-                                {getAttributionTagEmoji(tag as any)} {getAttributionTagLabel(tag as any)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <button
-                          className="text-xs text-blue-500 hover:text-blue-600"
-                          onClick={() => {
-                            onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
-                            setSelectedData(null);
-                          }}
-                        >
-                          [查看详情]
-                        </button>
                       </div>
                     ))}
                 </div>
               </div>
-              <div className="flex gap-2 pt-4 border-t border-gray-100">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => setSelectedData(null)}
-                >
-                  关闭
-                </Button>
-              </div>
-            </>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
           )}
         </DialogContent>
       </Dialog>
@@ -1094,56 +1117,82 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           </DialogHeader>
           {expandedAggregate && (
             <div className="space-y-4">
-              {/* 季度末净资产 */}
-              <div className="text-center p-4 bg-gray-50 rounded-xl">
+              {/* 季度末净资产 - 居中显示 */}
+              <div className="text-center py-4 border-b border-gray-100">
                 <div className="text-sm text-gray-500 mb-1">季度末净资产</div>
-                <div className="text-2xl font-bold" style={{ color: themeConfig.primary }}>
+                <div className="text-3xl font-bold" style={{ color: themeConfig.primary }}>
                   ¥{formatBalance(expandedAggregate.months[expandedAggregate.months.length - 1]?.netWorth || 0)}
                 </div>
               </div>
 
               {/* 月度明细列表 */}
-              <div className="border-t border-gray-100 pt-4">
-                <div className="text-sm font-medium text-gray-700 mb-3">🔍 本季度月度余额明细：</div>
-                <div className="space-y-3 max-h-64 overflow-y-auto">
+              <div>
+                <div className="flex items-center gap-2 mb-3 text-sm text-gray-700">
+                  <span className="text-lg">🔍</span>
+                  <span className="font-medium">本季度月度余额明细：</span>
+                </div>
+                
+                <div className="space-y-3 max-h-80 overflow-y-auto">
                   {expandedAggregate.months
                     .sort((a, b) => {
                       if (a.year !== b.year) return a.year - b.year;
                       return a.month - b.month;
                     })
-                    .map((month, index) => (
-                      <div key={index} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">
-                            {month.year}年{month.month.toString().padStart(2, '0')}月
-                          </span>
-                          <span className="text-sm font-bold" style={{ color: themeConfig.primary }}>
-                            ¥{formatBalance(month.netWorth)}
-                          </span>
+                    .map((month, index, array) => (
+                      <div key={index}>
+                        {/* 月份卡片 */}
+                        <div className="flex items-start justify-between py-2">
+                          {/* 左侧：月份和标签 */}
+                          <div className="flex-1">
+                            <div className="text-sm font-medium text-gray-900 mb-1">
+                              {month.year}年{month.month.toString().padStart(2, '0')}月
+                            </div>
+                            
+                            {/* 归因标签和变化金额 */}
+                            {month.attribution && month.attribution.tags && month.attribution.tags.length > 0 ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {month.attribution.tags.slice(0, 2).map((tag, i) => (
+                                  <div key={i} className={`flex items-center gap-1 text-xs ${
+                                    month.change >= 0 ? 'text-green-600' : 'text-red-500'
+                                  }`}>
+                                    <span>{getAttributionTagEmoji(tag as any)}</span>
+                                    <span>{getAttributionTagLabel(tag as any)}</span>
+                                    <span className="font-medium ml-1">
+                                      {month.change >= 0 ? '+' : '-'}{formatBalance(Math.abs(month.change || 0))}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : month.change !== undefined && month.change !== 0 ? (
+                              <div className={`text-xs ${
+                                month.change >= 0 ? 'text-green-600' : 'text-red-500'
+                              }`}>
+                                {month.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(month.change))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {/* 右侧：金额和查看按钮 */}
+                          <div className="text-right ml-4">
+                            <div className="text-sm font-bold mb-1" style={{ color: themeConfig.primary }}>
+                              ¥{formatBalance(month.netWorth)}
+                            </div>
+                            <button
+                              className="text-xs text-blue-500 hover:text-blue-600 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                              onClick={() => {
+                                onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
+                                setExpandedAggregate(null);
+                              }}
+                            >
+                              [查看]
+                            </button>
+                          </div>
                         </div>
-                        {month.change !== undefined && month.change !== 0 && (
-                          <div className={`text-xs mb-2 ${month.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            {month.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(month.change))}
-                          </div>
+
+                        {/* 分隔线（最后一项不显示） */}
+                        {index < array.length - 1 && (
+                          <div className="border-b border-gray-100 mt-2"></div>
                         )}
-                        {month.attribution && month.attribution.tags && month.attribution.tags.length > 0 && (
-                          <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            {month.attribution.tags.slice(0, 2).map((tag, i) => (
-                              <span key={i} className="text-xs bg-white px-2 py-1 rounded-md shadow-sm">
-                                {getAttributionTagEmoji(tag as any)} {getAttributionTagLabel(tag as any)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <button
-                          className="text-xs text-blue-500 hover:text-blue-600"
-                          onClick={() => {
-                            onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
-                            setExpandedAggregate(null);
-                          }}
-                        >
-                          [查看详情]
-                        </button>
                       </div>
                     ))}
                 </div>
