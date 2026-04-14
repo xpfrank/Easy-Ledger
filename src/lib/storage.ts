@@ -604,19 +604,18 @@ export interface ExcelImportRow {
   month: string;
   accountName: string;
   balance: number;
+  attributionTag?: string;
+  note?: string;
 }
 
 export function hasGarbledText(text: string): boolean {
-  if (text.includes('\uFFFD')) return true;
-  const garbledPatterns = ['', ''];
-  for (const pattern of garbledPatterns) {
-    if (text.includes(pattern)) return true;
-  }
-  return false;
+  const cleanText = text.replace(/^\uFEFF/, '');
+  return cleanText.includes('\uFFFD');
 }
 
 export function parseExcelCSV(content: string): ExcelImportRow[] {
-  const lines = content.trim().split('\n');
+  const cleanContent = content.replace(/^\uFEFF/, '').trim();
+  const lines = cleanContent.split('\n');
   const result: ExcelImportRow[] = [];
 
   for (let i = 1; i < lines.length; i++) {
@@ -640,13 +639,15 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
     const accountName = parts[1].trim().replace(/"/g, '');
     const balanceStr = parts[2].trim().replace(/"/g, '').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, '');
     const balance = parseFloat(balanceStr);
+    const attributionTag = parts[3]?.trim().replace(/"/g, '') || undefined;
+    const note = parts[4]?.trim().replace(/"/g, '') || undefined;
 
     if (!monthRaw || !accountName) continue;
 
     const normalizedMonth = normalizeMonthFormat(monthRaw);
     if (!normalizedMonth || isNaN(balance)) continue;
 
-    result.push({ month: normalizedMonth, accountName, balance });
+    result.push({ month: normalizedMonth, accountName, balance, attributionTag, note });
   }
 
   return result;
@@ -703,7 +704,7 @@ function normalizeMonthFormat(monthStr: string): string | null {
   return null;
 }
 
-export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' = 'merge'): { success: boolean; message: string; importedCount: number; unmatchedAccounts?: string[] } {
+export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' = 'merge'): { success: boolean; message: string; importedCount: number; unmatchedAccounts?: string[]; createdAccounts?: string[] } {
   if (rows.length === 0) {
     return { success: false, message: 'CSV 数据为空，请检查文件内容', importedCount: 0 };
   }
@@ -712,7 +713,35 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
     const data = loadData();
     let importedCount = 0;
     const unmatchedAccounts: string[] = [];
+    const attributionData: { year: number; month: number; change: number; tags: string[]; note?: string }[] = [];
+    const createdAccounts: string[] = [];
 
+    // 第一遍：收集并自动创建不存在的账户
+    const accountSet = new Set(data.accounts.map(a => normalizeAccountName(a.name)));
+    for (const row of rows) {
+      const normalizedRowName = normalizeAccountName(row.accountName);
+      if (!accountSet.has(normalizedRowName)) {
+        // 检查是否已添加过
+        const alreadyAdded = data.accounts.some(a => normalizeAccountName(a.name) === normalizedRowName);
+        if (!alreadyAdded) {
+          // 自动创建账户（默认类型：储蓄卡）
+          const newAccount: Account = {
+            id: generateId(),
+            name: row.accountName,
+            type: 'debit',
+            icon: 'credit-card',
+            balance: 0,
+            includeInTotal: true,
+            isHidden: false,
+          };
+          data.accounts.push(newAccount);
+          createdAccounts.push(row.accountName);
+          accountSet.add(normalizedRowName);
+        }
+      }
+    }
+
+    // 第二遍：导入资产数据
     for (const row of rows) {
       const [yearStr, monthStr] = row.month.split('-');
       const year = parseInt(yearStr);
@@ -732,35 +761,98 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
         continue;
       }
 
+      // 修复：只更新指定账户的记录，而不是遍历所有账户
       if (mergeMode === 'overwrite') {
-        data.records = data.records.filter(r => !(r.year === year && r.month === month));
+        data.records = data.records.filter(
+          r => !(r.accountId === targetAccount.id && r.year === year && r.month === month)
+        );
       }
 
-      for (const account of data.accounts) {
-        const isTargetAccount = account.id === targetAccount.id;
-        const balance = isTargetAccount ? row.balance : 0;
+      // 检查该账户该月份是否已有记录
+      const existingRecord = data.records.find(
+        r => r.accountId === targetAccount.id && r.year === year && r.month === month
+      );
 
-        const existingRecord = data.records.find(
-          r => r.accountId === account.id && r.year === year && r.month === month
-        );
-
-        if (existingRecord) {
-          existingRecord.balance = balance;
-        } else {
-          data.records.push({
-            id: generateId(),
-            accountId: account.id,
-            year,
-            month,
-            balance,
-          });
-        }
+      if (existingRecord) {
+        attributionData.push({
+          year,
+          month,
+          change: row.balance - existingRecord.balance,
+          tags: row.attributionTag ? [row.attributionTag] : [],
+          note: row.note
+        });
+        existingRecord.balance = row.balance;
+      } else {
+        attributionData.push({
+          year,
+          month,
+          change: row.balance,
+          tags: row.attributionTag ? [row.attributionTag] : [],
+          note: row.note
+        });
+        data.records.push({
+          id: generateId(),
+          accountId: targetAccount.id,
+          year,
+          month,
+          balance: row.balance,
+        });
       }
 
       importedCount++;
     }
 
+    // 处理归因数据导入
+    if (attributionData.length > 0) {
+      const uniqueMonths = new Map<string, { year: number; month: number; tags: string[]; note?: string }>();
+      
+      for (const attr of attributionData) {
+        const key = `${attr.year}-${attr.month}`;
+        if (!uniqueMonths.has(key) && attr.tags.length > 0) {
+          uniqueMonths.set(key, { year: attr.year, month: attr.month, tags: attr.tags, note: attr.note });
+        } else if (uniqueMonths.has(key) && attr.note) {
+          const existing = uniqueMonths.get(key)!;
+          if (!existing.note && attr.note) {
+            existing.note = attr.note;
+          }
+        }
+      }
+
+      for (const attr of uniqueMonths.values()) {
+        if (attr.tags.length > 0) {
+          const existingAttr = data.attributions.find(a => a.year === attr.year && a.month === attr.month);
+          if (existingAttr) {
+            if (mergeMode === 'overwrite') {
+              existingAttr.tags = attr.tags as any;
+              existingAttr.note = attr.note;
+            } else {
+              existingAttr.tags = [...new Set([...existingAttr.tags, ...attr.tags])] as any;
+              if (attr.note && !existingAttr.note) {
+                existingAttr.note = attr.note;
+              }
+            }
+          } else {
+            data.attributions.push({
+              id: generateId(),
+              year: attr.year,
+              month: attr.month,
+              change: 0,
+              changePercent: 0,
+              fluctuationLevel: 'normal',
+              tags: attr.tags as any,
+              note: attr.note,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      }
+    }
+
     saveData(data);
+
+    const createdMsg = createdAccounts.length > 0 
+      ? `\n\n✅ 已自动创建 ${createdAccounts.length} 个账户：${createdAccounts.slice(0, 3).map(n => `「${n}」`).join('、')}${createdAccounts.length > 3 ? `等${createdAccounts.length}个` : ''}`
+      : '';
 
     if (unmatchedAccounts.length > 0) {
       const accountList = unmatchedAccounts.slice(0, 5).map(name => `「${name}」`).join('、');
@@ -768,13 +860,14 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
       const hintText = '\n\n💡 提示：如账户名称匹配失败，请检查 CSV 文件是否使用 UTF-8 编码';
       return {
         success: true,
-        message: `成功导入 ${importedCount} 个月的数据\n\n⚠️ 未找到以下账户：${accountList}${moreText}${hintText}`,
+        message: `成功导入 ${importedCount} 个月的数据${createdMsg}\n\n⚠️ 未找到以下账户：${accountList}${moreText}${hintText}`,
         importedCount,
-        unmatchedAccounts
+        unmatchedAccounts,
+        createdAccounts
       };
     }
 
-    return { success: true, message: `成功导入 ${importedCount} 个月的数据`, importedCount };
+    return { success: true, message: `成功导入 ${importedCount} 个月的数据${createdMsg}`, importedCount, createdAccounts };
   } catch (error) {
     console.error('Excel 导入失败:', error);
     return { success: false, message: 'Excel 导入失败，请检查文件格式', importedCount: 0 };
@@ -784,8 +877,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 export function exportExcelTemplate(): string {
   const accounts = getAllAccounts();
   const BOM = '\uFEFF';
-  const header = '月份(YYYY-MM),目标存款账户名称,当月存款余额';
-  const note = '# 支持格式: YYYY-MM (2024-01) 或 MMM-YY (Jan-24)，请保存为 UTF-8 编码';
+  const header = '月份(YYYY-MM),账户名称,余额,归因标签(可选),备注(可选)';
 
   const now = new Date();
   const examples: string[] = [];
@@ -795,10 +887,62 @@ export function exportExcelTemplate(): string {
     const month = date.getMonth() + 1;
     const monthStr = `${year}-${month.toString().padStart(2, '0')}`;
     const defaultAccount = accounts.length > 0 ? accounts[0].name : '账户名称';
-    examples.push(`${monthStr},${defaultAccount},0.00`);
+    examples.push(`${monthStr},${defaultAccount},0.00,,`);
   }
 
-  return BOM + [header, note, ...examples].join('\n');
+  return BOM + [header, ...examples].join('\n');
+}
+
+export function exportToCSV(startYear?: number, startMonth?: number, endYear?: number, endMonth?: number): string {
+  const data = loadData();
+  const BOM = '\uFEFF';
+  const header = '月份(YYYY-MM),账户名称,余额,归因标签(可选),备注(可选)';
+
+  const yearSet = new Set<number>();
+  const monthSet = new Set<number>();
+
+  for (const record of data.records) {
+    if (startYear !== undefined && startMonth !== undefined) {
+      const recordKey = record.year * 100 + record.month;
+      const startKey = startYear * 100 + startMonth;
+      const endKey = (endYear || startYear) * 100 + (endMonth || startMonth);
+      if (recordKey >= startKey && recordKey <= endKey) {
+        yearSet.add(record.year);
+        monthSet.add(record.month);
+      }
+    } else {
+      yearSet.add(record.year);
+      monthSet.add(record.month);
+    }
+  }
+
+  const sortedYears = Array.from(yearSet).sort();
+  const sortedMonths = Array.from(monthSet).sort((a, b) => a - b);
+
+  const rows: string[] = [header];
+
+  for (const year of sortedYears) {
+    for (const month of sortedMonths) {
+      const monthStr = `${year}-${month.toString().padStart(2, '0')}`;
+      
+      for (const account of data.accounts) {
+        const record = data.records.find(r => 
+          r.accountId === account.id && r.year === year && r.month === month
+        );
+        
+        if (record) {
+          const attribution = data.attributions.find(a => 
+            a.year === year && a.month === month
+          );
+          const tag = attribution?.tags?.[0] || '';
+          const note = attribution?.note || '';
+          rows.push(`${monthStr},${account.name},${record.balance.toFixed(2)},${tag},${note}`);
+        }
+      }
+    }
+  }
+
+  return BOM + rows.join('\n');
 }
 
 export function batchImportByRange(
@@ -1010,7 +1154,8 @@ export function getAccountSnapshotsByMonth(year: number, month: number): Account
   return snapshots;
 }
 
-// 获取指定月份的账户列表（快照机制）
+// 获取指定月份的账户列表（快照机制 + 继承机制）
+// 规则：该月份有记录的账户 + 历史上曾经有过记录且未在该月被删除的账户
 export function getAccountsByMonth(year: number, month: number): Account[] {
   const data = loadData();
 
@@ -1021,8 +1166,26 @@ export function getAccountsByMonth(year: number, month: number): Account[] {
       .map(r => r.accountId)
   );
 
-  // 返回这些账户的完整信息
-  return data.accounts.filter(a => monthRecordIds.has(a.id));
+  // 如果该月份有记录，直接返回有记录的账户
+  if (monthRecordIds.size > 0) {
+    return data.accounts.filter(a => monthRecordIds.has(a.id));
+  }
+
+  // 如果该月份没有记录，向前查找最近有记录的账户
+  const allRecords = data.records
+    .filter(r => {
+      if (r.year < year) return true;
+      if (r.year === year && r.month < month) return true;
+      return false;
+    })
+    .sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return b.month - a.month;
+    });
+
+  // 获取有历史记录的账户ID
+  const historicallyRecordedIds = new Set(allRecords.map(r => r.accountId));
+  return data.accounts.filter(a => historicallyRecordedIds.has(a.id));
 }
 
 // 获取指定月份账户的余额（支持继承机制）

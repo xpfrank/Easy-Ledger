@@ -23,26 +23,8 @@ import {
   AreaChart,
   Area,
   ReferenceLine,
-  ReferenceDot,
   Brush,
 } from 'recharts';
-
-const LOW_POINT_COLOR = '#f87171';
-
-const AnimatedPulseDot = ({ cx, cy, r, fill, stroke, strokeWidth, isMin }: any) => {
-  const color = isMin ? LOW_POINT_COLOR : stroke;
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={r * 2} fill={color} opacity={0.15}>
-        <animate attributeName="r" values={`${r};${r * 2.5};${r}`} dur="2s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.15;0;0.15" dur="2s" repeatCount="indefinite" />
-      </circle>
-      <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={strokeWidth} opacity={0.4} />
-      <circle cx={cx} cy={cy} r={r * 0.6} fill="none" stroke={color} strokeWidth={strokeWidth * 0.8} opacity={0.6} />
-      <circle cx={cx} cy={cy} r={r * 0.35} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
-    </g>
-  );
-};
 import {
   Dialog,
   DialogContent,
@@ -150,96 +132,27 @@ function getAccountTrendHistory(accountId: string, months: number): TrendRecord[
 
 // 获取储蓄卡趋势数据（带年份信息用于分割线）
 function getSavingsTrendData(accountId: string, months: number) {
-  const data = loadData();
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const account = data.accounts.find(a => a.id === accountId);
   const records = getAccountTrendHistory(accountId, months);
-
-  if (months <= 0) {
-    return records.map((r) => ({
-      month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
-      label: `${r.month}月`,
-      fullLabel: `${r.year}年${r.month}月`,
-      year: r.year,
-      balance: r.balance,
-    }));
-  }
-
-  const result: any[] = [];
-  let startYear = currentYear;
-  let startMonth = currentMonth - months;
-  if (startMonth <= 0) {
-    startYear--;
-    startMonth += 12;
-  }
-
-  for (let year = startYear; year <= currentYear; year++) {
-    const monthStart = year === startYear ? startMonth : 1;
-    const monthEnd = year === currentYear ? currentMonth : 12;
-    for (let month = monthStart; month <= monthEnd; month++) {
-      const record = records.find(r => r.year === year && r.month === month);
-      const balance = record ? record.balance : (account?.balance ?? 0);
-      result.push({
-        month: `${year}-${month.toString().padStart(2, '0')}`,
-        label: `${month}月`,
-        fullLabel: `${year}年${month}月`,
-        year: year,
-        balance: balance,
-      });
-    }
-  }
-
-  return result;
+  return records.map((r) => ({
+    month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
+    label: `${r.month}月`,
+    fullLabel: `${r.year}年${r.month}月`,
+    year: r.year,
+    balance: r.balance,
+  }));
 }
 
 // 获取信用卡趋势数据
 function getCreditTrendData(accountId: string, months: number) {
-  const data = loadData();
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const account = data.accounts.find(a => a.id === accountId);
   const records = getAccountTrendHistory(accountId, months);
-
-  if (months <= 0) {
-    return records.map((r) => ({
-      month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
-      label: `${r.month}月`,
-      fullLabel: `${r.year}年${r.month}月`,
-      year: r.year,
-      debt: r.balance > 0 ? r.balance : 0,
-      surplus: r.balance < 0 ? Math.abs(r.balance) : 0,
-    }));
-  }
-
-  const result: any[] = [];
-  let startYear = currentYear;
-  let startMonth = currentMonth - months;
-  if (startMonth <= 0) {
-    startYear--;
-    startMonth += 12;
-  }
-
-  for (let year = startYear; year <= currentYear; year++) {
-    const monthStart = year === startYear ? startMonth : 1;
-    const monthEnd = year === currentYear ? currentMonth : 12;
-    for (let month = monthStart; month <= monthEnd; month++) {
-      const record = records.find(r => r.year === year && r.month === month);
-      const balance = record ? record.balance : (account?.balance ?? 0);
-      result.push({
-        month: `${year}-${month.toString().padStart(2, '0')}`,
-        label: `${month}月`,
-        fullLabel: `${year}年${month}月`,
-        year: year,
-        debt: balance > 0 ? balance : 0,
-        surplus: balance < 0 ? Math.abs(balance) : 0,
-      });
-    }
-  }
-
-  return result;
+  return records.map((r) => ({
+    month: `${r.year}-${r.month.toString().padStart(2, '0')}`,
+    label: `${r.month}月`,
+    fullLabel: `${r.year}年${r.month}月`,
+    year: r.year,
+    debt: r.balance > 0 ? r.balance : 0,
+    surplus: r.balance < 0 ? Math.abs(r.balance) : 0,
+  }));
 }
 
 // 聚合数据按季度（用于超过24个月的数据展示）
@@ -247,10 +160,7 @@ function aggregateToQuarter(data: any[], isCredit: boolean): any[] {
   const quarterMap: Record<string, any[]> = {};
 
   data.forEach((item) => {
-    const monthStr = item.month;
-    const actualMonth = parseInt(monthStr.split('-')[1], 10);
-    if (isNaN(actualMonth)) return;
-    const quarter = Math.ceil(actualMonth / 3);
+    const quarter = Math.ceil(item.month / 3);
     const key = `${item.year}-Q${quarter}`;
     if (!quarterMap[key]) {
       quarterMap[key] = [];
@@ -260,12 +170,9 @@ function aggregateToQuarter(data: any[], isCredit: boolean): any[] {
 
   return Object.entries(quarterMap).map(([key, items]) => {
     const [year, quarter] = key.split('-Q');
-    const quarterNum = parseInt(quarter, 10);
-    const quarterEndMonth = quarterNum * 3;
-    const representativeItem = items.find(i => {
-      const m = parseInt(i.month.split('-')[1], 10);
-      return m === quarterEndMonth;
-    }) || items[items.length - 1];
+    // 使用季度末月的数据作为代表
+    const quarterEndMonth = parseInt(quarter) * 3;
+    const representativeItem = items.find(i => i.month === quarterEndMonth) || items[items.length - 1];
 
     return {
       month: `${year}-${quarterEndMonth.toString().padStart(2, '0')}`,
@@ -275,6 +182,7 @@ function aggregateToQuarter(data: any[], isCredit: boolean): any[] {
       balance: isCredit ? representativeItem.debt || 0 : representativeItem.balance,
       debt: isCredit ? representativeItem.debt || 0 : 0,
       surplus: isCredit ? representativeItem.surplus || 0 : 0,
+      // 保存原始数据用于tooltip
       _originalItems: items,
     };
   });
@@ -463,28 +371,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
   const yearBoundaries = useMemo(() => {
     return getYearBoundaries(trendData);
   }, [trendData]);
-
-  // 计算最高点/最低点
-  const extremePoints = useMemo(() => {
-    if (!account || trendData.length === 0) return null;
-    
-    const isCredit = account.type === 'credit';
-    let maxPoint = null as any;
-    let minPoint = null as any;
-
-    if (isCredit) {
-      const debts = trendData.filter((d: any) => (d.debt || 0) > 0);
-      if (debts.length > 0) {
-        maxPoint = debts.reduce((max: any, d: any) => (d.debt || 0) > (max.debt || 0) ? d : max, debts[0]);
-      }
-    } else {
-      const balances = trendData.map((d: any) => ({ ...d, value: d.balance }));
-      maxPoint = balances.reduce((max: any, d: any) => d.value > max.value ? d : max, balances[0]);
-      minPoint = balances.reduce((min: any, d: any) => d.value < min.value ? d : min, balances[0]);
-    }
-
-    return { maxPoint, minPoint, hasBoth: maxPoint && minPoint && maxPoint !== minPoint };
-  }, [account, trendData]);
 
   // 计算统计数据
   const stats = useMemo(() => {
@@ -779,9 +665,11 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           tick={{ fontSize: 9 }}
                           axisLine={false}
                           tickLine={false}
-                          interval={0}
+                          interval="preserveStartEnd"
+                          minTickGap={15}
                           tickFormatter={(value, index) => {
                             const item = trendData[index];
+                            // 在每年1月显示年份标签
                             if (item && item.month && item.month.endsWith('-01')) {
                               return `${item.year}年`;
                             }
@@ -804,36 +692,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                             return l;
                           }}
                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                          content={({ active, payload }) => {
-                            if (!active || !payload || !payload[0]) return null;
-                            const data = payload[0].payload;
-                            const isQuarter = data._originalItems && data._originalItems.length > 0;
-                            return (
-                              <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
-                                <div className="font-medium text-gray-900 mb-2">{data.fullLabel}</div>
-                                {isQuarter ? (
-                                  <>
-                                    <div className="text-gray-500 mb-2">季度末欠款：¥{formatHiddenAmount(data.debt || data.balance, hideBalance)}</div>
-                                    {data._originalItems.length > 0 && (
-                                      <div className="pt-2 border-t border-gray-100">
-                                        <div className="text-gray-500 mb-1.5">📊 本季度月度欠款明细：</div>
-                                        {data._originalItems.map((item: any, idx: number) => (
-                                          <div key={idx} className="flex justify-between py-0.5 text-gray-600">
-                                            <span>{item.fullLabel || item.month}</span>
-                                            <span className="font-medium">¥{formatHiddenAmount(item.debt || 0, hideBalance)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="text-gray-500">
-                                    欠款：¥{formatHiddenAmount(data.debt || 0, hideBalance)}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }}
                         />
                         {/* 年度分割线 - 在每年1月位置 */}
                         {yearBoundaries.map((boundary) => {
@@ -846,12 +704,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                                 stroke="#9ca3af"
                                 strokeWidth={1}
                                 ifOverflow="extendDomain"
-                                label={{
-                                  value: `${boundary.year}`,
-                                  position: 'top',
-                                  fill: '#6b7280',
-                                  fontSize: 10,
-                                }}
                               />
                             );
                           }
@@ -864,24 +716,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           fill="url(#debtGradient)"
                           strokeWidth={2}
                         />
-                        {/* 信用卡极值点标记 - 使用动画组件 */}
-                        {extremePoints?.maxPoint && (
-                          <ReferenceDot
-                            x={extremePoints.maxPoint.label}
-                            y={extremePoints.maxPoint.debt}
-                            shape={(props: any) => (
-                              <AnimatedPulseDot
-                                cx={props.cx}
-                                cy={props.cy}
-                                r={8}
-                                fill={themeConfig.primary}
-                                stroke={themeConfig.primary}
-                                strokeWidth={1}
-                                isMin={false}
-                              />
-                            )}
-                          />
-                        )}
                         {/* 底部滑块用于缩放和滑动 */}
                         <Brush
                           dataKey="label"
@@ -908,9 +742,11 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           tick={{ fontSize: 9 }}
                           axisLine={false}
                           tickLine={false}
-                          interval={0}
+                          interval="preserveStartEnd"
+                          minTickGap={15}
                           tickFormatter={(value, index) => {
                             const item = trendData[index];
+                            // 在每年1月显示年份标签
                             if (item && item.month && item.month.endsWith('-01')) {
                               return `${item.year}年`;
                             }
@@ -933,36 +769,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                             return l;
                           }}
                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                          content={({ active, payload }) => {
-                            if (!active || !payload || !payload[0]) return null;
-                            const data = payload[0].payload;
-                            const isQuarter = data._originalItems && data._originalItems.length > 0;
-                            return (
-                              <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
-                                <div className="font-medium text-gray-900 mb-2">{data.fullLabel}</div>
-                                {isQuarter ? (
-                                  <>
-                                    <div className="text-gray-500 mb-2">季度末余额：¥{formatHiddenAmount(data.balance, hideBalance)}</div>
-                                    {data._originalItems.length > 0 && (
-                                      <div className="pt-2 border-t border-gray-100">
-                                        <div className="text-gray-500 mb-1.5">🔍 本季度月度余额明细：</div>
-                                        {data._originalItems.map((item: any, idx: number) => (
-                                          <div key={idx} className="flex justify-between py-0.5 text-gray-600">
-                                            <span>{item.fullLabel || item.month}</span>
-                                            <span className="font-medium">¥{formatHiddenAmount(item.balance, hideBalance)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="text-gray-500">
-                                    余额：¥{formatHiddenAmount(data.balance, hideBalance)}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }}
                         />
                         {/* 年度分割线 - 在每年1月位置 */}
                         {yearBoundaries.map((boundary) => {
@@ -975,12 +781,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                                 stroke="#9ca3af"
                                 strokeWidth={1}
                                 ifOverflow="extendDomain"
-                                label={{
-                                  value: `${boundary.year}`,
-                                  position: 'top',
-                                  fill: '#6b7280',
-                                  fontSize: 10,
-                                }}
                               />
                             );
                           }
@@ -993,41 +793,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           fill="url(#balanceGradient)"
                           strokeWidth={2}
                         />
-                        {/* 储蓄卡极值点标记 - 使用动画组件 */}
-                        {extremePoints?.maxPoint && (
-                          <ReferenceDot
-                            x={extremePoints.maxPoint.label}
-                            y={extremePoints.maxPoint.balance}
-                            shape={(props: any) => (
-                              <AnimatedPulseDot
-                                cx={props.cx}
-                                cy={props.cy}
-                                r={8}
-                                fill={themeConfig.primary}
-                                stroke={themeConfig.primary}
-                                strokeWidth={1}
-                                isMin={false}
-                              />
-                            )}
-                          />
-                        )}
-                        {extremePoints?.minPoint && extremePoints.hasBoth && (
-                          <ReferenceDot
-                            x={extremePoints.minPoint.label}
-                            y={extremePoints.minPoint.balance}
-                            shape={(props: any) => (
-                              <AnimatedPulseDot
-                                cx={props.cx}
-                                cy={props.cy}
-                                r={8}
-                                fill={LOW_POINT_COLOR}
-                                stroke={LOW_POINT_COLOR}
-                                strokeWidth={1}
-                                isMin={true}
-                              />
-                            )}
-                          />
-                        )}
                         {/* 底部滑块用于缩放和滑动 */}
                         <Brush
                           dataKey="label"
@@ -1092,8 +857,6 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                     )}
                   </div>
                 )}
-
-
               </>
             ) : (
               <div className="h-24 flex items-center justify-center text-gray-400 text-sm">

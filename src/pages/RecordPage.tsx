@@ -20,6 +20,7 @@ import {
   getMonthlyAttributionsByYear,
   getAttributionTagLabel,
   getAttributionTagEmoji,
+  getAccountsByMonth,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -285,12 +286,25 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   }, [year, month, recordMode, hideBalance]);
 
   const loadData = () => {
+    // 使用月度快照机制：获取该月份有记录的账户列表
+    const monthAccounts = getAccountsByMonth(year, month);
+    // 同时获取所有账户（用于显示未记录的账户，其余额会继承）
     const allAccounts = getAllAccounts().filter(a => !a.isHidden);
-    setAccounts(allAccounts);
+    
+    // 合并逻辑：该月份有记录的用户 + 所有未隐藏账户（未记录的账户余额会继承上月）
+    const accountsMap = new Map(monthAccounts.map(a => [a.id, a]));
+    const mergedAccounts = allAccounts.map(account => {
+      if (accountsMap.has(account.id)) {
+        return accountsMap.get(account.id)!;
+      }
+      return account;
+    });
+    
+    setAccounts(mergedAccounts);
 
     if (recordMode === 'monthly') {
       const newBalances: Record<string, number> = {};
-      for (const account of allAccounts) {
+      for (const account of mergedAccounts) {
         const record = getMonthlyRecord(account.id, year, month);
         newBalances[account.id] = record ? record.balance : account.balance;
       }
@@ -302,7 +316,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     } else {
       const lastMonth = getLastRecordedMonth(year) || 12;
       const newBalances: Record<string, number> = {};
-      for (const account of allAccounts) {
+      for (const account of mergedAccounts) {
         const record = getMonthlyRecord(account.id, year, lastMonth);
         newBalances[account.id] = record ? record.balance : account.balance;
       }

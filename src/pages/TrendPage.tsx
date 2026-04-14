@@ -1,14 +1,40 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, Edit3, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PageRoute, ThemeType, MonthlyNetWorth, AccountSnapshot } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAllAccounts, getAccountBalanceForMonth } from '@/lib/storage';
+import type { PageRoute, ThemeType, MonthlyNetWorth } from '@/types';
+import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 import { Icon } from '@/components/Icon';
+import {
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  ReferenceLine,
+  ReferenceDot,
+} from 'recharts';
+
+const AnimatedPulseDot = ({ cx, cy, r, fill, stroke, strokeWidth, isMin }: any) => {
+  const color = isMin ? LOW_POINT_COLOR : stroke;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={r * 2} fill={color} opacity={0.15}>
+        <animate attributeName="r" values={`${r};${r * 2.5};${r}`} dur="2s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.15;0;0.15" dur="2s" repeatCount="indefinite" />
+      </circle>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={strokeWidth} opacity={0.4} />
+      <circle cx={cx} cy={cy} r={r * 0.6} fill="none" stroke={color} strokeWidth={strokeWidth * 0.8} opacity={0.6} />
+      <circle cx={cx} cy={cy} r={r * 0.35} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
+    </g>
+  );
+};
 
 interface TrendPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -31,6 +57,7 @@ interface YearlyNetWorth {
     fluctuationLevel: 'normal' | 'warning' | 'abnormal';
   };
   isFiltered?: boolean;
+  hasData?: boolean;
 }
 
 interface TrendPoint extends MonthlyNetWorth {
@@ -43,19 +70,59 @@ interface TrendPoint extends MonthlyNetWorth {
   hasData?: boolean;
 }
 
-// 用于选中和悬停数据的联合类型
-type TrendData = TrendPoint | YearlyNetWorth;
-
-// 低谷点详细信息接口
-interface LowPointInfo {
+interface QuarterlyNetWorth {
   year: number;
-  month: number;
+  quarter: number;
   netWorth: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  _originalMonths: TrendPoint[];
+  fullLabel: string;
+  label: string;
 }
+
+function aggregateToQuarter(data: TrendPoint[]): QuarterlyNetWorth[] {
+  const quarterMap: Record<string, TrendPoint[]> = {};
+
+  data.forEach((item) => {
+    const quarter = Math.ceil(item.month / 3);
+    const key = `${item.year}-Q${quarter}`;
+    if (!quarterMap[key]) {
+      quarterMap[key] = [];
+    }
+    quarterMap[key].push(item);
+  });
+
+  return Object.entries(quarterMap).map(([key, months]) => {
+    const [yearStr, quarterStr] = key.split('-Q');
+    const year = parseInt(yearStr);
+    const quarterNum = parseInt(quarterStr);
+    const lastMonth = months.sort((a: TrendPoint, b: TrendPoint) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    })[months.length - 1];
+
+    return {
+      year,
+      quarter: quarterNum,
+      netWorth: lastMonth.netWorth,
+      totalAssets: lastMonth.totalAssets,
+      totalLiabilities: lastMonth.totalLiabilities,
+      _originalMonths: months,
+      fullLabel: `${year}年第${quarterNum}季度`,
+      label: `${year.toString().slice(2)}Q${quarterNum}`,
+    };
+  }).sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    return a.quarter - b.quarter;
+  });
+}
+
+// 用于选中和悬停数据的联合类型
+type TrendData = TrendPoint | YearlyNetWorth | QuarterlyNetWorth;
 
 // 问题1修复：定义淡红色用于最低谷标注
 const LOW_POINT_COLOR = '#f87171'; // 淡红色
-// const LOW_POINT_BG_COLOR = "#fef2f2"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 export function TrendPage({ onPageChange }: TrendPageProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('12');
@@ -66,18 +133,21 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [selectedData, setSelectedData] = useState<TrendData | null>(null);
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [hideBalance, setHideBalance] = useState(false);
-  const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; data: TrendData; index: number } | null>(null);
   const [filterTag, setFilterTag] = useState<FilterTag>('all');
-  const [expandedSnapshots, setExpandedSnapshots] = useState(false);
   // 年份区间选择器状态
   const [yearRange, setYearRange] = useState<{ start: number; end: number }>(() => {
     const now = new Date();
     return { start: now.getFullYear() - 4, end: now.getFullYear() };
   });
+  // 季度聚合视图状态
+  const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyNetWorth[]>([]);
+  // 是否使用季度聚合视图
+  const useQuarterlyView = timeRange === 'all' && monthlyHistory.length > 24;
   // 问题3修复：聚合节点展开状态
   const [expandedAggregate, setExpandedAggregate] = useState<{
     label: string;
-    months: { year: number; month: number; netWorth: number }[];
+    fullLabel: string;
+    months: TrendPoint[];
   } | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -95,56 +165,16 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     return formatAmountNoSymbol(amount);
   };
 
-  // 获取节点样式 - 默认不显示，悬停/选中时显示小圆点（缩小约一半）
-  const getNodeStyle = (changePercent: number, isFiltered: boolean): {
-    size: number;
-    color: string;
-    pulse: boolean;
-    strokeWidth: number;
-  } => {
-    const absPercent = Math.abs(changePercent);
-
-    if (!isFiltered && filterTag !== 'all') {
-      // 非目标月份：不显示
-      return {
-        size: 0,
-        color: '#d1d5db',
-        pulse: false,
-        strokeWidth: 0
-      };
-    }
-
-    if (absPercent > 30) {
-      // 异常波动：1.5px小圆点 + 轻微扩散脉冲动画
-      return {
-        size: 1.5,
-        color: themeConfig.primary,
-        pulse: true,
-        strokeWidth: 0.5
-      };
-    } else if (absPercent > 10) {
-      // 警告波动：1px超精致小圆点
-      return {
-        size: 1,
-        color: themeConfig.primary,
-        pulse: false,
-        strokeWidth: 0.3
-      };
-    } else {
-      // 正常波动：悬停时显示1px小圆点
-      return {
-        size: 1,
-        color: themeConfig.primary,
-        pulse: false,
-        strokeWidth: 0.2
-      };
-    }
-  };
-
   // 获取月度净资产历史（与首页逻辑一致，排除 includeInTotal=false 的账户）
   const getConsistentNetWorthHistory = (months: number): TrendPoint[] => {
     const data = JSON.parse(localStorage.getItem('simple-ledger-data') || '{}');
     const records = data.records || [];
+
+    // 获取当前年月
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentKey = `${currentYear}-${currentMonth.toString().padStart(2, '0')}`;
 
     // 获取所有有记录的月份
     const monthSet = new Set<string>([]);
@@ -153,69 +183,42 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       monthSet.add(recordKey);
     });
 
-    // 获取当前年月
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
+    // 添加当前月份（标记是否有记录）
+    monthSet.add(currentKey);
 
-    // 确定时间范围：找到最早有记录的月份，生成完整的月份序列
-    let startYear: number;
-    let startMonth: number;
-
-    if (monthSet.size === 0) {
-      // 没有记录时，从当前月往前推 months 个月
-      startYear = currentYear;
-      startMonth = currentMonth;
-    } else {
-      // 找到最早有记录的月份
-      const sortedMonths = Array.from(monthSet).sort();
-      const firstMonthKey = sortedMonths[0];
-      const [firstYear, firstMonth] = firstMonthKey.split('-').map(Number);
-
-      // 如果 months > 0（有限范围），从最早记录往前推一些月份作为起点
-      // 这样可以显示更完整的历史数据
-      if (months > 0) {
-        // 计算 months 个月前的年月
-        let totalMonths = (currentYear - firstYear) * 12 + (currentMonth - firstMonth);
-        // 取较大值，确保至少显示 months 个月或所有有记录的月份
-        const effectiveMonths = Math.max(months, totalMonths + 1);
-        
-        // 计算起点
-        const startTotalMonth = (currentYear * 12 + currentMonth) - effectiveMonths + 1;
-        startYear = Math.floor((startTotalMonth - 1) / 12);
-        startMonth = ((startTotalMonth - 1) % 12) + 1;
-      } else {
-        // 全部模式：从最早记录月开始
-        startYear = firstYear;
-        startMonth = firstMonth;
+    // 如果是"全部"模式，添加未来2个月作为占位（待记录）
+    if (months === 0) {
+      let futureYear = currentYear;
+      let futureMonth = currentMonth + 1;
+      if (futureMonth > 12) {
+        futureMonth = 1;
+        futureYear++;
       }
+      const futureKey1 = `${futureYear}-${futureMonth.toString().padStart(2, '0')}`;
+      monthSet.add(futureKey1);
+
+      futureMonth++;
+      if (futureMonth > 12) {
+        futureMonth = 1;
+        futureYear++;
+      }
+      const futureKey2 = `${futureYear}-${futureMonth.toString().padStart(2, '0')}`;
+      monthSet.add(futureKey2);
     }
 
-    // 生成完整的月份序列（从 start 到 current）
-    const filteredMonths: string[] = [];
-    let year = startYear;
-    let month = startMonth;
-    const endYear = currentYear;
-    const endMonth = currentMonth;
+    // 重新排序
+    const allMonths = Array.from(monthSet).sort();
 
-    while (year < endYear || (year === endYear && month <= endMonth)) {
-      const monthKey = `${year}-${month.toString().padStart(2, '0')}`;
-      filteredMonths.push(monthKey);
-      
-      month++;
-      if (month > 12) {
-        month = 1;
-        year++;
-      }
-    }
+    // 如果 months > 0，取最近N个月（包括当前月）；否则取全部
+    const filteredMonths = months > 0 ? allMonths.slice(-months) : allMonths;
 
     const history: TrendPoint[] = [];
-    const hasRecordSet = new Set(monthSet);
+    const hasRecordSet = new Set(records.map((r: any) => `${r.year}-${r.month.toString().padStart(2, '0')}`));
 
     for (const monthKey of filteredMonths) {
       const [year, month] = monthKey.split('-').map(Number);
       
-      // 检查当月是否有记录
+      // 检查当月是否有真实记录
       const hasRecord = hasRecordSet.has(monthKey);
       
       let netWorth: number;
@@ -277,7 +280,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           fluctuationLevel
         } : undefined,
         isFiltered: false,
-        hasData: hasRecord // 标记该月是否有数据
+        hasData: hasRecord
       });
     }
 
@@ -331,6 +334,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         totalLiabilities,
         change,
         changePercent,
+        hasData: yearRecords.length > 0,
       });
     }
 
@@ -358,15 +362,27 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     setYearlyHistory(filteredData);
   }, [yearRange]);
 
-  // 当前显示的历史数据
-  const history = trendType === 'monthly' ? monthlyHistory : yearlyHistory;
+  // 计算季度聚合数据（当数据跨度超过24个月时）
+  useEffect(() => {
+    if (useQuarterlyView && monthlyHistory.length > 0) {
+      const quarterlyData = aggregateToQuarter(monthlyHistory);
+      setQuarterlyHistory(quarterlyData);
+    } else {
+      setQuarterlyHistory([]);
+    }
+  }, [monthlyHistory, useQuarterlyView]);
+
+  // 当前显示的历史数据（根据是否启用季度视图自动切换）
+  const history = trendType === 'monthly' 
+    ? (useQuarterlyView ? quarterlyHistory as any : monthlyHistory) 
+    : yearlyHistory;
 
   // 根据筛选标签计算是否过滤
   const filteredHistory = useMemo(() => {
     if (filterTag === 'all') return history;
 
-    return history.map(point => {
-      if (!point.attribution) {
+    return history.map((point: TrendPoint | YearlyNetWorth | QuarterlyNetWorth) => {
+      if (!('attribution' in point) || !point.attribution) {
         return { ...point, isFiltered: true };
       }
 
@@ -395,14 +411,76 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     });
   }, [history, filterTag, trendType]);
 
+  // 为 Recharts 准备格式化数据（需要在 extremePointsInfo 之前计算）
+  const rechartsData = useMemo(() => {
+    const validHistory = filteredHistory.filter((h: any) => !h.isFiltered);
+    if (validHistory.length === 0) return [];
+
+    if (useQuarterlyView) {
+      return (validHistory as QuarterlyNetWorth[]).map((h: QuarterlyNetWorth, index: number) => ({
+        label: h.label,
+        fullLabel: h.fullLabel,
+        netWorth: h.netWorth,
+        year: h.year,
+        quarter: h.quarter,
+        data: h,
+        dataKey: `Q-${h.year}-${h.quarter}`,
+        _originalMonths: h._originalMonths,
+        index,
+      }));
+    }
+
+    return validHistory.map((h: any, index: number) => {
+      const month = 'month' in h ? (h as TrendPoint).month : 0;
+      return {
+        label: trendType === 'yearly' 
+          ? `${h.year}` 
+          : `${h.year}-${month.toString().padStart(2, '0')}`,
+        fullLabel: trendType === 'yearly'
+          ? `${h.year}年`
+          : `${h.year}年${month.toString().padStart(2, '0')}月`,
+        netWorth: h.netWorth,
+        year: h.year,
+        month,
+        data: h,
+        dataKey: `M-${h.year}-${month}`,
+        index,
+      };
+    });
+  }, [filteredHistory, trendType, useQuarterlyView]);
+
+  // 计算极值点信息 - 直接从 rechartsData 计算以确保 key 一致
+  let extremePointsInfo: {
+    maxPoint: any;
+    minPoint: any;
+    maxKey: string;
+    minKey: string;
+    maxData: any;
+    minData: any;
+  } = { maxPoint: null, minPoint: null, maxKey: '', minKey: '', maxData: null, minData: null };
+
+  if (rechartsData.length > 0) {
+    const validData = rechartsData.filter((r: any) => r.netWorth !== undefined);
+    if (validData.length > 0) {
+      const maxData = validData.reduce((max: any, r: any) => r.netWorth > max.netWorth ? r : max, validData[0]);
+      const minData = validData.reduce((min: any, r: any) => r.netWorth < min.netWorth ? r : min, validData[0]);
+      extremePointsInfo = {
+        maxPoint: maxData.data,
+        minPoint: minData.data,
+        maxKey: maxData.dataKey,
+        minKey: minData.dataKey,
+        maxData,
+        minData,
+      };
+    }
+  }
+
   // 计算统计数据 - 只计算有效数据点
   const stats = useMemo(() => {
-    // Bug 2修复：只使用有效数据点计算统计数据
-    const validData = filteredHistory.filter(h => !h.isFiltered);
+    const validData = filteredHistory.filter((h: any) => !h.isFiltered);
 
     if (validData.length === 0) return null;
     if (validData.length === 1) {
-      // Bug 2修复：只有1个有效节点时，不显示高低谷
       return {
         maxNetWorth: validData[0].netWorth,
         minNetWorth: validData[0].netWorth,
@@ -413,10 +491,10 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       };
     }
 
-    const netWorths = validData.map(h => h.netWorth);
+    const netWorths = validData.map((h: any) => h.netWorth);
     const maxNetWorth = Math.max(...netWorths);
     const minNetWorth = Math.min(...netWorths);
-    const avgNetWorth = netWorths.reduce((a, b) => a + b, 0) / netWorths.length;
+    const avgNetWorth = netWorths.reduce((a: number, b: number) => a + b, 0) / netWorths.length;
 
     const firstNetWorth = netWorths[0];
     const lastNetWorth = netWorths[netWorths.length - 1];
@@ -432,396 +510,34 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       hasOnlyOneValidPoint: false
     };
   }, [filteredHistory]);
-  // 问题1修复：计算极值点信息（使用filteredHistory）
-  const extremePointsInfo = useMemo(() => {
-    const validData = filteredHistory.filter(h => 
-      !h.isFiltered && ('hasData' in h ? h.hasData !== false : true)
-    );
-    if (validData.length === 0) return { maxPoint: null as TrendData | null, minPoint: null as TrendData | null };
 
-    const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
-    const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
-
-    return { maxPoint, minPoint };
-  }, [filteredHistory]);
-
-
-  // 检查是否为最高/最低净资产点（问题 1 修复：使用 extremePointsInfo 判断，确保只有一个最高点和一个最低点）
-  const isExtremePoint = (point: TrendData): { isMax: boolean; isMin: boolean } => {
-    if (!('netWorth' in point)) return { isMax: false, isMin: false };
-    // 只判断是否是全局最高点和全局最低点（通过引用比较，确保只有一个点）
-    return {
-      isMax: extremePointsInfo.maxPoint !== null && point === extremePointsInfo.maxPoint,
-      isMin: extremePointsInfo.minPoint !== null && point === extremePointsInfo.minPoint
-    };
-  };
-
-
-  // 计算图表数据 - 与旧版一致：遍历所有数据点，X坐标基于有效点的累计数量
-  const chartData = useMemo(() => {
-    // 只用有效点计算 Y 轴范围
-    const validHistory = filteredHistory.filter(h => !h.isFiltered);
-    if (validHistory.length === 0) return null;
-
-    const netWorths = validHistory.map(h => h.netWorth);
-    const max = Math.max(...netWorths, 0);
-    const min = Math.min(...netWorths, 0);
-
-    const padding = (max - min) * 0.12 || max * 0.12 || 1000;
-    const chartMax = max + padding;
-    const chartMin = Math.max(0, min - padding);
-    const range = chartMax - chartMin || 1;
-
-    // 遍历所有 filteredHistory 点，X坐标基于有效点的累计数量（与旧版一致）
-    const points = filteredHistory.map((h, index) => {
-      const validIndex = filteredHistory.slice(0, index + 1).filter(p => !p.isFiltered).length - 1;
-      const validLength = validHistory.length;
-      const x = validLength > 1 ? (validIndex / (validLength - 1)) * 100 : 50;
-      const y = 100 - ((h.netWorth - chartMin) / range) * 80 - 10;
-      return { x, y, data: h, index };
-    });
-
-    // 只使用有效点绘制路径
-    const validPoints = points.filter(p => !p.data.isFiltered);
-
-    // 生成平滑的 SVG 路径
-    const generateSmoothPath = (pts: typeof validPoints) => {
-      if (pts.length === 0) return '';
-      if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
-
-      let path = `M ${pts[0].x} ${pts[0].y}`;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const curr = pts[i];
-        const next = pts[i + 1];
-        const tension = 0.35;
-        const cp1x = curr.x + (next.x - curr.x) * tension;
-        const cp1y = curr.y;
-        const cp2x = next.x - (next.x - curr.x) * tension;
-        const cp2y = next.y;
-        path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
-      }
-      return path;
-    };
-
-    const pathD = generateSmoothPath(validPoints);
-
-    // 生成填充区域路径
-    const fillD = validPoints.length > 0
-      ? pathD + ` L ${validPoints[validPoints.length - 1].x} 100 L ${validPoints[0].x} 100 Z`
-      : '';
-
-    // 计算年份分割线位置
-    const yearBoundaries: { x: number; year: number }[] = [];
-    if (trendType === 'monthly') {
-      let lastYear = -1;
-      validPoints.forEach((point) => {
-        const data = point.data as TrendPoint;
-        if (data.year !== lastYear) {
-          yearBoundaries.push({ x: point.x, year: data.year });
-          lastYear = data.year;
-        }
-      });
-    }
-
-    return { points, pathD, fillD, max: chartMax, min: chartMin, range, validPoints, yearBoundaries };
-  }, [filteredHistory, trendType]);
-
-  // 智能金额格式化
-  const formatSmartAmount = (amount: number, useUnit: string): string => {
-    const absValue = Math.abs(amount);
-
-    if (useUnit === 'w') {
-      return (amount / 10000).toFixed(1) + 'w';
-    } else if (useUnit === 'k') {
-      if (absValue >= 10000) {
-        return Math.round(amount / 1000) + 'k';
-      } else {
-        return (amount / 1000).toFixed(1) + 'k';
-      }
-    } else {
-      return Math.round(amount).toString();
-    }
-  };
-
-  // 计算规整的刻度间隔
-  const getNiceStep = (range: number, tickCount: number): number => {
-    if (range <= 0) return 1;
-    const roughStep = range / (tickCount - 1);
-    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
-    const normalized = roughStep / magnitude;
-
-    let niceNormalized: number;
-    if (normalized <= 1) niceNormalized = 1;
-    else if (normalized <= 2) niceNormalized = 2;
-    else if (normalized <= 5) niceNormalized = 5;
-    else niceNormalized = 10;
-
-    return niceNormalized * magnitude;
-  };
-
-  // 计算Y轴刻度
-  const yAxisConfig = useMemo(() => {
-    if (!chartData) return { ticks: [], unit: '元' };
-
-    const validNetWorths = chartData.validPoints.map(p => p.data.netWorth);
-    if (validNetWorths.length === 0) return { ticks: [], unit: '元' };
-
-    const max = Math.max(...validNetWorths, 0);
-    const min = Math.min(...validNetWorths, 0);
-    const range = max - min;
-    const tickCount = 5;
-
-    const absMax = Math.max(Math.abs(max), Math.abs(min));
-    let unit: '元' | 'k' | 'w';
-    if (absMax >= 1000000) {
-      unit = 'w';
-    } else if (absMax >= 10000) {
-      unit = 'k';
-    } else {
-      unit = '元';
-    }
-
-    const step = getNiceStep(range, tickCount);
-    const niceMin = Math.floor(min / step) * step;
-    const niceMax = Math.ceil(max / step) * step;
-
-    const ticks = [];
-    for (let value = niceMax; value >= niceMin - step / 2; value -= step) {
-      if (ticks.length >= tickCount) break;
-      ticks.push({
-        value,
-        label: formatSmartAmount(value, unit),
-        rawValue: value
-      });
-    }
-
-    return { ticks, unit };
-  }, [chartData]);
-
-  // 生成X轴标签 - 与旧版一致：基于 chartData.validPoints 生成
-  const xAxisLabels = useMemo(() => {
-    if (!chartData) return [];
-
-    const validPoints = chartData.validPoints;
-    if (validPoints.length === 0) return [];
-
-    const labels: {
-      x: number;
-      label: string;
-      isYear: boolean;
-      isBoundary?: boolean;
-      isAggregated?: boolean;
-      aggregatedMonths?: { year: number; month: number; netWorth: number }[];
-      aggregatedLabel?: string;
-    }[] = [];
-
-    if (trendType === 'yearly') {
-      // 年度趋势：显示所有年份
-      validPoints.forEach((point, _index) => {
-        labels.push({
-          x: point.x,
-          label: `${point.data.year}`,
-          isYear: true
-        });
-      });
-    } else {
-      // 月度趋势：智能显示标签
-      const totalPoints = validPoints.length;
-      let lastYear = -1;
-
-      const shouldAggregate = timeRange === 'all' && totalPoints > 12;
-
-      if (shouldAggregate) {
-        // 聚合模式
-        const quarterMap: Record<string, { points: typeof validPoints; label: string }> = {};
-
-        validPoints.forEach((point, _index) => {
-          const data = point.data as TrendPoint;
-          let aggKey: string;
-          let aggLabel: string;
-
-          if (totalPoints > 36) {
-            aggKey = `${data.year}`;
-            aggLabel = `${data.year}年`;
-          } else if (totalPoints > 24) {
-            const halfYear = data.month <= 6 ? 'H1' : 'H2';
-            aggKey = `${data.year}-${halfYear}`;
-            aggLabel = `${data.year}年${halfYear === 'H1' ? '上半年' : '下半年'}`;
-          } else {
-            const quarter = Math.ceil(data.month / 3);
-            aggKey = `${data.year}-Q${quarter}`;
-            aggLabel = `${data.year}Q${quarter}`;
-          }
-
-          if (!quarterMap[aggKey]) {
-            quarterMap[aggKey] = { points: [], label: aggLabel };
-          }
-          quarterMap[aggKey].points.push(point);
-        });
-
-        const sortedKeys = Object.keys(quarterMap).sort();
-        sortedKeys.forEach((key) => {
-          const aggData = quarterMap[key];
-          const firstPoint = aggData.points[0];
-          const lastPoint = aggData.points[aggData.points.length - 1];
-          const centerX = (firstPoint.x + lastPoint.x) / 2;
-
-          labels.push({
-            x: centerX,
-            label: aggData.label,
-            isYear: true,
-            isBoundary: true,
-            isAggregated: true,
-            aggregatedMonths: aggData.points.map(p => ({
-              year: (p.data as TrendPoint).year,
-              month: (p.data as TrendPoint).month,
-              netWorth: p.data.netWorth
-            })),
-            aggregatedLabel: aggData.label
-          });
-        });
-      } else {
-        // 非聚合模式：与旧版一致
-        validPoints.forEach((point, index) => {
-          const data = point.data as TrendPoint;
-          const isFirst = index === 0;
-          const isLast = index === totalPoints - 1;
-          const isYearBoundary = data.year !== lastYear;
-
-          let shouldShowMonth = false;
-          if (totalPoints <= 8) {
-            shouldShowMonth = true;
-          } else if (totalPoints <= 16) {
-            shouldShowMonth = index % 2 === 0 || isFirst || isLast;
-          } else {
-            shouldShowMonth = index % 3 === 0 || isFirst || isLast;
-          }
-
-          if (isYearBoundary && !isFirst) {
-            if (data.month === 1) {
-              labels.push({
-                x: point.x,
-                label: `${data.month}月`,
-                isYear: false,
-                isBoundary: true
-              });
-              labels.push({
-                x: point.x,
-                label: `${data.year}`,
-                isYear: true,
-                isBoundary: true
-              });
-            } else {
-              labels.push({
-                x: point.x,
-                label: `${data.month}月`,
-                isYear: false,
-                isBoundary: true
-              });
-            }
-          } else if (shouldShowMonth) {
-            labels.push({
-              x: point.x,
-              label: `${data.month}月`,
-              isYear: false
-            });
-          }
-
-          lastYear = data.year;
-        });
-      }
-    }
-
-    return labels;
-  }, [chartData, trendType, timeRange]);
-
-  // 跳转到记账页面补充记录
-  const goToRecordForAttribution = (year: number, month?: number) => {
-    if (month !== undefined) {
-      onPageChange('record', { year, month, mode: 'monthly', openAttributionEdit: true });
-    } else {
-      onPageChange('record', { year, mode: 'yearly', openAttributionEdit: true });
-    }
-  };
-
-  // 获取选中数据的账户快照 - 显示所有账户（不限于当月有记录的账户）
-  const getSelectedSnapshots = (): AccountSnapshot[] => {
-    if (!selectedData || !('month' in selectedData)) return [];
-    
-    const accounts = getAllAccounts().filter(a => !a.isHidden);
-    const year = selectedData.year;
-    const month = selectedData.month;
-    
-    // 计算上一个月
-    let lastYear = year;
-    let lastMonth = month - 1;
-    if (lastMonth === 0) {
-      lastYear--;
-      lastMonth = 12;
-    }
-    
-    return accounts.map(account => {
-      const balance = getAccountBalanceForMonth(account.id, year, month);
-      const lastBalance = getAccountBalanceForMonth(account.id, lastYear, lastMonth);
-      return {
-        accountId: account.id,
-        accountName: account.name,
-        accountIcon: account.icon,
-        accountType: account.type,
-        balance,
-        change: balance - lastBalance,
-      };
-    });
-  };
-
-  // Bug 1 & Bug 2 修复：获取异常点说明 - 修正低谷识别逻辑
-  // 问题1修复：确保只识别全局最高和全局最低点
-  // 问题2修复：统一格式，确保低谷也显示完整金额
-  // 问题4修复：支持年度趋势显示高低点金额
+  // 获取高低点图例信息
   const getAbnormalLegend = () => {
-    // Bug 2修复：只遍历有效数据点，排除isFiltered的节点
-    const validData = filteredHistory.filter(h => !h.isFiltered);
-
-    // Bug 2修复：兜底逻辑 - 若所有节点数据为空或只有1个，隐藏标注
+    const validData = filteredHistory.filter((h: any) => !h.isFiltered);
     if (validData.length <= 1) return null;
 
-    // Bug 2修复：重新计算有效节点的净资产值，精准识别实际最低值
-    const maxPoint = validData.reduce((max, p) => p.netWorth > max.netWorth ? p : max, validData[0]);
-    const minPoint = validData.reduce((min, p) => p.netWorth < min.netWorth ? p : min, validData[0]);
+    const maxPoint = validData.reduce((max: any, p: any) => p.netWorth > max.netWorth ? p : max, validData[0]);
+    const minPoint = validData.reduce((min: any, p: any) => p.netWorth < min.netWorth ? p : min, validData[0]);
 
-    // Bug 1修复：检查是否需要显示年份（同年度数据可简化）
-    const allYears = new Set(validData.map(p => p.year));
+    const allYears = new Set(validData.map((p: any) => p.year));
     const showYearInLabel = allYears.size > 1;
 
-    // 判断是否为年度趋势
-    const isYearlyTrend = 'netWorth' in validData[0] && !('month' in validData[0]);
+    const isYearlyTrend = 'netWorth' in validData[0] && !('month' in validData[0]) && !('quarter' in validData[0]);
+    const isQuarterly = 'quarter' in maxPoint;
 
-    // Bug 1修复：返回包含完整年月信息的高低谷数据
-    // 问题2修复：统一格式 - 最高点: {年份}年{月份}月 ¥{金额}
-    // 问题4修复：年度趋势只显示年份，不显示月份
-    const maxPointInfo: LowPointInfo & { showYear: boolean } = {
-      year: maxPoint.year,
-      month: ('month' in maxPoint) ? (maxPoint as TrendPoint).month : (isYearlyTrend ? 0 : 1),
-      netWorth: maxPoint.netWorth,
-      showYear: showYearInLabel || isYearlyTrend
-    };
+    const maxLabel = isQuarterly 
+      ? `第${maxPoint.quarter}季度` 
+      : ('month' in maxPoint ? `${maxPoint.month}月` : (isYearlyTrend ? '' : '1月'));
+    const minLabel = isQuarterly 
+      ? `第${minPoint.quarter}季度` 
+      : ('month' in minPoint ? `${minPoint.month}月` : (isYearlyTrend ? '' : '1月'));
 
-    const minPointInfo: LowPointInfo & { showYear: boolean } = {
-      year: minPoint.year,
-      month: ('month' in minPoint) ? (minPoint as TrendPoint).month : (isYearlyTrend ? 0 : 1),
-      netWorth: minPoint.netWorth,
-      showYear: showYearInLabel || isYearlyTrend
-    };
     return {
-      maxPoint: maxPointInfo,
-      minPoint: minPointInfo,
+      maxPoint: { year: maxPoint.year, label: maxLabel, netWorth: maxPoint.netWorth, showYear: showYearInLabel || isYearlyTrend || isQuarterly },
+      minPoint: { year: minPoint.year, label: minLabel, netWorth: minPoint.netWorth, showYear: showYearInLabel || isYearlyTrend || isQuarterly },
       hasBoth: maxPoint !== minPoint,
-      // Bug 3修复：统一使用主题色
       themeColor: themeConfig.primary,
-      // 问题1修复：最低谷使用淡红色
       lowPointColor: LOW_POINT_COLOR,
-      // 问题4修复：标记是否为年度趋势
-      isYearly: isYearlyTrend
     };
   };
 
@@ -938,7 +654,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           ))}
         </div>
 
-        {filteredHistory.filter(h => !h.isFiltered).length === 0 ? (
+        {filteredHistory.filter((h: any) => !h.isFiltered).length === 0 ? (
           <Card className="bg-white">
             <CardContent className="p-8 text-center">
               <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
@@ -958,309 +674,191 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               <p className="text-sm text-gray-400 mt-1">请至少记录两个月的余额数据</p>
             </CardContent>
           </Card>
-        ) : (
+          ) : (
           <>
-            {/* 折线图 - 视觉优化版 */}
+            {/* 折线图 - Recharts 版 */}
             <Card className="bg-white shadow-sm">
               <CardContent className="p-4">
-                <div className="relative h-64 w-full" ref={chartRef}>
-                  {/* Y轴标签 */}
-                  <div className="absolute left-0 top-2 bottom-12 w-12 flex flex-col justify-between text-xs text-gray-400 text-right pr-2">
-                    {yAxisConfig.ticks.map((tick, index) => (
-                      <span key={index}>{tick.label}</span>
-                    ))}
-                  </div>
-
-                  {/* 图表区域 */}
-                  <div className="absolute left-12 right-2 top-2 bottom-12">
-                    {/* 网格线背景 */}
-                    <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-                      {yAxisConfig.ticks.map((_, index) => (
-                        <div key={index} className="w-full h-px bg-gray-100" />
-                      ))}
-                    </div>
-
-                    {/* 年份分割线（仅月度趋势） */}
-                    {trendType === 'monthly' && chartData?.yearBoundaries.map((boundary, index) => (
-                      index > 0 && (
-                        <div
-                          key={boundary.year}
-                          className="absolute top-0 bottom-0 w-px bg-gray-200 border-l border-dashed border-gray-300 pointer-events-none"
-                          style={{ left: `${boundary.x}%` }}
-                        >
-                          <span className="absolute -top-1 left-1 text-[10px] text-gray-400 font-medium">
-                            {boundary.year}
-                          </span>
-                        </div>
-                      )
-                    ))}
-
-                    <svg
-                      viewBox="0 0 100 100"
-                      preserveAspectRatio="xMidYMid meet"
-                      className="w-full h-full relative z-10"
-                      onMouseLeave={() => setHoveredPoint(null)}
-                    >
-                      {/* 渐变定义 */}
-                      <defs>
-                        <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={themeConfig.primary} stopOpacity="0.25" />
-                          <stop offset="60%" stopColor={themeConfig.primary} stopOpacity="0.05" />
-                          <stop offset="100%" stopColor={themeConfig.primary} stopOpacity="0" />
-                        </linearGradient>
-                        <linearGradient id="lineGradient" x1="0" y1="0" x2="100" y2="0">
-                          <stop offset="0%" stopColor={themeConfig.primary} />
-                          <stop offset="100%" stopColor={themeConfig.primary} />
-                        </linearGradient>
-
-                        {/* 脉冲动画定义 - 精致的小点扩散效果 */}
-                        <style>{`
-                          @keyframes pulse-dot {
-                            0% { transform: scale(1); opacity: 1; }
-                            50% { transform: scale(1.5); opacity: 0.6; }
-                            100% { transform: scale(1); opacity: 1; }
+                {/* 图表区域 */}
+                {rechartsData.length > 0 ? (
+                  <div className="relative h-48" ref={chartRef}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart 
+                        data={rechartsData}
+                        margin={{ top: 25, right: 10, left: 0, bottom: 0 }}
+                        onClick={(data) => {
+                          if (data && data.activePayload && data.activePayload[0] && data.activePayload[0].payload) {
+                            const payload = data.activePayload[0].payload;
+                            if (useQuarterlyView && payload._originalMonths && payload._originalMonths.length > 0) {
+                              setExpandedAggregate({
+                                label: payload.label,
+                                fullLabel: payload.fullLabel,
+                                months: payload._originalMonths,
+                              });
+                            } else if (payload.data) {
+                              setSelectedData(payload.data);
+                            }
                           }
-                          .pulse-dot {
-                            animation: pulse-dot 2s ease-in-out infinite;
-                            transform-origin: center;
-                            transform-box: fill-box;
-                          }
-                        `}</style>
-                      </defs>
-
-                      {/* 填充区域 - 面积图效果 */}
-                      {chartData?.fillD && (
-                        <path d={chartData.fillD} fill="url(#areaGradient)" />
-                      )}
-
-                      {/* 折线 - 2px粗细，圆角端点 */}
-                      {chartData?.pathD && (
-                        <path
-                          d={chartData.pathD}
-                          fill="none"
-                          stroke="url(#lineGradient)"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="drop-shadow-sm"
+                        }}
+                      >
+                        <defs>
+                          <linearGradient id="netWorthGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={themeConfig.primary} stopOpacity={0.3} />
+                            <stop offset="95%" stopColor={themeConfig.primary} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                        <XAxis 
+                          dataKey="label" 
+                          tick={{ fontSize: 10 }}
+                          axisLine={false}
+                          tickLine={false}
+                          allowDataOverflow={true}
+                          interval={rechartsData.length > 16 ? 2 : rechartsData.length > 8 ? 1 : 0}
+                          tickFormatter={(value, index) => {
+                            if (trendType === 'yearly') return value;
+                            if (useQuarterlyView) {
+                              const item = rechartsData[index];
+                              if (item && (item as any).quarter === 1) return `${(item as any).year}年`;
+                              return value;
+                            }
+                            const item = rechartsData[index];
+                            if (item && item.month === 1) return `${item.year}`;
+                            return value.split('-')[1] + '月';
+                          }}
                         />
-                      )}
-
-                      {/* 数据点 - 默认不显示，悬停/选中时显示 */}
-                      {chartData?.points.map((point, index) => {
-                        const nodeStyle = getNodeStyle(point.data.changePercent, point.data.isFiltered || false);
-                        const isValidPoint = !point.data.isFiltered;
-                        const isSelected = selectedData === point.data;
-                        const isHovered = hoveredPoint?.index === index;
-                        const extreme = isExtremePoint(point.data);
-                        const isExtreme = extreme.isMax || extreme.isMin;
-
-                        // 只有悬停、选中或极端点才显示圆点
-                        const shouldShowDot = isValidPoint && (isHovered || isSelected || isExtreme);
-
-                        return (
-                          <g key={index}>
-                            {/* 悬停热区（更大，便于触摸） */}
-                            <circle
-                              cx={point.x}
-                              cy={point.y}
-                              r="8"
-                              fill="transparent"
-                              className="cursor-pointer"
-                              onMouseEnter={() => setHoveredPoint(point)}
-                              onClick={() => setSelectedData(point.data)}
-                            />
-
-                            {/* 可见的数据点 - 默认隐藏，交互时显示 */}
-                            {isValidPoint ? (
-                              <>
-                                {/* 普通/警告节点：悬停/选中时显示小圆点 */}
-                                {shouldShowDot && nodeStyle.size > 0 && !isExtreme && (
-                                  <>
-                                    {/* 白边背景 */}
-                                    <circle
-                                      cx={point.x}
-                                      cy={point.y}
-                                      r={nodeStyle.size + nodeStyle.strokeWidth + 1}
-                                      fill="#ffffff"
-                                      className="transition-all duration-200"
-                                    />
-
-                                    {/* 节点本体 */}
-                                    <circle
-                                      cx={point.x}
-                                      cy={point.y}
-                                      r={nodeStyle.size}
-                                      fill={nodeStyle.color}
-                                      className={`cursor-pointer transition-all duration-200 ${nodeStyle.pulse ? 'pulse-dot' : ''}`}
-                                      onMouseEnter={() => setHoveredPoint(point)}
-                                      onClick={() => setSelectedData(point.data)}
-                                    />
-                                  </>
+                        <YAxis 
+                          tick={{ fontSize: 10 }}
+                          axisLine={false}
+                          tickLine={false}
+                          tickFormatter={(v) => {
+                            if (Math.abs(v) >= 10000) return (v / 10000).toFixed(1) + 'w';
+                            return v.toString();
+                          }}
+                          width={40}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => [`¥${formatBalance(value)}`, '净资产']}
+                          labelFormatter={(label, payload) => {
+                            if (payload && payload[0] && payload[0].payload) {
+                              return payload[0].payload.fullLabel || label;
+                            }
+                            return label;
+                          }}
+                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                          content={({ active, payload }) => {
+                            if (!active || !payload || !payload[0]) return null;
+                            const data = payload[0].payload;
+                            const isQuarterly = data._originalMonths && data._originalMonths.length > 0;
+                            return (
+                              <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
+                                <div className="font-medium text-gray-900 mb-1">{data.fullLabel}</div>
+                                <div className="text-gray-500">
+                                  净资产: <span className="text-gray-900 font-semibold">¥{formatBalance(data.netWorth)}</span>
+                                </div>
+                                {isQuarterly && data._originalMonths.length > 0 && (
+                                  <div className="pt-2 border-t border-gray-100 mt-2">
+                                    <div className="text-gray-500 mb-1.5">🔍 本季度月度余额明细：</div>
+                                    {data._originalMonths.map((m: any, idx: number) => (
+                                      <div key={idx} className="flex justify-between py-0.5 text-gray-600">
+                                        <span>{m.year}年{m.month.toString().padStart(2, '0')}月</span>
+                                        <span className="font-medium">¥{formatBalance(m.netWorth)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 )}
-
-                                {/* 问题1修复：最高/最低净资产特殊强调 - 区分颜色 */}
-                                {isExtreme && (
-                                  <>
-                                    {/* 问题1修复：最低谷使用淡红色，最高使用主题色 */}
-                                    {extreme.isMin ? (
-                                      <>
-                                        {/* 外圈强调效果 - 淡红色 */}
-                                        <circle
-                                          cx={point.x}
-                                          cy={point.y}
-                                          r={5}
-                                          fill="none"
-                                          stroke={LOW_POINT_COLOR}
-                                          strokeWidth="1.5"
-                                          opacity="0.6"
-                                        />
-                                        {/* 核心圆点 - 淡红色 */}
-                                        <circle
-                                          cx={point.x}
-                                          cy={point.y}
-                                          r={3}
-                                          fill={LOW_POINT_COLOR}
-                                          className="pulse-dot"
-                                          onMouseEnter={() => setHoveredPoint(point)}
-                                          onClick={() => setSelectedData(point.data)}
-                                        />
-                                      </>
-                                    ) : (
-                                      <>
-                                        {/* 外圈强调效果 - 主题色 */}
-                                        <circle
-                                          cx={point.x}
-                                          cy={point.y}
-                                          r={5}
-                                          fill="none"
-                                          stroke={themeConfig.primary}
-                                          strokeWidth="1.5"
-                                          opacity="0.6"
-                                        />
-                                        {/* 核心圆点 - 主题色 */}
-                                        <circle
-                                          cx={point.x}
-                                          cy={point.y}
-                                          r={3}
-                                          fill={themeConfig.primary}
-                                          className="pulse-dot"
-                                          onMouseEnter={() => setHoveredPoint(point)}
-                                          onClick={() => setSelectedData(point.data)}
-                                        />
-                                      </>
-                                    )}
-                                  </>
+                                {!isQuarterly && data.data.attribution && data.data.attribution.tags && data.data.attribution.tags.length > 0 && (
+                                  <div className="text-gray-400 mt-1 flex gap-1">
+                                    {data.data.attribution.tags.slice(0, 2).map((tag: string, i: number) => (
+                                      <span key={i}>{getAttributionTagEmoji(tag as any)}{getAttributionTagLabel(tag as any)}</span>
+                                    ))}
+                                  </div>
                                 )}
-
-                                {/* 选中状态：虚线环 */}
-                                {isSelected && !isExtreme && (
-                                  <circle
-                                    cx={point.x}
-                                    cy={point.y}
-                                    r={nodeStyle.size + 4}
-                                    fill="none"
-                                    stroke={themeConfig.primary}
-                                    strokeWidth="0.8"
-                                    strokeDasharray="2,1.5"
-                                    opacity="0.7"
-                                  />
-                                )}
-                              </>
-                            ) : (
-                              /* 过滤掉的点：不显示 */
-                              null
+                              </div>
+                            );
+                          }}
+                          cursor={{ stroke: themeConfig.primary, strokeWidth: 1, strokeDasharray: '4 4' }}
+                        />
+                        {/* 年度分割线 */}
+                        {rechartsData.map((item: any, index: number) => {
+                          if (index > 0 && item.month === 1 && trendType === 'monthly') {
+                            return (
+                              <ReferenceLine
+                                key={`boundary-${index}`}
+                                x={item.label}
+                                stroke="#9ca3af"
+                                strokeWidth={1}
+                                ifOverflow="extendDomain"
+                              />
+                            );
+                          }
+                          return null;
+                        })}
+                        {/* 极值点标记 - 使用自定义动画组件 */}
+                        {extremePointsInfo.maxData && rechartsData.length > 0 && (
+                          <ReferenceDot
+                            x={extremePointsInfo.maxData.label}
+                            y={extremePointsInfo.maxData.netWorth}
+                            shape={(props: any) => (
+                              <AnimatedPulseDot
+                                cx={props.cx}
+                                cy={props.cy}
+                                r={8}
+                                fill={themeConfig.primary}
+                                stroke={themeConfig.primary}
+                                strokeWidth={1}
+                                isMin={false}
+                              />
                             )}
-                          </g>
-                        );
-                      })}
-
-                      {/* 悬停指示线 */}
-                      {hoveredPoint && (
-                        <line
-                          x1={hoveredPoint.x}
-                          y1="0"
-                          x2={hoveredPoint.x}
-                          y2="100"
+                          />
+                        )}
+                        {extremePointsInfo.minData && extremePointsInfo.maxData !== extremePointsInfo.minData && rechartsData.length > 0 && (
+                          <ReferenceDot
+                            x={extremePointsInfo.minData.label}
+                            y={extremePointsInfo.minData.netWorth}
+                            shape={(props: any) => (
+                              <AnimatedPulseDot
+                                cx={props.cx}
+                                cy={props.cy}
+                                r={8}
+                                fill={LOW_POINT_COLOR}
+                                stroke={LOW_POINT_COLOR}
+                                strokeWidth={1}
+                                isMin={true}
+                              />
+                            )}
+                          />
+                        )}
+                        <Area
+                          type="monotone"
+                          dataKey="netWorth"
                           stroke={themeConfig.primary}
-                          strokeWidth="0.5"
-                          strokeDasharray="3,3"
-                          opacity="0.4"
+                          fill="url(#netWorthGradient)"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 6, fill: themeConfig.primary, stroke: '#fff', strokeWidth: 2 }}
+                          style={{ cursor: 'pointer' }}
                         />
-                      )}
-                    </svg>
-
-                    {/* 悬停提示 - 优化样式，显示完整日期，支持聚合节点 */}
-                    {hoveredPoint && (
-                      <div
-                        className="absolute bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl pointer-events-none z-20 whitespace-nowrap"
-                        style={{
-                          left: `${Math.min(Math.max(hoveredPoint.x, 15), 85)}%`,
-                          top: `${Math.max(hoveredPoint.y - 15, 8)}%`,
-                          transform: 'translate(-50%, -100%)',
-                        }}
-                      >
-                        <div className="font-medium mb-1">
-                          {trendType === 'yearly'
-                            ? `${hoveredPoint.data.year}年`
-                            : `${hoveredPoint.data.year}年${'month' in hoveredPoint.data ? hoveredPoint.data.month.toString().padStart(2, '0') : '01'}月`
-                          }
-                        </div>
-                        <div className="text-gray-300 text-sm">
-                          净资产: <span className="text-white font-semibold">{formatBalance(hoveredPoint.data.netWorth)}</span>
-                        </div>
-                        {hoveredPoint.data.attribution && hoveredPoint.data.attribution.tags.length > 0 && (
-                          <div className="text-gray-400 mt-1.5 text-[10px] flex gap-1">
-                            {hoveredPoint.data.attribution.tags.slice(0, 2).map((tag, i) => (
-                              <span key={i}>{getAttributionTagEmoji(tag as any)}{getAttributionTagLabel(tag as any)}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
-
-                  {/* X轴标签 - 年份感知优化 */}
-                  <div className="absolute left-12 right-2 bottom-0 h-10 flex items-end text-xs text-gray-400">
-                    {xAxisLabels.map((label, index) => (
-                      <span
-                        key={index}
-                        className={`absolute whitespace-nowrap ${label.isYear ? 'font-semibold text-gray-600' : ''} ${label.isAggregated ? 'cursor-pointer hover:text-blue-500 transition-colors' : ''}`}
-                        style={{
-                          left: `${label.x}%`,
-                          transform: 'translateX(-50%)',
-                        }}
-                        onClick={() => {
-                          // 问题3修复：点击聚合节点时展开详情
-                          if (label.isAggregated && label.aggregatedMonths) {
-                            setExpandedAggregate({
-                              label: label.aggregatedLabel || label.label,
-                              months: label.aggregatedMonths
-                            });
-                          }
-                        }}
-                      >
-                        {label.isBoundary ? (
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] inline-block ${label.isAggregated ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100'}`}>
-                            {label.label}
-                          </span>
-                        ) : (
-                          label.label
-                        )}
-                      </span>
-                    ))}
+                ) : (
+                  <div className="h-48 flex items-center justify-center text-gray-400">
+                    暂无数据
                   </div>
-                </div>
+                )}
 
-                {/* 图例说明 - 问题1 & 问题2修复：高低谷颜色区分 + 左右排版 + 金额格式化 */}
+                <p className="text-center text-xs text-gray-400 mt-3 whitespace-nowrap">
+                  点击节点查看详情，悬停查看预览
+                </p>
+
+                {/* 图例说明 - 高低点标注 */}
                 {abnormalLegend && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <div className="flex items-center justify-center gap-4 sm:gap-6">
-                      {/* 最高点 - 左侧 */}
                       {abnormalLegend.maxPoint && (
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-1.5">
-                            {/* 问题1修复：最高点使用主题色，带描边 */}
                             <span
                               className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm"
                               style={{ backgroundColor: abnormalLegend.themeColor }}
@@ -1268,18 +866,16 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             <span className="text-xs font-medium text-gray-600">最高点</span>
                           </div>
                           <span className="text-xs text-gray-500 whitespace-nowrap">
-                            {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{(abnormalLegend as any).isYearly ? '' : `${abnormalLegend.maxPoint.month}月`}
+                            {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.label}
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.themeColor }}>
                             ¥{formatBalance(abnormalLegend.maxPoint.netWorth)}
                           </span>
                         </div>
                       )}
-                      {/* 最低点 - 右侧 */}
                       {abnormalLegend.hasBoth && abnormalLegend.minPoint && (
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-1.5">
-                            {/* 问题1修复：最低谷使用淡红色，带描边和脉冲动画 */}
                             <span
                               className="w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm animate-pulse"
                               style={{ backgroundColor: abnormalLegend.lowPointColor }}
@@ -1287,7 +883,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                             <span className="text-xs font-medium text-gray-600">最低点</span>
                           </div>
                           <span className="text-xs text-gray-500 whitespace-nowrap">
-                            {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{(abnormalLegend as any).isYearly ? '' : `${abnormalLegend.minPoint.month}月`}
+                            {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.label}
                           </span>
                           <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.lowPointColor }}>
                             ¥{formatBalance(abnormalLegend.minPoint.netWorth)}
@@ -1297,10 +893,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                     </div>
                   </div>
                 )}
-
-                <p className="text-center text-xs text-gray-400 mt-3 whitespace-nowrap">
-                  点击节点查看详情，悬停查看预览
-                </p>
               </CardContent>
             </Card>
 
@@ -1366,7 +958,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       {/* 详情弹窗 */}
       <Dialog open={!!selectedData} onOpenChange={() => {
         setSelectedData(null);
-        setExpandedSnapshots(false);
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1377,7 +968,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               )}
             </DialogTitle>
           </DialogHeader>
-          {selectedData && (
+          {selectedData && !('_originalMonths' in selectedData) && (
             <div className="space-y-4 py-4">
               {/* 基本信息 */}
               <div className="text-center p-4 bg-gray-50 rounded-xl">
@@ -1385,19 +976,21 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 <div className="text-3xl font-bold" style={{ color: themeConfig.primary }}>
                   {formatBalance(selectedData.netWorth)}
                 </div>
-                <div className={`text-sm font-medium mt-1 ${selectedData.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                  {selectedData.change >= 0 ? '+' : ''}{formatBalance(selectedData.change)}
-                  <span className="text-xs ml-1 text-gray-400">
-                    ({hideBalance ? '******' : `${selectedData.changePercent >= 0 ? '+' : ''}${selectedData.changePercent.toFixed(2)}%`})
-                  </span>
-                </div>
+                {'change' in selectedData && (
+                  <div className={`text-sm font-medium mt-1 ${(selectedData as any).change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    {(selectedData as any).change >= 0 ? '+' : ''}{formatBalance((selectedData as any).change)}
+                    <span className="text-xs ml-1 text-gray-400">
+                      ({hideBalance ? '******' : `${(selectedData as any).changePercent >= 0 ? '+' : ''}${(selectedData as any).changePercent.toFixed(2)}%`})
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* 归因信息 */}
-              {selectedData.attribution ? (
+              {'attribution' in selectedData && selectedData.attribution ? (
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
-                    {selectedData.attribution.tags.map(tag => (
+                    {selectedData.attribution.tags.map((tag: string) => (
                       <span key={tag} className="text-sm bg-white px-2 py-1 rounded-md shadow-sm">
                         {getAttributionTagEmoji(tag as any)} {getAttributionTagLabel(tag as any)}
                       </span>
@@ -1417,95 +1010,145 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                 </div>
               )}
 
-              {/* 账户快照 */}
-              {('month' in selectedData) && (
-                <div className="border-t border-gray-100 pt-4">
-                  <button
-                    className="flex items-center justify-between w-full text-sm font-medium text-gray-700 mb-2"
-                    onClick={() => setExpandedSnapshots(!expandedSnapshots)}
-                  >
-                    <span>账户余额快照</span>
-                    <span className={expandedSnapshots ? 'text-gray-400' : ''}>
-                      {expandedSnapshots ? '收起' : '展开'}
-                    </span>
-                  </button>
-                  {expandedSnapshots && (
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {getSelectedSnapshots().map(snapshot => (
-                        <div key={snapshot.accountId} className="flex items-center justify-between text-sm py-2 border-b border-gray-50 last:border-0">
-                          <div className="flex items-center gap-2">
-                            <Icon name={snapshot.accountIcon} size={16} />
-                            <span className="text-gray-700">{snapshot.accountName}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : 'text-gray-900'}>
-                              ¥{formatBalance(snapshot.balance)}
-                            </span>
-                            {snapshot.change !== undefined && snapshot.change !== 0 && (
-                              <div className={`text-xs ${snapshot.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                {snapshot.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(snapshot.change))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 操作按钮 */}
-              <div className="flex gap-2 pt-4 border-t border-gray-100">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    if ('month' in selectedData) {
-                      onPageChange('record-logs', { year: selectedData.year, month: selectedData.month, mode: 'monthly' });
-                    } else {
-                      onPageChange('record-logs', { year: selectedData.year, mode: 'yearly' });
-                    }
-                  }}
-                >
-                  查看完整记账
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => goToRecordForAttribution(selectedData.year, 'month' in selectedData ? selectedData.month : undefined)}
-                >
-                  <Edit3 size={14} className="mr-1" />
-                  {selectedData.attribution ? '编辑备注' : '补充记录'}
-                </Button>
-              </div>
+              
             </div>
           )}
         </DialogContent>
       </Dialog>
+      <Dialog open={!!selectedData && '_originalMonths' in selectedData} onOpenChange={() => setSelectedData(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{(selectedData as any)?.fullLabel || '季度详情'}</DialogTitle>
+          </DialogHeader>
+          {selectedData && '_originalMonths' in selectedData && (
+            <>
+              <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <div className="text-sm text-gray-500 mb-1">季度末净资产</div>
+                <div className="text-3xl font-bold" style={{ color: themeConfig.primary }}>
+                  {formatBalance(selectedData.netWorth)}
+                </div>
+              </div>
+              <div className="border-t border-gray-100 pt-4">
+                <div className="text-sm font-medium text-gray-700 mb-3">🔍 本季度月度余额明细：</div>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {(selectedData as any)._originalMonths
+                    .sort((a: any, b: any) => {
+                      if (a.year !== b.year) return a.year - b.year;
+                      return a.month - b.month;
+                    })
+                    .map((month: any, index: number) => (
+                      <div key={index} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">
+                            {month.year}年{month.month.toString().padStart(2, '0')}月
+                          </span>
+                          <span className="text-sm font-bold" style={{ color: themeConfig.primary }}>
+                            ¥{formatBalance(month.netWorth)}
+                          </span>
+                        </div>
+                        {month.change !== undefined && month.change !== 0 && (
+                          <div className={`text-xs mb-2 ${month.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            {month.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(month.change))}
+                          </div>
+                        )}
+                        {month.attribution && month.attribution.tags && month.attribution.tags.length > 0 && (
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            {month.attribution.tags.slice(0, 2).map((tag: string, i: number) => (
+                              <span key={i} className="text-xs bg-white px-2 py-1 rounded-md shadow-sm">
+                                {getAttributionTagEmoji(tag as any)} {getAttributionTagLabel(tag as any)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <button
+                          className="text-xs text-blue-500 hover:text-blue-600"
+                          onClick={() => {
+                            onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
+                            setSelectedData(null);
+                          }}
+                        >
+                          [查看详情]
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-4 border-t border-gray-100">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSelectedData(null)}
+                >
+                  关闭
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
-      {/* 问题3修复：聚合节点展开弹窗 */}
+      {/* 季度聚合节点展开弹窗 */}
       <Dialog open={!!expandedAggregate} onOpenChange={() => setExpandedAggregate(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{expandedAggregate?.label}</DialogTitle>
+            <DialogTitle>{expandedAggregate?.fullLabel}</DialogTitle>
           </DialogHeader>
           {expandedAggregate && (
-            <div className="space-y-2 py-2 max-h-64 overflow-y-auto">
-              {expandedAggregate.months
-                .sort((a, b) => {
-                  if (a.year !== b.year) return a.year - b.year;
-                  return a.month - b.month;
-                })
-                .map((month, index) => (
-                  <div key={index} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                    <span className="text-sm text-gray-600">
-                      {month.year}年{month.month.toString().padStart(2, '0')}月
-                    </span>
-                    <span className="text-sm font-medium" style={{ color: themeConfig.primary }}>
-                      ¥{formatBalance(month.netWorth)}
-                    </span>
-                  </div>
-                ))}
+            <div className="space-y-4">
+              {/* 季度末净资产 */}
+              <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <div className="text-sm text-gray-500 mb-1">季度末净资产</div>
+                <div className="text-2xl font-bold" style={{ color: themeConfig.primary }}>
+                  ¥{formatBalance(expandedAggregate.months[expandedAggregate.months.length - 1]?.netWorth || 0)}
+                </div>
+              </div>
+
+              {/* 月度明细列表 */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="text-sm font-medium text-gray-700 mb-3">🔍 本季度月度余额明细：</div>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {expandedAggregate.months
+                    .sort((a, b) => {
+                      if (a.year !== b.year) return a.year - b.year;
+                      return a.month - b.month;
+                    })
+                    .map((month, index) => (
+                      <div key={index} className="bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">
+                            {month.year}年{month.month.toString().padStart(2, '0')}月
+                          </span>
+                          <span className="text-sm font-bold" style={{ color: themeConfig.primary }}>
+                            ¥{formatBalance(month.netWorth)}
+                          </span>
+                        </div>
+                        {month.change !== undefined && month.change !== 0 && (
+                          <div className={`text-xs mb-2 ${month.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            {month.change >= 0 ? '↑+' : '↓'}{formatBalance(Math.abs(month.change))}
+                          </div>
+                        )}
+                        {month.attribution && month.attribution.tags && month.attribution.tags.length > 0 && (
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            {month.attribution.tags.slice(0, 2).map((tag, i) => (
+                              <span key={i} className="text-xs bg-white px-2 py-1 rounded-md shadow-sm">
+                                {getAttributionTagEmoji(tag as any)} {getAttributionTagLabel(tag as any)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <button
+                          className="text-xs text-blue-500 hover:text-blue-600"
+                          onClick={() => {
+                            onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
+                            setExpandedAggregate(null);
+                          }}
+                        >
+                          [查看详情]
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>

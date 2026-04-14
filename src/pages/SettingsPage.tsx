@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText } from '@/lib/storage';
+import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
@@ -31,11 +31,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [exportStartMonth, setExportStartMonth] = useState(new Date().getMonth() + 1);
   const [exportEndYear, setExportEndYear] = useState(new Date().getFullYear());
   const [exportEndMonth, setExportEndMonth] = useState(new Date().getMonth() + 1);
+  const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('json');
 
   // 导入设置
   const [importTargetYear, setImportTargetYear] = useState(new Date().getFullYear());
   const [importTargetMonth, setImportTargetMonth] = useState(new Date().getMonth() + 1);
-  const [importMergeMode, setImportMergeMode] = useState<'overwrite' | 'merge'>('merge');
+  const [importJsonMergeMode, setImportJsonMergeMode] = useState<'overwrite' | 'merge'>('merge');
+  const [importExcelMergeMode, setImportExcelMergeMode] = useState<'overwrite' | 'merge'>('merge');
 
   const currentYear = new Date().getFullYear();
   const yearRange = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
@@ -64,14 +66,19 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   };
 
   const handleExport = async () => {
-    const data = exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
-    const fileName = `记账数据_${exportStartYear}${exportStartMonth.toString().padStart(2, '0')}-${exportEndYear}${exportEndMonth.toString().padStart(2, '0')}.json`;
+    const isCSV = exportFormat === 'csv';
+    const data = isCSV 
+      ? exportToCSV(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth)
+      : exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
+    const ext = isCSV ? 'csv' : 'json';
+    const mimeType = isCSV ? 'text/csv;charset=utf-8' : 'application/json';
+    const fileName = `记账数据_${exportStartYear}${exportStartMonth.toString().padStart(2, '0')}-${exportEndYear}${exportEndMonth.toString().padStart(2, '0')}.${ext}`;
     
     // 尝试使用 Web Share API（在 Android Chrome 中可用）
     if (navigator.share && navigator.canShare && isCapacitorAndroid()) {
       try {
-        const blob = new Blob([data], { type: 'application/json' });
-        const file = new File([blob], fileName, { type: 'application/json' });
+        const blob = new Blob([data], { type: mimeType });
+        const file = new File([blob], fileName, { type: mimeType });
         
         if (navigator.canShare({ files: [file] })) {
           await navigator.share({
@@ -89,7 +96,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     }
     
     // 标准浏览器下载方式
-    const blob = new Blob([data], { type: 'application/json' });
+    const blob = new Blob([data], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -133,7 +140,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const content = e.target?.result as string;
-        if (importData(content, importTargetYear, importTargetMonth, importMergeMode)) {
+        if (importData(content, importTargetYear, importTargetMonth, importJsonMergeMode)) {
           setShowImportDialog(false);
           alert('数据导入成功');
           window.location.reload();
@@ -191,7 +198,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       setExcelError('请先选择 Excel 文件');
       return;
     }
-    const result = batchImportFromExcel(excelData);
+    const result = batchImportFromExcel(excelData, importExcelMergeMode);
     alert(result.message);
     if (result.success) {
       setShowImportDialog(false);
@@ -354,7 +361,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                   </div>
                   <div>
                     <div className="font-medium text-sm">应用版本</div>
-                    <div className="text-xs text-gray-400">当前版本 2.4.0</div>
+                    <div className="text-xs text-gray-400">当前版本 1.0.2</div>
                   </div>
                 </div>
               </div>
@@ -457,6 +464,29 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                 </select>
               </div>
             </div>
+            <div>
+              <div className="text-sm text-gray-500 mb-2">导出格式</div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setExportFormat('json')}
+                  className={`flex-1 p-2 rounded-lg border text-sm ${
+                    exportFormat === 'json' ? 'border-2' : 'border-gray-200'
+                  }`}
+                  style={{ borderColor: exportFormat === 'json' ? themeConfig.primary : undefined }}
+                >
+                  JSON
+                </button>
+                <button
+                  onClick={() => setExportFormat('csv')}
+                  className={`flex-1 p-2 rounded-lg border text-sm ${
+                    exportFormat === 'csv' ? 'border-2' : 'border-gray-200'
+                  }`}
+                  style={{ borderColor: exportFormat === 'csv' ? themeConfig.primary : undefined }}
+                >
+                  CSV 表格
+                </button>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowExportDialog(false)}>
@@ -490,7 +520,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               onClick={() => setImportMode('json')}
             >
               <FileJson size={16} className="mr-1" />
-              JSON 恢复
+              JSON 导入
             </Button>
             <Button
               variant={importMode === 'excel' ? 'default' : 'outline'}
@@ -500,7 +530,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               onClick={() => setImportMode('excel')}
             >
               <FileSpreadsheet size={16} className="mr-1" />
-              月度余额导入
+              CSV 表格导入
             </Button>
           </div>
 
@@ -536,20 +566,20 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                   <div className="text-sm text-gray-500 mb-2">导入方式</div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setImportMergeMode('merge')}
+                      onClick={() => setImportJsonMergeMode('merge')}
                       className={`flex-1 p-2 rounded-lg border text-sm ${
-                        importMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                        importJsonMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
                       }`}
-                      style={{ borderColor: importMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                      style={{ borderColor: importJsonMergeMode === 'merge' ? themeConfig.primary : undefined }}
                     >
                       合并记录
                     </button>
                     <button
-                      onClick={() => setImportMergeMode('overwrite')}
+                      onClick={() => setImportJsonMergeMode('overwrite')}
                       className={`flex-1 p-2 rounded-lg border text-sm ${
-                        importMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                        importJsonMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
                       }`}
-                      style={{ borderColor: importMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                      style={{ borderColor: importJsonMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
                     >
                       覆盖记录
                     </button>
@@ -617,6 +647,33 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                   </div>
                 )}
 
+                {/* 导入方式选择 */}
+                {excelData.length > 0 && (
+                  <div>
+                    <div className="text-sm text-gray-500 mb-2">导入方式</div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setImportExcelMergeMode('merge')}
+                        className={`flex-1 p-2 rounded-lg border text-sm ${
+                          importExcelMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                        }`}
+                        style={{ borderColor: importExcelMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                      >
+                        合并记录
+                      </button>
+                      <button
+                        onClick={() => setImportExcelMergeMode('overwrite')}
+                        className={`flex-1 p-2 rounded-lg border text-sm ${
+                          importExcelMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                        }`}
+                        style={{ borderColor: importExcelMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                      >
+                        覆盖记录
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* 错误提示 */}
                 {(excelError || importError) && (
                   <div className="text-red-500 text-sm">{excelError || importError}</div>
@@ -667,18 +724,19 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           <div className="space-y-5 py-4 text-sm">
             {/* 核心功能 */}
             <div className="bg-blue-50 p-3 rounded-lg">
-              <h3 className="font-medium mb-2 text-blue-700">🎯 核心功能</h3>
+              <h3 className="font-medium mb-2 text-blue-700">核心功能</h3>
               <ul className="text-gray-600 space-y-1 list-disc list-inside">
                 <li><b>资产管理</b>：统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户</li>
                 <li><b>月度记账</b>：按月录入账户余额，实时追踪个人净资产变化</li>
-                <li><b>年度汇总</b>：查看年度资产数据，清晰掌握整体财务趋势</li>
+                <li><b>资产趋势</b>：可视化展示净资产变化趋势，支持月度/年度视图</li>
+                <li><b>月度归因</b>：记录每月资产变动原因（工资、奖金、投资等）</li>
                 <li><b>记账日志</b>：自动记录每一次余额修改，操作全程可追溯</li>
               </ul>
             </div>
 
             {/* 账户类型说明 */}
             <div>
-              <h3 className="font-medium mb-2">💳 账户类型说明</h3>
+              <h3 className="font-medium mb-2">账户类型说明</h3>
               <div className="text-gray-600 space-y-1">
                 <p><b>资产类</b>（现金、储蓄卡、网络支付、投资）：余额直接计入总资产</p>
                 <p><b>负债类</b>（信用卡、借入）：余额为欠款金额，计入负资产</p>
@@ -688,28 +746,44 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
             {/* 记账流程 */}
             <div>
-              <h3 className="font-medium mb-2">📝 记账流程</h3>
+              <h3 className="font-medium mb-2">记账流程</h3>
               <ol className="text-gray-600 space-y-1 list-decimal list-inside">
                 <li>在「账户管理」中添加你的账户</li>
                 <li>进入「月度记账」，选择对应月份，录入各账户余额</li>
                 <li>支持「复制上月余额」快速录入，也可单独修改单个账户</li>
+                <li>资产发生较大变化时，可添加月度归因说明</li>
                 <li>修改后自动保存，历史记录可在「记账记录」中查看</li>
               </ol>
             </div>
 
+            {/* 资产趋势说明 */}
+            <div>
+              <h3 className="font-medium mb-2">资产趋势</h3>
+              <div className="text-gray-600 space-y-1">
+                <p>进入「资产趋势」页面，可查看：</p>
+                <ul className="list-disc list-inside ml-2">
+                  <li>净资产变化折线图，直观展示财务状况</li>
+                  <li>支持筛选标签，快速定位特定变动月份</li>
+                  <li>点击数据点查看当月账户快照</li>
+                  <li>支持月度趋势和年度趋势两种视图</li>
+                </ul>
+              </div>
+            </div>
+
             {/* 数据导入与导出 */}
             <div>
-              <h3 className="font-medium mb-2">💾 数据导入与导出</h3>
+              <h3 className="font-medium mb-2">数据导入与导出</h3>
               <div className="text-gray-600 space-y-1">
-                <p><b>导出数据</b>：选择时间范围，将数据备份为 JSON 文件</p>
-                <p><b>导入数据</b>：选择备份文件，支持合并或覆盖现有数据</p>
+                <p><b>JSON 导出/导入</b>：完整备份恢复，数据可跨设备迁移</p>
+                <p><b>CSV 批量导入</b>：支持表格批量导入账户余额</p>
+                <p><b>CSV 模板字段</b>：月份、账户名称、余额、归因标签(可选)、备注(可选)</p>
                 <p><b>清空数据</b>：一键清除全部数据，操作前请务必完成备份</p>
               </div>
             </div>
 
             {/* 隐私与安全 */}
             <div className="bg-green-50 p-3 rounded-lg">
-              <h3 className="font-medium mb-1 text-green-700">🔒 隐私与安全</h3>
+              <h3 className="font-medium mb-1 text-green-700">隐私与安全</h3>
               <p className="text-gray-600">
                 本应用为纯本地运行，无需联网，所有数据仅存储在您的设备中。建议定期导出备份，避免数据意外丢失。
               </p>

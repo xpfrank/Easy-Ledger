@@ -103,3 +103,35 @@
     height: 100dvh;
   }
 }
+
+/* 极值点涟漪动画 */
+@keyframes ripple-expand {
+  0% {
+    r: 3;
+    opacity: 0.8;
+  }
+  100% {
+    r: 12;
+    opacity: 0;
+  }
+}
+
+.ripple-expand {
+  animation: ripple-expand 1.5s ease-out infinite;
+}
+
+/* 极值点脉冲动画 */
+@keyframes pulse-dot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.8;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
