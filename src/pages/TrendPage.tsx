@@ -8,7 +8,6 @@ import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAttributio
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
-import { Icon } from '@/components/Icon';
 import {
   XAxis,
   YAxis,
