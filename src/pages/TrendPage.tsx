@@ -51,7 +51,7 @@ interface YearlyNetWorth {
   change: number;
   changePercent: number;
   attribution?: {
-    tags: string[];
+    tags: AttributionTag[];
     note?: string;
     fluctuationLevel: 'normal' | 'warning' | 'abnormal';
   };
@@ -61,7 +61,7 @@ interface YearlyNetWorth {
 
 interface TrendPoint extends MonthlyNetWorth {
   attribution?: {
-    tags: string[];
+    tags: AttributionTag[];
     note?: string;
     fluctuationLevel: 'normal' | 'warning' | 'abnormal';
   };
@@ -854,8 +854,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                 )}
                                 {!isQuarterly && data.data.attribution && data.data.attribution.tags && data.data.attribution.tags.length > 0 && (
                                   <div className="text-gray-400 mt-1 flex gap-1">
-                                    {data.data.attribution.tags.slice(0, 2).map((tag: string, i: number) => (
-                                      <span key={i}>{getAttributionTagEmoji(tag as any)}{getAttributionTagLabel(tag as any)}</span>
+                                    {data.data.attribution.tags.slice(0, 2).map((tag, i: number) => (
+                                      <span key={i}>{getAttributionTagEmoji(tag)}{getAttributionTagLabel(tag)}</span>
                                     ))}
                                   </div>
                                 )}
@@ -1106,7 +1106,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {selectedData.attribution.tags.map((tag: string) => (
+                    {selectedData.attribution.tags.map((tag) => (
                       <span
                         key={tag}
                         className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
@@ -1115,8 +1115,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           color: themeConfig.primary,
                         }}
                       >
-                        {getAttributionTagEmoji(tag as AttributionTag)}
-                        {getAttributionTagLabel(tag as AttributionTag)}
+                        {getAttributionTagEmoji(tag)}
+                        {getAttributionTagLabel(tag)}
                       </span>
                     ))}
                   </div>
