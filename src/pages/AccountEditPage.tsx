@@ -8,7 +8,6 @@ import { Switch } from '@/components/ui/switch';
 import { Icon, PRESET_ICONS } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
 import { 
-  addAccount,
   addAccountToMonth,
   updateAccount, 
   deleteAccountGlobally, 

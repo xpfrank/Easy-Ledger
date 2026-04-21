@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
 import type { Account, AccountType, PageRoute, ThemeType } from '@/types';
 import {
-  getAllAccounts,
   getAccountsForMonth,
   getMonthlyRecordsByMonth,
   getAccountBalanceForMonth,
@@ -98,7 +97,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
 
     // 使用月度快照机制获取当前月份的账户列表
     const accounts = getAccountsForMonth(currentYear, currentMonth).filter(a => !a.isHidden);
-    const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
 
     // 获取保存的展开状态
     const savedExpandedGroups = getExpandedGroups();
