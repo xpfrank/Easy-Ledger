@@ -483,7 +483,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           shouldShow = point.attribution.tags.includes('investment');
           break;
         case 'expense':
-          shouldShow = point.attribution.tags.includes('large_expense') || point.attribution.tags.includes('expense');
+          shouldShow = point.attribution.tags.includes('large_expense');
           break;
         case 'abnormal':
           shouldShow = point.attribution.fluctuationLevel === 'abnormal';
@@ -854,7 +854,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                 )}
                                 {!isQuarterly && data.data.attribution && data.data.attribution.tags && data.data.attribution.tags.length > 0 && (
                                   <div className="text-gray-400 mt-1 flex gap-1">
-                                    {data.data.attribution.tags.slice(0, 2).map((tag, i: number) => (
+                                    {data.data.attribution.tags.slice(0, 2).map((tag: AttributionTag, i: number) => (
                                       <span key={i}>{getAttributionTagEmoji(tag)}{getAttributionTagLabel(tag)}</span>
                                     ))}
                                   </div>
