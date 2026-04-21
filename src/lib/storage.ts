@@ -233,8 +233,9 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         attributions: data.monthlyAttributions || [],
         yearlyAttributions: data.yearlyAttributions || [],
         settings: { ...defaultState.settings, ...data.settings },
+        monthlyAccountConfigs: data.monthlyAccountConfigs || [],
         version: CURRENT_VERSION,
-      });
+      } as AppState);
       return true;
     }
 
@@ -741,7 +742,7 @@ function normalizeMonthFormat(monthStr: string): string | null {
   return null;
 }
 
-export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' = 'merge'): { success: boolean; message: string; importedCount: number; unmatchedAccounts?: string[]; createdAccounts?: string[] } {
+export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'): { success: boolean; message: string; importedCount: number; unmatchedAccounts?: string[]; createdAccounts?: string[] } {
   if (rows.length === 0) {
     return { success: false, message: 'CSV 数据为空，请检查文件内容', importedCount: 0 };
   }
@@ -1103,7 +1104,7 @@ function parseAttributionTagFromLabel(label: string): AttributionTag | null {
 
 export function importMonthlyAttributionCSV(
   csvContent: string,
-  mergeMode: 'overwrite' | 'merge' = 'merge'
+  mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number; skippedCount: number } {
   try {
     const lines = csvContent.split('\n').filter(line => line.trim());
@@ -1193,7 +1194,7 @@ function parseYearlyAttributionTagFromLabel(label: string): YearlyAttributionTag
 
 export function importYearlyAttributionCSV(
   csvContent: string,
-  mergeMode: 'overwrite' | 'merge' = 'merge'
+  mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number; skippedCount: number } {
   try {
     const lines = csvContent.split('\n').filter(line => line.trim());
@@ -1276,7 +1277,7 @@ export function batchImportByRange(
   startMonth: number,
   endYear: number,
   endMonth: number,
-  mergeMode: 'overwrite' | 'merge' = 'merge'
+  mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number } {
   const filteredRows = rows.filter(row => {
     const [yearStr, monthStr] = row.month.split('-');

@@ -110,7 +110,7 @@ function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, 
           <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
             {hasAttribution ? (
               <>
-                {month.attribution!.tags.slice(0, 2).map((tag, i) => (
+                {month.attribution!.tags.slice(0, 2).map((tag: AttributionTag, i) => (
                   <span
                     key={i}
                     className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
