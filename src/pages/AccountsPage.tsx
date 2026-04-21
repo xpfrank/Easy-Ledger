@@ -8,7 +8,10 @@ import type { Account, PageRoute } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
 import {
   getAllAccounts,
+  getAccountsForMonth,
   deleteAccount,
+  deleteAccountFromMonth,
+  deleteAccountGlobally,
   updateAccount,
   importData,
   formatAmountNoSymbol,
@@ -65,13 +68,12 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   }, []);
 
   const loadAccounts = () => {
-    const allAccounts = getAllAccounts();
-    setAccounts(allAccounts);
-    
-    // 获取当前月份的余额（优先显示月度记录中的余额）
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
+    const allAccounts = getAccountsForMonth(currentYear, currentMonth);
+    setAccounts(allAccounts);
+    
     const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
     
     const balances: Record<string, number> = {};
@@ -117,9 +119,14 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = (deleteType: 'currentMonth' | 'global') => {
     if (accountToDelete) {
-      deleteAccount(accountToDelete.id);
+      if (deleteType === 'currentMonth') {
+        const now = new Date();
+        deleteAccountFromMonth(accountToDelete.id, now.getFullYear(), now.getMonth() + 1);
+      } else {
+        deleteAccountGlobally(accountToDelete.id);
+      }
       loadAccounts();
       setDeleteDialogOpen(false);
       setAccountToDelete(null);
@@ -412,19 +419,37 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认删除</DialogTitle>
+            <DialogTitle>删除账户</DialogTitle>
             <DialogDescription>
-              确定要删除账户 "{accountToDelete?.name}" 吗？此操作将同时删除该账户的所有历史记录，且无法恢复。
+              请选择删除方式
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              取消
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              删除
-            </Button>
-          </DialogFooter>
+          
+          <div className="space-y-3 py-2">
+            <div 
+              className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => confirmDelete('currentMonth')}
+            >
+              <div className="font-medium text-sm">仅删除本月记录</div>
+              <div className="text-xs text-gray-400 mt-1">
+                不影响其他月份，历史数据完整保留
+              </div>
+            </div>
+            
+            <div 
+              className="border border-red-200 rounded-lg p-4 cursor-pointer hover:bg-red-50 transition-colors"
+              onClick={() => confirmDelete('global')}
+            >
+              <div className="font-medium text-sm text-red-600">完全删除（含所有历史）</div>
+              <div className="text-xs text-gray-400 mt-1">
+                删除此账户的全部月份数据，不可恢复
+              </div>
+            </div>
+          </div>
+          
+          <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} className="w-full mt-2">
+            取消
+          </Button>
         </DialogContent>
       </Dialog>
 

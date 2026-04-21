@@ -6,10 +6,13 @@ import { Icon } from '@/components/Icon';
 import type { Account, AccountType, PageRoute, ThemeType } from '@/types';
 import {
   getAllAccounts,
+  getAccountsForMonth,
   getMonthlyRecordsByMonth,
+  getAccountBalanceForMonth,
   formatAmountNoSymbol,
   getExpandedGroups,
   saveExpandedGroups,
+  getSettings,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -60,8 +63,10 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
 
   // 页面显示时自动刷新数据
   useEffect(() => {
-    // 从全局 props 接收 hideBalance，不再从本地状态读取
-    setTheme(theme);
+    const settings = getSettings();
+    const validThemes: ThemeType[] = ['blue', 'green', 'orange', 'dark', 'purple'];
+    const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
+    setTheme(themeValue as ThemeType);
     loadData();
   }, [hideBalance]);
 
@@ -91,7 +96,8 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     setLoanOut(calculateLoanOut(currentYear, currentMonth));
     setDebtIn(calculateDebtIn(currentYear, currentMonth));
 
-    const accounts = getAllAccounts().filter(a => !a.isHidden);
+    // 使用月度快照机制获取当前月份的账户列表
+    const accounts = getAccountsForMonth(currentYear, currentMonth).filter(a => !a.isHidden);
     const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
 
     // 获取保存的展开状态
@@ -105,8 +111,8 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
 
         let totalBalance = 0;
         for (const account of typeAccounts) {
-          const record = records.find(r => r.accountId === account.id);
-          const balance = record ? record.balance : account.balance;
+          // 使用继承机制获取余额
+          const balance = getAccountBalanceForMonth(account.id, currentYear, currentMonth);
           totalBalance += balance;
         }
 
@@ -146,7 +152,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   };
 
   // 获取账户数量（用于显示）
-  const visibleAccountCount = getAllAccounts().filter(a => !a.isHidden).length;
+  const visibleAccountCount = getAccountsForMonth(currentYear, currentMonth).filter(a => !a.isHidden).length;
 
   const netWorthChange = netWorth - lastMonthNetWorth;
   const netWorthChangePercent = lastMonthNetWorth !== 0 
@@ -347,7 +353,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                         <div 
                           key={account.id}
                           className="flex items-center justify-between p-3 hover:bg-gray-50 cursor-pointer"
-                          onClick={() => onPageChange('account-edit', { accountId: account.id })}
+                          onClick={() => onPageChange('account-detail', { accountId: account.id })}
                         >
                           <div className="flex items-center gap-3">
                             <div 

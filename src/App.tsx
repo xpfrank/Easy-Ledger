@@ -10,7 +10,7 @@ import { RecordPage } from '@/pages/RecordPage';
 import { RecordLogsPage } from '@/pages/RecordLogsPage';
 import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
-import { getSettings, updateSettings } from '@/lib/storage';
+import { getSettings, updateSettings, migrateToMonthlyAccountConfigs } from '@/lib/storage';
 import './App.css';
 
 function App() {
@@ -23,6 +23,7 @@ function App() {
   useEffect(() => {
     const settings = getSettings();
     setHideBalanceState(settings.hideBalance);
+    migrateToMonthlyAccountConfigs();
   }, []);
 
   // 全局余额隐藏状态切换函数

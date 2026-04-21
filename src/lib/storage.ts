@@ -1,9 +1,10 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig } from '@/types';
+import { getYearlyAttributionTagLabel } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
 const RECORD_LOGS_EXPANDED_KEY = 'simple-ledger-record-logs-expanded';
-const CURRENT_VERSION = '1.3';
+const CURRENT_VERSION = '1.4';
 
 const defaultState: AppState = {
   accounts: [],
@@ -11,6 +12,7 @@ const defaultState: AppState = {
   logs: [],
   attributions: [],
   yearlyAttributions: [],
+  monthlyAccountConfigs: [],
   settings: {
     hideBalance: false,
     theme: 'blue',
@@ -83,6 +85,7 @@ export function loadData(): AppState {
         },
         attributions: parsed.attributions || [],
         yearlyAttributions: parsed.yearlyAttributions || [],
+        monthlyAccountConfigs: parsed.monthlyAccountConfigs || [],
         version: CURRENT_VERSION,
       };
     }
@@ -192,10 +195,23 @@ export function exportDataByRange(startYear: number, startMonth: number, endYear
     return logKey >= startKey && logKey <= endKey;
   });
 
+  const filteredAttributions = data.attributions.filter(a => {
+    const attrKey = a.year * 100 + a.month;
+    const startKey = startYear * 100 + startMonth;
+    const endKey = endYear * 100 + endMonth;
+    return attrKey >= startKey && attrKey <= endKey;
+  });
+
+  const filteredYearlyAttributions = data.yearlyAttributions.filter(a => {
+    return a.year >= startYear && a.year <= endYear;
+  });
+
   return JSON.stringify({
     accounts: data.accounts,
     records: filteredRecords,
     logs: filteredLogs,
+    monthlyAttributions: filteredAttributions,
+    yearlyAttributions: filteredYearlyAttributions,
     version: CURRENT_VERSION,
   }, null, 2);
 }
@@ -214,8 +230,8 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         accounts: data.accounts,
         records: data.records,
         logs: data.logs || [],
-        attributions: [],
-        yearlyAttributions: [],
+        attributions: data.monthlyAttributions || [],
+        yearlyAttributions: data.yearlyAttributions || [],
         settings: { ...defaultState.settings, ...data.settings },
         version: CURRENT_VERSION,
       });
@@ -228,6 +244,9 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       );
       currentData.logs = currentData.logs.filter(l => 
         !(l.year === targetYear && l.month === targetMonth)
+      );
+      currentData.attributions = currentData.attributions.filter(a => 
+        !(a.year === targetYear && a.month === targetMonth)
       );
     }
 
@@ -246,8 +265,17 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       timestamp: Date.now(),
     }));
 
+    const importedAttributions = (data.monthlyAttributions || []).map((a: MonthlyAttribution) => ({
+      ...a,
+      id: generateId(),
+      year: targetYear,
+      month: targetMonth,
+      timestamp: Date.now(),
+    }));
+
     currentData.records.push(...importedRecords);
     currentData.logs.push(...importedLogs);
+    currentData.attributions.push(...importedAttributions);
 
     const existingAccountIds = new Set(currentData.accounts.map(a => a.id));
     const newAccounts = data.accounts.filter((a: Account) => !existingAccountIds.has(a.id));
@@ -554,6 +582,9 @@ export function calculateMonthNetWorth(year: number, month: number): number {
     const account = data.accounts.find(a => a.id === record.accountId);
     if (!account) continue;
     
+    // 跳过不计入总余额的账户
+    if (account.includeInTotal === false) continue;
+    
     if (account.type === 'credit' || account.type === 'debt') {
       totalLiabilities += Math.abs(record.balance);
     } else {
@@ -574,6 +605,9 @@ export function calculateMonthTotalAssets(year: number, month: number): number {
     const account = data.accounts.find(a => a.id === record.accountId);
     if (!account) continue;
     
+    // 跳过不计入总余额的账户
+    if (account.includeInTotal === false) continue;
+    
     if (account.type !== 'credit' && account.type !== 'debt') {
       totalAssets += record.balance;
     }
@@ -591,6 +625,9 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
   for (const record of records) {
     const account = data.accounts.find(a => a.id === record.accountId);
     if (!account) continue;
+    
+    // 跳过不计入总余额的账户
+    if (account.includeInTotal === false) continue;
     
     if (account.type === 'credit' || account.type === 'debt') {
       totalLiabilities += Math.abs(record.balance);
@@ -848,7 +885,61 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
       }
     }
 
+    // 导入后补全快照：为该月所有应显示的账户补全记录
+    // 注意：必须在 saveData 之后执行，因为需要基于最新的 records 数据
+    let snapshotCompleted = false;
+    let snapshotImportYear = 0;
+    let snapshotImportMonth = 0;
+    
+    if (mergeMode === 'overwrite' && rows.length > 0) {
+      snapshotImportYear = parseInt(rows[0].month.split('-')[0]);
+      snapshotImportMonth = parseInt(rows[0].month.split('-')[1]);
+      snapshotCompleted = true;
+    }
+
     saveData(data);
+
+    // 补全快照逻辑（在 saveData 之后执行）
+    if (snapshotCompleted) {
+      const data2 = loadData();
+      const targetKey = snapshotImportYear * 100 + snapshotImportMonth;
+
+      // 获取该月应显示的账户（基于更新后的 records）
+      const visibleAccounts = getAccountsForMonth(snapshotImportYear, snapshotImportMonth);
+      
+      for (const account of visibleAccounts) {
+        const hasRecord = data2.records.some(
+          r => r.accountId === account.id && r.year === snapshotImportYear && r.month === snapshotImportMonth
+        );
+        
+        if (!hasRecord) {
+          // 继承上月余额
+          const previousRecords = data2.records
+            .filter(r => r.accountId === account.id)
+            .filter(r => {
+              const recordKey = r.year * 100 + r.month;
+              return recordKey < targetKey;
+            })
+            .sort((a, b) => {
+              const keyA = a.year * 100 + a.month;
+              const keyB = b.year * 100 + b.month;
+              return keyB - keyA;
+            });
+          
+          const inheritedBalance = previousRecords.length > 0 ? previousRecords[0].balance : 0;
+          
+          data2.records.push({
+            id: generateId(),
+            accountId: account.id,
+            year: snapshotImportYear,
+            month: snapshotImportMonth,
+            balance: inheritedBalance,
+          });
+        }
+      }
+      
+      saveData(data2);
+    }
 
     const createdMsg = createdAccounts.length > 0 
       ? `\n\n✅ 已自动创建 ${createdAccounts.length} 个账户：${createdAccounts.slice(0, 3).map(n => `「${n}」`).join('、')}${createdAccounts.length > 3 ? `等${createdAccounts.length}个` : ''}`
@@ -943,6 +1034,240 @@ export function exportToCSV(startYear?: number, startMonth?: number, endYear?: n
   }
 
   return BOM + rows.join('\n');
+}
+
+export function exportMonthlyAttributionCSV(startYear?: number, startMonth?: number, endYear?: number, endMonth?: number): string {
+  const data = loadData();
+  const BOM = '\uFEFF';
+  const header = '年份,月份,归因标签,变动金额,变动百分比,备注';
+
+  const filteredAttributions = data.attributions.filter(a => {
+    const attrKey = a.year * 100 + a.month;
+    const startKey = (startYear || 0) * 100 + (startMonth || 1);
+    const endKey = (endYear || 9999) * 100 + (endMonth || 12);
+    return attrKey >= startKey && attrKey <= endKey;
+  });
+
+  const sortedAttributions = filteredAttributions.sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    return a.month - b.month;
+  });
+
+  const rows: string[] = [header];
+  for (const attr of sortedAttributions) {
+    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('|');
+    const note = (attr.note || '').replace(/,/g, ';');
+    rows.push(`${attr.year},${attr.month},${tags},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${note}`);
+  }
+
+  return BOM + rows.join('\n');
+}
+
+export function exportYearlyAttributionCSV(startYear?: number, endYear?: number): string {
+  const data = loadData();
+  const BOM = '\uFEFF';
+  const header = '年份,归因标签,关键月份,变动金额,变动百分比,年末净资产,备注';
+
+  const filteredAttributions = data.yearlyAttributions.filter(a => {
+    return (!startYear || a.year >= startYear) && (!endYear || a.year <= endYear);
+  });
+
+  const sortedAttributions = filteredAttributions.sort((a, b) => a.year - b.year);
+
+  const rows: string[] = [header];
+  for (const attr of sortedAttributions) {
+    const tags = attr.tags.map(t => getYearlyAttributionTagLabel(t)).join('|');
+    const keyMonths = attr.keyMonths.join('|');
+    const note = (attr.note || '').replace(/,/g, ';');
+    rows.push(`${attr.year},${tags},${keyMonths},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${attr.netWorth.toFixed(2)},${note}`);
+  }
+
+  return BOM + rows.join('\n');
+}
+
+function parseAttributionTagFromLabel(label: string): AttributionTag | null {
+  const labelToTag: Record<string, AttributionTag> = {
+    '工资积累': 'salary',
+    '投资收益': 'investment',
+    '日常波动': 'daily',
+    '其他': 'other',
+    '工资收入': 'salary_income',
+    '奖金': 'bonus',
+    '年终奖': 'year_end_bonus',
+    '借款归还': 'loan_repayment',
+    '大额支出': 'large_expense',
+    '转账调整': 'transfer',
+  };
+  return labelToTag[label] || null;
+}
+
+export function importMonthlyAttributionCSV(
+  csvContent: string,
+  mergeMode: 'overwrite' | 'merge' = 'merge'
+): { success: boolean; message: string; importedCount: number; skippedCount: number } {
+  try {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      return { success: false, message: 'CSV文件内容为空', importedCount: 0, skippedCount: 0 };
+    }
+
+    const rows = lines.slice(1);
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of rows) {
+      const parts = row.split(',');
+      if (parts.length < 4) {
+        skippedCount++;
+        continue;
+      }
+
+      const year = parseInt(parts[0]);
+      const month = parseInt(parts[1]);
+      const tagsStr = parts[2] || '';
+      const change = parseFloat(parts[3]) || 0;
+      const changePercent = parseFloat(parts[4]) || 0;
+      const note = parts[5] || '';
+
+      if (!year || !month) {
+        skippedCount++;
+        continue;
+      }
+
+      const tags = tagsStr.split('|').filter(Boolean).map(t => parseAttributionTagFromLabel(t)).filter((t): t is AttributionTag => t !== null);
+
+      const data = loadData();
+      const existingIndex = data.attributions.findIndex(a => a.year === year && a.month === month);
+
+      if (existingIndex >= 0 && mergeMode === 'skip') {
+        skippedCount++;
+        continue;
+      }
+
+      const attribution: MonthlyAttribution = {
+        id: existingIndex >= 0 && mergeMode === 'merge' ? data.attributions[existingIndex].id : generateId(),
+        year,
+        month,
+        change,
+        changePercent,
+        fluctuationLevel: calculateFluctuationLevel(changePercent),
+        tags,
+        note,
+        timestamp: Date.now(),
+      };
+
+      if (existingIndex >= 0) {
+        if (mergeMode === 'merge') {
+          const existingTags = new Set(data.attributions[existingIndex].tags);
+          tags.forEach(t => existingTags.add(t));
+          attribution.tags = Array.from(existingTags);
+        }
+        data.attributions[existingIndex] = attribution;
+      } else {
+        data.attributions.push(attribution);
+      }
+
+      saveData(data);
+      importedCount++;
+    }
+
+    return { success: true, message: `成功导入${importedCount}条月度归因记录`, importedCount, skippedCount };
+  } catch (error) {
+    console.error('Failed to import monthly attribution CSV:', error);
+    return { success: false, message: '导入失败：文件格式错误', importedCount: 0, skippedCount: 0 };
+  }
+}
+
+function parseYearlyAttributionTagFromLabel(label: string): YearlyAttributionTag | null {
+  const labelToTag: Record<string, YearlyAttributionTag> = {
+    '工资增长': 'salary_growth',
+    '奖金丰厚': 'bonus_丰厚',
+    '投资丰收': 'investment_return',
+    '资产变动': 'asset_change',
+    '大额支出': 'large_expense',
+    '账户整合': 'account_integration',
+    '其他': 'yearly_other',
+  };
+  return labelToTag[label] || null;
+}
+
+export function importYearlyAttributionCSV(
+  csvContent: string,
+  mergeMode: 'overwrite' | 'merge' = 'merge'
+): { success: boolean; message: string; importedCount: number; skippedCount: number } {
+  try {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      return { success: false, message: 'CSV文件内容为空', importedCount: 0, skippedCount: 0 };
+    }
+
+    const rows = lines.slice(1);
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of rows) {
+      const parts = row.split(',');
+      if (parts.length < 5) {
+        skippedCount++;
+        continue;
+      }
+
+      const year = parseInt(parts[0]);
+      const tagsStr = parts[1] || '';
+      const keyMonthsStr = parts[2] || '';
+      const change = parseFloat(parts[3]) || 0;
+      const changePercent = parseFloat(parts[4]) || 0;
+      const netWorth = parseFloat(parts[5]) || 0;
+      const note = parts[6] || '';
+
+      if (!year) {
+        skippedCount++;
+        continue;
+      }
+
+      const tags = tagsStr.split('|').filter(Boolean).map(t => parseYearlyAttributionTagFromLabel(t)).filter((t): t is YearlyAttributionTag => t !== null);
+      const keyMonths = keyMonthsStr.split('|').filter(Boolean);
+
+      const data = loadData();
+      const existingIndex = data.yearlyAttributions.findIndex(a => a.year === year);
+
+      if (existingIndex >= 0 && mergeMode === 'skip') {
+        skippedCount++;
+        continue;
+      }
+
+      const attribution: YearlyAttribution = {
+        id: existingIndex >= 0 && mergeMode === 'merge' ? data.yearlyAttributions[existingIndex].id : generateId(),
+        year,
+        netWorth,
+        change,
+        changePercent,
+        tags,
+        note,
+        keyMonths,
+        timestamp: Date.now(),
+      };
+
+      if (existingIndex >= 0) {
+        if (mergeMode === 'merge') {
+          const existingTags = new Set(data.yearlyAttributions[existingIndex].tags);
+          tags.forEach(t => existingTags.add(t));
+          attribution.tags = Array.from(existingTags);
+        }
+        data.yearlyAttributions[existingIndex] = attribution;
+      } else {
+        data.yearlyAttributions.push(attribution);
+      }
+
+      saveData(data);
+      importedCount++;
+    }
+
+    return { success: true, message: `成功导入${importedCount}条年度归因记录`, importedCount, skippedCount };
+  } catch (error) {
+    console.error('Failed to import yearly attribution CSV:', error);
+    return { success: false, message: '导入失败：文件格式错误', importedCount: 0, skippedCount: 0 };
+  }
 }
 
 export function batchImportByRange(
@@ -1191,8 +1516,9 @@ export function getAccountsByMonth(year: number, month: number): Account[] {
 // 获取指定月份账户的余额（支持继承机制）
 export function getAccountBalanceForMonth(accountId: string, year: number, month: number): number {
   const data = loadData();
+  const targetKey = year * 100 + month;
 
-  // 1. 先查找指定月份的记录
+  // 1. 严格查找目标月份记录
   const record = data.records.find(
     r => r.accountId === accountId && r.year === year && r.month === month
   );
@@ -1200,17 +1526,17 @@ export function getAccountBalanceForMonth(accountId: string, year: number, month
     return record.balance;
   }
 
-  // 2. 如果没有，向前查找最近月份的记录（继承机制）
+  // 2. 向前查找（历史继承），严格小于目标月份
   const previousRecords = data.records
     .filter(r => r.accountId === accountId)
     .filter(r => {
-      if (r.year < year) return true;
-      if (r.year === year && r.month < month) return true;
-      return false;
+      const recordKey = r.year * 100 + r.month;
+      return recordKey < targetKey;
     })
     .sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
+      const keyA = a.year * 100 + a.month;
+      const keyB = b.year * 100 + b.month;
+      return keyB - keyA;
     });
 
   if (previousRecords.length > 0) {
@@ -1220,4 +1546,214 @@ export function getAccountBalanceForMonth(accountId: string, year: number, month
   // 3. 如果没有历史记录，返回账户默认余额
   const account = data.accounts.find(a => a.id === accountId);
   return account?.balance || 0;
+}
+
+// ========== 月度账户快照核心逻辑 ==========
+
+/**
+ * 获取指定月份应显示的账户列表（基于 records 优先）
+ * 策略：
+ * 1. 该月有明确记录的账户 → 直接显示
+ * 2. 该月无记录，但历史上曾有记录且未被当月删除 → 继承显示
+ * 3. 月度配置仅用于判断"某月是否被删除"
+ */
+export function getAccountsForMonth(year: number, month: number): Account[] {
+  const data = loadData();
+  const targetKey = year * 100 + month;
+
+  // 1. 获取该月有明确记录的账户ID
+  const monthRecordIds = new Set(
+    data.records
+      .filter(r => r.year === year && r.month === month)
+      .map(r => r.accountId)
+  );
+
+  // 2. 获取该月被删除的账户ID
+  const deletedIds = new Set(
+    data.monthlyAccountConfigs
+      .filter(c => c.year === year && c.month === month && c.status === 'deleted')
+      .map(c => c.accountId)
+  );
+
+  // 3. 收集应继承显示的账户ID（历史上存在 + 未被当月删除）
+  const inheritedIds = new Set<string>();
+  
+  for (const account of data.accounts) {
+    if (monthRecordIds.has(account.id)) continue;
+    if (deletedIds.has(account.id)) continue;
+    if (account.isHidden) continue;
+
+    // 检查该账户是否在目标月份之前曾有记录
+    const hasOldRecord = data.records.some(r => {
+      if (r.accountId !== account.id) return false;
+      const recordKey = r.year * 100 + r.month;
+      return recordKey <= targetKey;
+    });
+
+    if (hasOldRecord) {
+      inheritedIds.add(account.id);
+    }
+  }
+
+  // 4. 合并：该月有记录的 + 应继承的
+  const allVisibleIds = new Set([...monthRecordIds, ...inheritedIds]);
+  return data.accounts.filter(a => allVisibleIds.has(a.id));
+}
+
+/**
+ * 在当前月新增账户（打上首次激活标记）
+ */
+export function addAccountToMonth(
+  account: Omit<Account, 'id'>,
+  year: number,
+  month: number
+): Account {
+  const data = loadData();
+  const newAccount: Account = { ...account, id: generateId() };
+  data.accounts.push(newAccount);
+
+  data.monthlyAccountConfigs.push({
+    id: generateId(),
+    accountId: newAccount.id,
+    year,
+    month,
+    status: 'active',
+    firstActiveYear: year,
+    firstActiveMonth: month,
+  });
+
+  if (newAccount.balance !== 0) {
+    data.records.push({
+      id: generateId(),
+      accountId: newAccount.id,
+      year,
+      month,
+      balance: newAccount.balance,
+    });
+  }
+
+  data.logs.push({
+    id: generateId(),
+    accountId: newAccount.id,
+    accountName: newAccount.name,
+    year,
+    month,
+    oldBalance: 0,
+    newBalance: newAccount.balance,
+    timestamp: Date.now(),
+    operationType: 'account_create',
+  });
+
+  saveData(data);
+  return newAccount;
+}
+
+/**
+ * 删除某月的账户（仅本月，不影响历史和未来）
+ */
+export function deleteAccountFromMonth(
+  accountId: string,
+  year: number,
+  month: number
+): boolean {
+  const data = loadData();
+  const account = data.accounts.find(a => a.id === accountId);
+  if (!account) return false;
+
+  const targetKey = year * 100 + month;
+
+  // 删除该月及之后所有的记录（保留历史记录）
+  data.records = data.records.filter(r => {
+    if (r.accountId !== accountId) return true;
+    const recordKey = r.year * 100 + r.month;
+    return recordKey > targetKey;
+  });
+
+  // 检查目标月份是否已存在配置
+  const configs = data.monthlyAccountConfigs.filter(c => c.accountId === accountId);
+  const existingConfig = configs.find(c => c.year === year && c.month === month);
+  
+  if (existingConfig) {
+    existingConfig.status = 'deleted';
+  } else {
+    // 找首次激活时间
+    const activeConfig = configs.find(c => c.status === 'active');
+    const firstActiveYear = activeConfig?.firstActiveYear || year;
+    const firstActiveMonth = activeConfig?.firstActiveMonth || month;
+    
+    data.monthlyAccountConfigs.push({
+      id: generateId(),
+      accountId,
+      year,
+      month,
+      status: 'deleted',
+      firstActiveYear,
+      firstActiveMonth,
+    });
+  }
+
+  data.logs.push({
+    id: generateId(),
+    accountId,
+    accountName: account.name,
+    year,
+    month,
+    oldBalance: 0,
+    newBalance: 0,
+    timestamp: Date.now(),
+    operationType: 'account_delete',
+  });
+
+  saveData(data);
+  return true;
+}
+
+/**
+ * 完全删除账户（清除所有历史）
+ */
+export function deleteAccountGlobally(accountId: string): boolean {
+  const data = loadData();
+  const index = data.accounts.findIndex(a => a.id === accountId);
+  if (index === -1) return false;
+
+  data.accounts.splice(index, 1);
+  data.records = data.records.filter(r => r.accountId !== accountId);
+  data.logs = data.logs.filter(l => l.accountId !== accountId);
+  data.monthlyAccountConfigs = data.monthlyAccountConfigs.filter(
+    c => c.accountId !== accountId
+  );
+  saveData(data);
+  return true;
+}
+
+/**
+ * 旧数据迁移：为现有账户生成 MonthlyAccountConfig
+ */
+export function migrateToMonthlyAccountConfigs(): void {
+  const data = loadData();
+  if (data.monthlyAccountConfigs.length > 0) return;
+
+  const configs: MonthlyAccountConfig[] = [];
+
+  for (const account of data.accounts) {
+    const records = data.records
+      .filter(r => r.accountId === account.id)
+      .sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month));
+
+    const firstRecord = records[0];
+    if (firstRecord) {
+      configs.push({
+        id: generateId(),
+        accountId: account.id,
+        year: firstRecord.year,
+        month: firstRecord.month,
+        status: 'active',
+        firstActiveYear: firstRecord.year,
+        firstActiveMonth: firstRecord.month,
+      });
+    }
+  }
+
+  data.monthlyAccountConfigs = configs;
+  saveData(data);
 }

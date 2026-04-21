@@ -54,6 +54,7 @@ export interface AppState {
   logs: RecordLog[];
   attributions: MonthlyAttribution[];
   yearlyAttributions: YearlyAttribution[];
+  monthlyAccountConfigs: MonthlyAccountConfig[];
   settings: AppSettings;
   version: string;
 }
@@ -65,6 +66,17 @@ export type ThemeType = 'blue' | 'green' | 'orange' | 'dark' | 'purple';
 export interface AppSettings {
   hideBalance: boolean;
   theme: ThemeType;
+}
+
+// 月度账户配置：记录某月某账户的"存在状态"
+export interface MonthlyAccountConfig {
+  id: string;
+  accountId: string;
+  year: number;
+  month: number;
+  status: 'active' | 'deleted';
+  firstActiveYear: number;
+  firstActiveMonth: number;
 }
 
 // 月度净资产汇总

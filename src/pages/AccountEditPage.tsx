@@ -8,9 +8,10 @@ import { Switch } from '@/components/ui/switch';
 import { Icon, PRESET_ICONS } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
 import { 
-  addAccount, 
+  addAccount,
+  addAccountToMonth,
   updateAccount, 
-  deleteAccount, 
+  deleteAccountGlobally, 
   getAccountById,
   getMonthlyRecord,
 } from '@/lib/storage';
@@ -77,15 +78,15 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
     if (isEdit && accountId) {
       updateAccount(accountId, formData);
     } else {
-      addAccount(formData as Omit<Account, 'id'>);
+      const now = new Date();
+      addAccountToMonth(formData as Omit<Account, 'id'>, now.getFullYear(), now.getMonth() + 1);
     }
-    // 保存后返回首页并触发刷新
     onPageChange('home', { refresh: true });
   };
 
   const handleDelete = () => {
     if (accountId) {
-      deleteAccount(accountId);
+      deleteAccountGlobally(accountId);
       onPageChange('accounts');
     }
   };

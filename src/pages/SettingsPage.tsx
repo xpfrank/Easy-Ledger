@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV } from '@/lib/storage';
+import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
@@ -32,12 +32,19 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [exportEndYear, setExportEndYear] = useState(new Date().getFullYear());
   const [exportEndMonth, setExportEndMonth] = useState(new Date().getMonth() + 1);
   const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('json');
+  const [exportContent, setExportContent] = useState<{
+    balance: boolean;
+    monthlyAttribution: boolean;
+    yearlyAttribution: boolean;
+  }>({ balance: true, monthlyAttribution: true, yearlyAttribution: true });
 
   // 导入设置
   const [importTargetYear, setImportTargetYear] = useState(new Date().getFullYear());
   const [importTargetMonth, setImportTargetMonth] = useState(new Date().getMonth() + 1);
   const [importJsonMergeMode, setImportJsonMergeMode] = useState<'overwrite' | 'merge'>('merge');
   const [importExcelMergeMode, setImportExcelMergeMode] = useState<'overwrite' | 'merge'>('merge');
+  const [importType, setImportType] = useState<'balance' | 'monthlyAttribution' | 'yearlyAttribution'>('balance');
+  const [importAttributionMergeMode, setImportAttributionMergeMode] = useState<'overwrite' | 'merge' | 'skip'>('merge');
 
   const currentYear = new Date().getFullYear();
   const yearRange = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
@@ -67,12 +74,40 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
   const handleExport = async () => {
     const isCSV = exportFormat === 'csv';
-    const data = isCSV 
-      ? exportToCSV(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth)
-      : exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
-    const ext = isCSV ? 'csv' : 'json';
-    const mimeType = isCSV ? 'text/csv;charset=utf-8' : 'application/json';
-    const fileName = `记账数据_${exportStartYear}${exportStartMonth.toString().padStart(2, '0')}-${exportEndYear}${exportEndMonth.toString().padStart(2, '0')}.${ext}`;
+    let data = '';
+    let ext = '';
+    let mimeType = '';
+
+    const fileNameBase = `记账数据_${exportStartYear}${exportStartMonth.toString().padStart(2, '0')}-${exportEndYear}${exportEndMonth.toString().padStart(2, '0')}`;
+
+    if (!exportContent.balance && !exportContent.monthlyAttribution && !exportContent.yearlyAttribution) {
+      setImportError('请至少选择一项导出内容');
+      return;
+    }
+
+    if (isCSV) {
+      const parts: string[] = [];
+      if (exportContent.balance) {
+        parts.push(exportToCSV(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth));
+      }
+      if (exportContent.monthlyAttribution) {
+        parts.push('\n--- 月度归因 ---\n');
+        parts.push(exportMonthlyAttributionCSV(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth));
+      }
+      if (exportContent.yearlyAttribution) {
+        parts.push('\n--- 年度归因 ---\n');
+        parts.push(exportYearlyAttributionCSV(exportStartYear, exportEndYear));
+      }
+      data = parts.join('\n');
+      ext = 'csv';
+      mimeType = 'text/csv;charset=utf-8';
+    } else {
+      data = exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
+      ext = 'json';
+      mimeType = 'application/json';
+    }
+
+    const fileName = `${fileNameBase}.${ext}`;
     
     // 尝试使用 Web Share API（在 Android Chrome 中可用）
     if (navigator.share && navigator.canShare && isCapacitorAndroid()) {
@@ -226,6 +261,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       setExcelError('');
       setImportMode('json');
       setImportError('');
+      setImportType('balance');
     }
   };
 
@@ -487,6 +523,38 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                 </button>
               </div>
             </div>
+            <div>
+              <div className="text-sm text-gray-500 mb-2">导出内容</div>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportContent.balance}
+                    onChange={(e) => setExportContent({ ...exportContent, balance: e.target.checked })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">账户余额数据</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportContent.monthlyAttribution}
+                    onChange={(e) => setExportContent({ ...exportContent, monthlyAttribution: e.target.checked })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">月度归因记录</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportContent.yearlyAttribution}
+                    onChange={(e) => setExportContent({ ...exportContent, yearlyAttribution: e.target.checked })}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">年度归因记录</span>
+                </label>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowExportDialog(false)}>
@@ -510,187 +578,357 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             <DialogTitle>导入数据</DialogTitle>
           </DialogHeader>
 
-          {/* 导入模式切换 */}
+          {/* 导入类型选择 */}
           <div className="flex gap-2 py-2">
             <Button
-              variant={importMode === 'json' ? 'default' : 'outline'}
+              variant={importType === 'balance' ? 'default' : 'outline'}
               size="sm"
               className="flex-1"
-              style={importMode === 'json' ? { backgroundColor: themeConfig.primary } : {}}
-              onClick={() => setImportMode('json')}
+              style={importType === 'balance' ? { backgroundColor: themeConfig.primary } : {}}
+              onClick={() => setImportType('balance')}
             >
-              <FileJson size={16} className="mr-1" />
-              JSON 导入
+              账户余额
             </Button>
             <Button
-              variant={importMode === 'excel' ? 'default' : 'outline'}
+              variant={importType === 'monthlyAttribution' ? 'default' : 'outline'}
               size="sm"
               className="flex-1"
-              style={importMode === 'excel' ? { backgroundColor: themeConfig.primary } : {}}
-              onClick={() => setImportMode('excel')}
+              style={importType === 'monthlyAttribution' ? { backgroundColor: themeConfig.primary } : {}}
+              onClick={() => setImportType('monthlyAttribution')}
             >
-              <FileSpreadsheet size={16} className="mr-1" />
-              CSV 表格导入
+              月度归因
+            </Button>
+            <Button
+              variant={importType === 'yearlyAttribution' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+              style={importType === 'yearlyAttribution' ? { backgroundColor: themeConfig.primary } : {}}
+              onClick={() => setImportType('yearlyAttribution')}
+            >
+              年度归因
             </Button>
           </div>
 
-          {/* JSON 导入模式 */}
-          {importMode === 'json' && (
+          {/* 余额导入 */}
+          {importType === 'balance' && (
             <>
-              <DialogDescription className="text-sm">
-                选择目标时间和导入方式，然后选择 JSON 文件导入
-              </DialogDescription>
-              <div className="py-4 space-y-4">
-                <div>
-                  <div className="text-sm text-gray-500 mb-2">目标时间</div>
-                  <div className="flex gap-2">
-                    <select
-                      value={importTargetYear}
-                      onChange={(e) => setImportTargetYear(Number(e.target.value))}
-                      className="flex-1 p-2 border rounded-lg"
-                    >
-                      {yearRange.map(y => <option key={y} value={y}>{y}年</option>)}
-                    </select>
-                    <select
-                      value={importTargetMonth}
-                      onChange={(e) => setImportTargetMonth(Number(e.target.value))}
-                      className="flex-1 p-2 border rounded-lg"
-                    >
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                        <option key={m} value={m}>{m}月</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500 mb-2">导入方式</div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setImportJsonMergeMode('merge')}
-                      className={`flex-1 p-2 rounded-lg border text-sm ${
-                        importJsonMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
-                      }`}
-                      style={{ borderColor: importJsonMergeMode === 'merge' ? themeConfig.primary : undefined }}
-                    >
-                      合并记录
-                    </button>
-                    <button
-                      onClick={() => setImportJsonMergeMode('overwrite')}
-                      className={`flex-1 p-2 rounded-lg border text-sm ${
-                        importJsonMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
-                      }`}
-                      style={{ borderColor: importJsonMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
-                    >
-                      覆盖记录
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImport}
-                    className="w-full"
-                  />
-                  {importError && (
-                    <p className="text-red-500 text-sm mt-2">{importError}</p>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Excel 导入模式 */}
-          {importMode === 'excel' && (
-            <>
-              <DialogDescription className="text-sm">
-                上传 CSV 文件批量导入月度余额数据。表格格式：月份、账户名称、当月余额。导入后仅更新指定账户的指定月份，未填写的账户月份保持不变。
-              </DialogDescription>
-
-              <div className="py-3 space-y-3">
-                {/* 下载模板按钮 */}
+              {/* 导入模式切换 */}
+              <div className="flex gap-2 py-2">
                 <Button
-                  variant="outline"
+                  variant={importMode === 'json' ? 'default' : 'outline'}
                   size="sm"
-                  className="w-full"
-                  onClick={handleDownloadTemplate}
+                  className="flex-1"
+                  style={importMode === 'json' ? { backgroundColor: themeConfig.primary } : {}}
+                  onClick={() => setImportMode('json')}
                 >
-                  <Download size={16} className="mr-1" />
-                  下载导入模板
+                  <FileJson size={16} className="mr-1" />
+                  JSON
                 </Button>
+                <Button
+                  variant={importMode === 'excel' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1"
+                  style={importMode === 'excel' ? { backgroundColor: themeConfig.primary } : {}}
+                  onClick={() => setImportMode('excel')}
+                >
+                  <FileSpreadsheet size={16} className="mr-1" />
+                  CSV
+                </Button>
+              </div>
 
-                {/* 文件选择 - 仅支持 CSV */}
-                <input
-                  type="file"
-                  accept=".csv"
-                  onChange={handleExcelFileChange}
-                  className="w-full text-sm"
-                />
-                <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
-
-                {/* Excel 数据预览 */}
-                {excelData.length > 0 && (
-                  <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs">
-                    <div className="font-medium mb-2">预览 ({excelData.length} 条数据)</div>
-                    <div className="max-h-32 overflow-y-auto space-y-1">
-                      {excelData.slice(0, 5).map((row, index) => (
-                        <div key={index} className="flex justify-between text-gray-600">
-                          <span>{row.month}</span>
-                          <span className="text-gray-400">{row.accountName}</span>
-                          <span className="font-medium">¥{row.balance.toFixed(2)}</span>
-                        </div>
-                      ))}
-                      {excelData.length > 5 && (
-                        <div className="text-gray-400">...还有 {excelData.length - 5} 条</div>
+              {/* JSON 导入模式 */}
+              {importMode === 'json' && (
+                <>
+                  <DialogDescription className="text-sm">
+                    选择目标时间和导入方式，然后选择 JSON 文件导入
+                  </DialogDescription>
+                  <div className="py-4 space-y-4">
+                    <div>
+                      <div className="text-sm text-gray-500 mb-2">目标时间</div>
+                      <div className="flex gap-2">
+                        <select
+                          value={importTargetYear}
+                          onChange={(e) => setImportTargetYear(Number(e.target.value))}
+                          className="flex-1 p-2 border rounded-lg"
+                        >
+                          {yearRange.map(y => <option key={y} value={y}>{y}年</option>)}
+                        </select>
+                        <select
+                          value={importTargetMonth}
+                          onChange={(e) => setImportTargetMonth(Number(e.target.value))}
+                          className="flex-1 p-2 border rounded-lg"
+                        >
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                            <option key={m} value={m}>{m}月</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-500 mb-2">导入方式</div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setImportJsonMergeMode('merge')}
+                          className={`flex-1 p-2 rounded-lg border text-sm ${
+                            importJsonMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                          }`}
+                          style={{ borderColor: importJsonMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                        >
+                          合并记录
+                        </button>
+                        <button
+                          onClick={() => setImportJsonMergeMode('overwrite')}
+                          className={`flex-1 p-2 rounded-lg border text-sm ${
+                            importJsonMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                          }`}
+                          style={{ borderColor: importJsonMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                        >
+                          覆盖记录
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImport}
+                        className="w-full"
+                      />
+                      {importError && (
+                        <p className="text-red-500 text-sm mt-2">{importError}</p>
                       )}
                     </div>
                   </div>
-                )}
+                </>
+              )}
 
-                {/* 导入方式选择 */}
-                {excelData.length > 0 && (
-                  <div>
-                    <div className="text-sm text-gray-500 mb-2">导入方式</div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setImportExcelMergeMode('merge')}
-                        className={`flex-1 p-2 rounded-lg border text-sm ${
-                          importExcelMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
-                        }`}
-                        style={{ borderColor: importExcelMergeMode === 'merge' ? themeConfig.primary : undefined }}
-                      >
-                        合并记录
-                      </button>
-                      <button
-                        onClick={() => setImportExcelMergeMode('overwrite')}
-                        className={`flex-1 p-2 rounded-lg border text-sm ${
-                          importExcelMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
-                        }`}
-                        style={{ borderColor: importExcelMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
-                      >
-                        覆盖记录
-                      </button>
-                    </div>
+              {/* Excel 导入模式 */}
+              {importMode === 'excel' && (
+                <>
+                  <DialogDescription className="text-sm">
+                    上传 CSV 文件批量导入月度余额数据。表格格式：月份、账户名称、当月余额。导入后仅更新指定账户的指定月份，未填写的账户月份保持不变。
+                  </DialogDescription>
+
+                  <div className="py-3 space-y-3">
+                    {/* 下载模板按钮 */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={handleDownloadTemplate}
+                    >
+                      <Download size={16} className="mr-1" />
+                      下载导入模板
+                    </Button>
+
+                    {/* 文件选择 - 仅支持 CSV */}
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleExcelFileChange}
+                      className="w-full text-sm"
+                    />
+                    <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
+
+                    {/* Excel 数据预览 */}
+                    {excelData.length > 0 && (
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg text-xs">
+                        <div className="font-medium mb-2">预览 ({excelData.length} 条数据)</div>
+                        <div className="max-h-32 overflow-y-auto space-y-1">
+                          {excelData.slice(0, 5).map((row, index) => (
+                            <div key={index} className="flex justify-between text-gray-600">
+                              <span>{row.month}</span>
+                              <span className="text-gray-400">{row.accountName}</span>
+                              <span className="font-medium">¥{row.balance.toFixed(2)}</span>
+                            </div>
+                          ))}
+                          {excelData.length > 5 && (
+                            <div className="text-gray-400">...还有 {excelData.length - 5} 条</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 导入方式选择 */}
+                    {excelData.length > 0 && (
+                      <div>
+                        <div className="text-sm text-gray-500 mb-2">导入方式</div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setImportExcelMergeMode('merge')}
+                            className={`flex-1 p-2 rounded-lg border text-sm ${
+                              importExcelMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                            }`}
+                            style={{ borderColor: importExcelMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                          >
+                            合并记录
+                          </button>
+                          <button
+                            onClick={() => setImportExcelMergeMode('overwrite')}
+                            className={`flex-1 p-2 rounded-lg border text-sm ${
+                              importExcelMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                            }`}
+                            style={{ borderColor: importExcelMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                          >
+                            覆盖记录
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 错误提示 */}
+                    {(excelError || importError) && (
+                      <div className="text-red-500 text-sm">{excelError || importError}</div>
+                    )}
                   </div>
-                )}
 
-                {/* 错误提示 */}
-                {(excelError || importError) && (
-                  <div className="text-red-500 text-sm">{excelError || importError}</div>
-                )}
+                  <DialogFooter>
+                    <Button
+                      onClick={handleExcelImport}
+                      disabled={excelData.length === 0}
+                      className="text-white"
+                      style={{ backgroundColor: themeConfig.primary }}
+                    >
+                      确认导入
+                    </Button>
+                  </DialogFooter>
+                </>
+              )}
+            </>
+          )}
+
+          {/* 月度归因导入 */}
+          {importType === 'monthlyAttribution' && (
+            <div className="py-4 space-y-4">
+              <DialogDescription className="text-sm">
+                上传 CSV 文件导入月度归因记录。格式：年份,月份,归因标签,变动金额,变动百分比,备注
+              </DialogDescription>
+              
+              <div>
+                <div className="text-sm text-gray-500 mb-2">导入方式</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setImportAttributionMergeMode('merge')}
+                    className={`flex-1 p-2 rounded-lg border text-sm ${
+                      importAttributionMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                    }`}
+                    style={{ borderColor: importAttributionMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                  >
+                    合并标签
+                  </button>
+                  <button
+                    onClick={() => setImportAttributionMergeMode('overwrite')}
+                    className={`flex-1 p-2 rounded-lg border text-sm ${
+                      importAttributionMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                    }`}
+                    style={{ borderColor: importAttributionMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                  >
+                    覆盖记录
+                  </button>
+                  <button
+                    onClick={() => setImportAttributionMergeMode('skip')}
+                    className={`flex-1 p-2 rounded-lg border text-sm ${
+                      importAttributionMergeMode === 'skip' ? 'border-2' : 'border-gray-200'
+                    }`}
+                    style={{ borderColor: importAttributionMergeMode === 'skip' ? themeConfig.primary : undefined }}
+                  >
+                    跳过存在
+                  </button>
+                </div>
               </div>
 
-              <DialogFooter>
-                <Button
-                  onClick={handleExcelImport}
-                  disabled={excelData.length === 0}
-                  className="text-white"
-                  style={{ backgroundColor: themeConfig.primary }}
-                >
-                  确认导入
-                </Button>
-              </DialogFooter>
-            </>
+              <div>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string;
+                        const result = importMonthlyAttributionCSV(content, importAttributionMergeMode);
+                        setImportError(result.message);
+                      };
+                      reader.readAsText(file);
+                    }
+                  }}
+                  className="w-full"
+                />
+                {importError && (
+                  <p className="text-sm mt-2" style={{ color: importError.includes('成功') ? themeConfig.primary : '#ef4444' }}>
+                    {importError}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 年度归因导入 */}
+          {importType === 'yearlyAttribution' && (
+            <div className="py-4 space-y-4">
+              <DialogDescription className="text-sm">
+                上传 CSV 文件导入年度归因记录。格式：年份,归因标签,关键月份,变动金额,变动百分比,年末净资产,备注
+              </DialogDescription>
+              
+              <div>
+                <div className="text-sm text-gray-500 mb-2">导入方式</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setImportAttributionMergeMode('merge')}
+                    className={`flex-1 p-2 rounded-lg border text-sm ${
+                      importAttributionMergeMode === 'merge' ? 'border-2' : 'border-gray-200'
+                    }`}
+                    style={{ borderColor: importAttributionMergeMode === 'merge' ? themeConfig.primary : undefined }}
+                  >
+                    合并标签
+                  </button>
+                  <button
+                    onClick={() => setImportAttributionMergeMode('overwrite')}
+                    className={`flex-1 p-2 rounded-lg border text-sm ${
+                      importAttributionMergeMode === 'overwrite' ? 'border-2' : 'border-gray-200'
+                    }`}
+                    style={{ borderColor: importAttributionMergeMode === 'overwrite' ? themeConfig.primary : undefined }}
+                  >
+                    覆盖记录
+                  </button>
+                  <button
+                    onClick={() => setImportAttributionMergeMode('skip')}
+                    className={`flex-1 p-2 rounded-lg border text-sm ${
+                      importAttributionMergeMode === 'skip' ? 'border-2' : 'border-gray-200'
+                    }`}
+                    style={{ borderColor: importAttributionMergeMode === 'skip' ? themeConfig.primary : undefined }}
+                  >
+                    跳过存在
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string;
+                        const result = importYearlyAttributionCSV(content, importAttributionMergeMode);
+                        setImportError(result.message);
+                      };
+                      reader.readAsText(file);
+                    }
+                  }}
+                  className="w-full"
+                />
+                {importError && (
+                  <p className="text-sm mt-2" style={{ color: importError.includes('成功') ? themeConfig.primary : '#ef4444' }}>
+                    {importError}
+                  </p>
+                )}
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
