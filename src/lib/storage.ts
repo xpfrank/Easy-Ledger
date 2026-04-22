@@ -1,4 +1,5 @@
 import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption } from '@/types';
+import { getYearlyAttributionTagLabel } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
@@ -1212,12 +1213,12 @@ export function exportYearlyAttributionCSV(startYear?: number, endYear?: number)
     if (/^\d+$/.test(item)) {
       return `${item}月`;
     }
-    return getAttributionTagLabel(item as AttributionTag);
+    return getYearlyAttributionTagLabel(item as YearlyAttributionTag);
   };
 
   const rows: string[] = [header];
   for (const attr of sortedAttributions) {
-    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('、');
+    const tags = attr.tags.map(t => getYearlyAttributionTagLabel(t)).join('、');
     const keyMonths = attr.keyMonths.map(formatKeyMonth).join('、');
     const note = (attr.note || '').replace(/,/g, ';');
     rows.push(`${attr.year},${tags},${keyMonths},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${attr.netWorth.toFixed(2)},${note}`);
