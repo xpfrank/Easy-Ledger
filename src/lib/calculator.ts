@@ -417,8 +417,8 @@ export function getNetWorthHistory(months: number = 12): MonthlyNetWorth[] {
 
   for (const monthKey of filteredMonths) {
     const [year, month] = monthKey.split('-').map(Number);
-    // 使用 getVisibleMonthlyNetWorth 只统计非隐藏账户
-    const monthlyData = getVisibleMonthlyNetWorth(year, month);
+    // 使用 getVisibleMonthlyNetWorthForMonth 只统计非隐藏账户
+    const monthlyData = getVisibleMonthlyNetWorthForMonth(year, month);
     history.push(monthlyData);
   }
 

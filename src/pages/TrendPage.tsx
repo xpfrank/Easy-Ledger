@@ -866,7 +866,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           interval={rechartsData.length > 16 ? 2 : rechartsData.length > 8 ? 1 : 0}
                           tickFormatter={(value) => {
                             if (trendType === 'yearly') return value;
-                            const item = rechartsData.find(d => d.label === value);
+                            const item = rechartsData.find((d: any) => d.label === value);
                             if (!item) return value;
                             if (useQuarterlyView) {
                               if (item.quarter === 1) return `${item.year}年`;

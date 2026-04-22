@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, Plus, X, ChevronRight, Tag, Wrench } from 'lucide-react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
-import type { ExcelImportRow, CustomAttributionTag } from '@/lib/storage';
+import type { ExcelImportRow } from '@/lib/storage';
+import type { CustomAttributionTag } from '@/types';
 import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -49,7 +50,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
   // 自定义标签相关状态
   const [customTags, setCustomTags] = useState<CustomAttributionTag[]>([]);
-  const [showTagAdd, setShowTagAdd] = useState(false);
   const [newTagLabel, setNewTagLabel] = useState('');
   const [newTagEmoji, setNewTagEmoji] = useState('🏷️');
   const [tagAddError, setTagAddError] = useState('');

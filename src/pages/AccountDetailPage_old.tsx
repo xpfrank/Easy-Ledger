@@ -12,7 +12,7 @@ import {
   deleteAccount,
   loadData,
 } from '@/lib/storage';
-import { getAccountTypeLabel, getAccountHistory, calculateTotalAssets } from '@/lib/calculator';
+import { getAccountTypeLabel, getAccountHistory, calculateTotalAssetsForMonth } from '@/lib/calculator';
 import { THEMES } from '@/types';
 import {
   XAxis,
@@ -208,7 +208,7 @@ function calculateContribution(account: Account): ContributionData {
   const currentBalance = getAccountMonthBalance(account, year, month);
 
   // 计算当月总资产
-  const totalAssets = calculateTotalAssets(year, month);
+  const totalAssets = calculateTotalAssetsForMonth(year, month);
 
   // 计算上月数据
   let lastYear = year;
@@ -218,7 +218,7 @@ function calculateContribution(account: Account): ContributionData {
     lastMonth = 12;
   }
   const lastMonthBalance = getAccountMonthBalance(account, lastYear, lastMonth);
-  const lastTotalAssets = calculateTotalAssets(lastYear, lastMonth);
+  const lastTotalAssets = calculateTotalAssetsForMonth(lastYear, lastMonth);
 
   // 判断是否为负债账户
   const isDebtAccount = account.type === 'credit' || account.type === 'debt';

@@ -7,7 +7,6 @@ import { Icon } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
 import {
-  getAccountsForMonth,
   deleteAccountFromMonth,
   deleteAccountGlobally,
   updateAccount,
