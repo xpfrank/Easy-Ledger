@@ -316,8 +316,8 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
 
     const recordMap = new Map<string, MonthlyRecord>();
     const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
-    currentData.records.forEach(r => recordMap.set(buildKey(r), r));
-    importedRecords.forEach(r => recordMap.set(buildKey(r), r));
+    currentData.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
+    importedRecords.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
     currentData.records = Array.from(recordMap.values());
 
     currentData.logs.push(...importedLogs);
@@ -1212,12 +1212,12 @@ export function exportYearlyAttributionCSV(startYear?: number, endYear?: number)
     if (/^\d+$/.test(item)) {
       return `${item}月`;
     }
-    return getYearlyAttributionTagLabel(item as YearlyAttributionTag);
+    return getAttributionTagLabel(item as AttributionTag);
   };
 
   const rows: string[] = [header];
   for (const attr of sortedAttributions) {
-    const tags = attr.tags.map(t => getYearlyAttributionTagLabel(t)).join('、');
+    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('、');
     const keyMonths = attr.keyMonths.map(formatKeyMonth).join('、');
     const note = (attr.note || '').replace(/,/g, ';');
     rows.push(`${attr.year},${tags},${keyMonths},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${attr.netWorth.toFixed(2)},${note}`);

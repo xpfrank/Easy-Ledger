@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
-import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -21,7 +20,6 @@ import {
   getMonthlyAttributionsByYear,
   getAttributionTagLabel,
   getAttributionTagEmoji,
-  getAccountsForMonth,
   getSettings,
   getAllAttributionTagOptions,
   getAllYearlyTagOptions,
@@ -36,7 +34,6 @@ import {
 } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { THEMES } from '@/types';
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
