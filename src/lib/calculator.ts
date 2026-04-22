@@ -1,5 +1,5 @@
 import type { Account, MonthlyRecord, AccountType, MonthlyNetWorth, AccountGroup, YearlyNetWorth } from '@/types';
-import { getAllAccounts, getMonthlyRecordsByMonth, loadData, getAccountBalanceForMonth } from './storage';
+import { getAllAccounts, loadData, getAccountBalanceForMonth } from './storage';
 
 // 账户类型配置
 export const ACCOUNT_TYPES: { type: AccountType; label: string; icon: string }[] = [
@@ -313,7 +313,8 @@ export function getYearlyMonthlyData(year: number): MonthlyNetWorth[] {
   const data: MonthlyNetWorth[] = [];
   
   for (let month = 1; month <= 12; month++) {
-    const monthlyData = getMonthlyNetWorth(year, month);
+    const accounts = getVisibleAccountsForMonth(year, month);
+    const monthlyData = getMonthlyNetWorth(accounts, year, month);
     data.push(monthlyData);
   }
   
@@ -443,13 +444,13 @@ export function getVisibleYearlyNetWorth(year: number): YearlyNetWorth {
   // 获取该年度最后一个有记录的月份，如果没有则默认12月
   const lastMonth = getLastRecordedMonth(year) || 12;
   
-  const totalAssets = calculateVisibleTotalAssets(year, lastMonth);
-  const totalLiabilities = calculateVisibleTotalLiabilities(year, lastMonth);
+  const totalAssets = calculateVisibleTotalAssets(getVisibleAccountsForMonth(year, lastMonth), year, lastMonth);
+  const totalLiabilities = calculateVisibleTotalLiabilities(getVisibleAccountsForMonth(year, lastMonth), year, lastMonth);
   const netWorth = totalAssets - totalLiabilities;
   
   // 计算上一年度数据用于对比（也使用仅可见账户）
-  const lastYearAssets = calculateVisibleTotalAssets(year - 1, 12);
-  const lastYearLiabilities = calculateVisibleTotalLiabilities(year - 1, 12);
+  const lastYearAssets = calculateVisibleTotalAssets(getVisibleAccountsForMonth(year - 1, 12), year - 1, 12);
+  const lastYearLiabilities = calculateVisibleTotalLiabilities(getVisibleAccountsForMonth(year - 1, 12), year - 1, 12);
   const lastYearNetWorth = lastYearAssets - lastYearLiabilities;
   const change = netWorth - lastYearNetWorth;
   const changePercent = lastYearNetWorth !== 0 ? (change / Math.abs(lastYearNetWorth)) * 100 : 0;
