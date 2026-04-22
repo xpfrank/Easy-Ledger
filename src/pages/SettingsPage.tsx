@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson } from 'lucide-react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, Plus, X, ChevronRight, Tag, Wrench } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
-import type { ExcelImportRow } from '@/lib/storage';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV } from '@/lib/storage';
+import type { ExcelImportRow, CustomAttributionTag } from '@/lib/storage';
+import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
 
@@ -18,6 +18,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [showAboutDialog, setShowAboutDialog] = useState(false);
   const [showThemeDialog, setShowThemeDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showTagDialog, setShowTagDialog] = useState(false);
   const [importError, setImportError] = useState('');
   const [theme, setTheme] = useState<ThemeType>('blue');
 
@@ -46,10 +47,34 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [importType, setImportType] = useState<'balance' | 'monthlyAttribution' | 'yearlyAttribution'>('balance');
   const [importAttributionMergeMode, setImportAttributionMergeMode] = useState<'overwrite' | 'merge' | 'skip'>('merge');
 
+  // 自定义标签相关状态
+  const [customTags, setCustomTags] = useState<CustomAttributionTag[]>([]);
+  const [showTagAdd, setShowTagAdd] = useState(false);
+  const [newTagLabel, setNewTagLabel] = useState('');
+  const [newTagEmoji, setNewTagEmoji] = useState('🏷️');
+  const [tagAddError, setTagAddError] = useState('');
+
+  const handleAddTag = () => {
+    if (!newTagLabel.trim()) { setTagAddError('请输入标签名称'); return; }
+    if (newTagLabel.trim().length > 8) { setTagAddError('标签名称最多8个字'); return; }
+    const tag = saveCustomAttributionTag({ label: newTagLabel.trim(), emoji: newTagEmoji });
+    setCustomTags(prev => [...prev, tag]);
+    setNewTagLabel('');
+    setNewTagEmoji('🏷️');
+    setTagAddError('');
+    setShowTagAdd(false);
+  };
+
+  const handleDeleteTag = (id: string) => {
+    deleteCustomAttributionTag(id);
+    setCustomTags(prev => prev.filter(t => t.id !== id));
+  };
+
   const currentYear = new Date().getFullYear();
   const yearRange = Array.from({ length: 21 }, (_, i) => currentYear - 10 + i);
 
   useEffect(() => {
+    setCustomTags(getCustomAttributionTags());
     const settings = getSettings();
     setTheme(settings.theme || 'blue');
   }, []);
@@ -273,6 +298,32 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   };
 
   const themeConfig = THEMES[theme];
+  const presetTags = getAllAttributionTagOptions().filter(t => !t.editable);
+
+  // ─── Reusable section row ─────────────────────────────────────────────────
+  const SettingRow = ({
+    icon, iconBg, iconColor, title, subtitle, onClick, danger = false, rightNode,
+  }: {
+    icon: React.ReactNode; iconBg: string; iconColor?: string;
+    title: string; subtitle?: string; onClick?: () => void;
+    danger?: boolean; rightNode?: React.ReactNode;
+  }) => (
+    <button
+      className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+          <span className={iconColor}>{icon}</span>
+        </div>
+        <div className="text-left">
+          <div className={`font-medium text-sm ${danger ? 'text-red-500' : 'text-gray-800'}`}>{title}</div>
+          {subtitle && <div className="text-xs text-gray-400 mt-0.5">{subtitle}</div>}
+        </div>
+      </div>
+      {rightNode ?? <ChevronRight size={16} className="text-gray-300" />}
+    </button>
+  );
 
   return (
     <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
@@ -289,129 +340,169 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       {/* 占位元素，防止内容被固定标题栏遮挡 */}
       <div className="h-14"></div>
 
-      <div className="p-4 space-y-4">
-        {/* 主题皮肤 */}
-        <div className="space-y-2">
-          <h2 className="text-sm font-medium text-gray-500 px-1">个性化</h2>
-          <Card className="bg-white overflow-hidden">
+      <div className="p-4 space-y-5">
+        {/* ── 个性化 ──────────────────────────────────────────── */}
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-2">个性化</h2>
+          <Card className="bg-white overflow-hidden divide-y divide-gray-100">
+            {/* 主题皮肤 */}
             <button 
-              className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
               onClick={() => setShowThemeDialog(true)}
             >
               <div className="flex items-center gap-3">
                 <div 
-                  className="w-9 h-9 rounded-lg flex items-center justify-center"
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
                   style={{ backgroundColor: `${themeConfig.primary}15` }}
                 >
                   <Palette size={18} style={{ color: themeConfig.primary }} />
                 </div>
                 <div className="text-left">
-                  <div className="font-medium text-sm">主题皮肤</div>
-                  <div className="text-xs text-gray-400">当前：{themeConfig.name}</div>
+                  <div className="font-medium text-sm text-gray-800">主题皮肤</div>
+                  <div className="text-xs text-gray-400 mt-0.5">当前：{themeConfig.name}</div>
                 </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-5 h-5 rounded-full"
+                  style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom}, ${themeConfig.gradientTo})` }}
+                />
+                <ChevronRight size={16} className="text-gray-300" />
+              </div>
+            </button>
+
+            {/* 归因标签管理 */}
+            <button
+              className="w-full p-4 hover:bg-gray-50 transition-colors text-left"
+              onClick={() => setShowTagDialog(true)}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: `${themeConfig.primary}15` }}>
+                    <Tag size={18} style={{ color: themeConfig.primary }} />
+                  </div>
+                  <div>
+                    <div className="font-medium text-sm text-gray-800">归因标签</div>
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      {presetTags.length} 个预设 · {customTags.length > 0 ? `${customTags.length} 个自定义` : '可添加自定义标签'}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-gray-300" />
+              </div>
+
+              {/* 标签预览行 */}
+              <div className="ml-12 flex flex-wrap gap-1.5">
+                {getAllAttributionTagOptions().slice(0, 6).map(tag => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
+                    style={
+                      tag.editable
+                        ? { backgroundColor: `${themeConfig.primary}18`, color: themeConfig.primary }
+                        : { backgroundColor: '#f3f4f6', color: '#6b7280' }
+                    }
+                  >
+                    {tag.emoji} {tag.label}
+                  </span>
+                ))}
+                {getAllAttributionTagOptions().length > 6 && (
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-400">
+                    +{getAllAttributionTagOptions().length - 6}
+                  </span>
+                )}
               </div>
             </button>
           </Card>
-        </div>
+        </section>
 
-        {/* 数据管理 */}
-        <div className="space-y-2">
-          <h2 className="text-sm font-medium text-gray-500 px-1">数据管理</h2>
-          <Card className="bg-white overflow-hidden">
-            <div className="divide-y divide-gray-100">
-              <button 
-                className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
-                onClick={() => setShowExportDialog(true)}
-              >
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="w-9 h-9 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: `${themeConfig.primary}15` }}
-                  >
-                    <Download size={18} style={{ color: themeConfig.primary }} />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-sm">导出数据</div>
-                    <div className="text-xs text-gray-400">按时间范围导出</div>
-                  </div>
+        {/* ── 数据管理 ─────────────────────────────────────────── */}
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-2">数据管理</h2>
+          <Card className="bg-white overflow-hidden divide-y divide-gray-100">
+            <SettingRow
+              icon={<Download size={18} />}
+              iconBg="" iconColor=""
+              title="导出数据"
+              subtitle="按时间范围导出 JSON / CSV"
+              onClick={() => setShowExportDialog(true)}
+              rightNode={
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-400">JSON · CSV</span>
+                  <ChevronRight size={16} className="text-gray-300" />
                 </div>
-              </button>
-              
-              <button 
-                className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
-                onClick={() => setShowImportDialog(true)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <Upload size={18} className="text-blue-500" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-sm">导入数据</div>
-                    <div className="text-xs text-gray-400">选择目标时间导入</div>
-                  </div>
-                </div>
-              </button>
-              
-              <button 
-                className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
-                onClick={() => setShowClearDialog(true)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
-                    <Trash2 size={18} className="text-red-500" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-sm text-red-500">清空所有数据</div>
-                    <div className="text-xs text-gray-400">删除所有账户和记录</div>
-                  </div>
-                </div>
-              </button>
-            </div>
+              }
+            />
+            <SettingRow
+              icon={<Upload size={18} />}
+              iconBg="bg-blue-50" iconColor="text-blue-500"
+              title="导入数据"
+              subtitle="从文件恢复或批量录入"
+              onClick={() => setShowImportDialog(true)}
+            />
+            <SettingRow
+              icon={<Trash2 size={18} />}
+              iconBg="bg-red-50" iconColor="text-red-400"
+              title="清空所有数据"
+              subtitle="删除所有账户和记录"
+              onClick={() => setShowClearDialog(true)}
+              danger
+              rightNode={<ChevronRight size={16} className="text-red-200" />}
+            />
           </Card>
-        </div>
+        </section>
 
-        {/* 关于 */}
-        <div className="space-y-2">
-          <h2 className="text-sm font-medium text-gray-500 px-1">关于</h2>
+        {/* ── 工具 ────────────────────────────────────────────── */}
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-2">工具</h2>
           <Card className="bg-white overflow-hidden">
-            <div className="divide-y divide-gray-100">
-              <button 
-                className="w-full flex items-center justify-between p-4 hover:bg-gray-50"
-                onClick={() => setShowAboutDialog(true)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center">
-                    <Info size={18} className="text-gray-500" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-sm">使用说明</div>
-                    <div className="text-xs text-gray-400">了解如何使用本应用</div>
-                  </div>
-                </div>
-              </button>
-              
-              <div className="flex items-center justify-between p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center">
-                    <FileText size={18} className="text-gray-500" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-sm">应用版本</div>
-                    <div className="text-xs text-gray-400">当前版本 1.0.2</div>
-                  </div>
-                </div>
+            <SettingRow
+              icon={<Wrench size={18} />}
+              iconBg="bg-orange-50" iconColor="text-orange-500"
+              title="修复重复数据"
+              subtitle="检测并去除重复记录"
+              onClick={() => {
+                const result = validateData();
+                if (result.isHealthy) {
+                  alert(`数据健康，无需修复。当前记录数: ${result.recordCount}`);
+                } else if (confirm(`检测到 ${result.duplicates.length} 条重复记录，是否执行去重？`)) {
+                  const removed = dedupeRecords();
+                  alert(`去重完成，删除了 ${removed} 条重复记录`);
+                }
+              }}
+            />
+          </Card>
+        </section>
+
+        {/* ── 关于 ────────────────────────────────────────────── */}
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-2">关于</h2>
+          <Card className="bg-white overflow-hidden divide-y divide-gray-100">
+            <SettingRow
+              icon={<Info size={18} />}
+              iconBg="bg-gray-100" iconColor="text-gray-500"
+              title="使用说明"
+              subtitle="了解如何使用本应用"
+              onClick={() => setShowAboutDialog(true)}
+            />
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <FileText size={18} className="text-gray-500" />
+              </div>
+              <div>
+                <div className="font-medium text-sm text-gray-800">应用版本</div>
+                <div className="text-xs text-gray-400 mt-0.5">当前版本 1.0.2</div>
               </div>
             </div>
           </Card>
-        </div>
+        </section>
       </div>
 
       {/* 主题选择对话框 */}
       <Dialog open={showThemeDialog} onOpenChange={setShowThemeDialog}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>选择主题</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>选择主题</DialogTitle></DialogHeader>
           <div className="py-4">
             <div className="grid grid-cols-1 gap-3">
               {(Object.keys(THEMES) as ThemeType[]).map((themeKey) => {
@@ -420,29 +511,111 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                   <button
                     key={themeKey}
                     onClick={() => handleThemeChange(themeKey)}
-                    className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
-                      theme === themeKey ? 'border-2' : 'border-gray-200 hover:border-gray-300'
-                    }`}
+                    className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${theme === themeKey ? '' : 'border-transparent hover:border-gray-200'}`}
                     style={{ borderColor: theme === themeKey ? config.primary : undefined }}
                   >
-                    <div 
-                      className="w-10 h-10 rounded-lg"
+                    <div
+                      className="w-10 h-10 rounded-xl flex-shrink-0"
                       style={{ background: `linear-gradient(135deg, ${config.gradientFrom} 0%, ${config.gradientTo} 100%)` }}
                     />
                     <div className="flex-1 text-left">
-                      <div className="font-medium">{config.name}</div>
+                      <div className="font-medium text-sm">{config.name}</div>
                     </div>
                     {theme === themeKey && (
-                      <div 
-                        className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs"
-                        style={{ backgroundColor: config.primary }}
-                      >
-                        ✓
-                      </div>
+                      <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs flex-shrink-0"
+                        style={{ backgroundColor: config.primary }}>✓</div>
                     )}
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════
+          归因标签管理弹窗
+      ════════════════════════════════════════════════════════ */}
+      <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>归因标签管理</DialogTitle>
+            <DialogDescription>预设标签不可删除，可添加自定义标签用于月度/年度归因记录</DialogDescription>
+          </DialogHeader>
+
+          <div className="py-3 space-y-4">
+            {/* 预设标签 */}
+            <div>
+              <div className="text-xs font-medium text-gray-400 mb-2">系统预设</div>
+              <div className="flex flex-wrap gap-1.5">
+                {presetTags.map(tag => (
+                  <span key={tag.id} className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 rounded-full text-xs text-gray-600">
+                    {tag.emoji} {tag.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* 自定义标签 */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-medium text-gray-400">自定义标签</div>
+                {customTags.length === 0 && (
+                  <span className="text-xs text-gray-300">暂无，在下方添加</span>
+                )}
+              </div>
+              {customTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {customTags.map(tag => (
+                    <span
+                      key={tag.id}
+                      className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-full text-xs"
+                      style={{ backgroundColor: `${themeConfig.primary}15`, color: themeConfig.primary }}
+                    >
+                      {tag.emoji} {tag.label}
+                      <button
+                        className="w-4 h-4 rounded-full bg-gray-200 hover:bg-red-400 text-gray-500 hover:text-white flex items-center justify-center transition-colors ml-0.5"
+                        onClick={() => handleDeleteTag(tag.id)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* 新增输入区 */}
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                <div className="text-xs text-gray-500 font-medium">添加新标签</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="w-10 h-9 border border-gray-200 rounded-lg text-center text-base bg-white focus:outline-none focus:ring-2 focus:border-transparent"
+                    style={{ '--tw-ring-color': themeConfig.primary } as any}
+                    value={newTagEmoji}
+                    onChange={e => setNewTagEmoji(e.target.value.slice(-2) || '🏷️')}
+                    placeholder="🏷️"
+                    maxLength={2}
+                  />
+                  <input
+                    className="flex-1 h-9 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:border-transparent"
+                    style={{ '--tw-ring-color': themeConfig.primary } as any}
+                    placeholder="标签名称（最多8字）"
+                    value={newTagLabel}
+                    onChange={e => { setNewTagLabel(e.target.value.slice(0, 8)); setTagAddError(''); }}
+                    maxLength={8}
+                    onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                  />
+                  <button
+                    className="h-9 px-3 rounded-lg text-white text-sm font-medium flex-shrink-0 transition-opacity hover:opacity-80"
+                    style={{ backgroundColor: themeConfig.primary }}
+                    onClick={handleAddTag}
+                  >
+                    添加
+                  </button>
+                </div>
+                {tagAddError && <p className="text-xs text-red-500">{tagAddError}</p>}
+                <p className="text-xs text-gray-400">添加后可在月度归因、年度归因编辑页面选择使用</p>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -737,7 +910,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                         <div className="max-h-32 overflow-y-auto space-y-1">
                           {excelData.slice(0, 5).map((row, index) => (
                             <div key={index} className="flex justify-between text-gray-600">
-                              <span>{row.month}</span>
+                              <span>{row.year}-{String(row.month).padStart(2, '0')}</span>
                               <span className="text-gray-400">{row.accountName}</span>
                               <span className="font-medium">¥{row.balance.toFixed(2)}</span>
                             </div>

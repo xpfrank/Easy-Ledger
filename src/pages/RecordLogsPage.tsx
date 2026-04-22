@@ -19,6 +19,7 @@ import {
   getAttributionTagLabel,
   getAttributionTagEmoji,
   getMonthlyRecord,
+  getAccountsForMonth,
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
@@ -170,7 +171,8 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     const key = `${attr.year}-${attr.month}`;
     const isExpanded = expandedAttributionCards.has(key);
     const snapshots = getAccountSnapshotsByMonth(attr.year, attr.month);
-    const netWorth = calculateNetWorth(attr.year, attr.month);
+    const accounts = getAccountsForMonth(attr.year, attr.month).filter(a => !a.isHidden);
+    const netWorth = calculateNetWorth(accounts, attr.year, attr.month);
 
     return (
       <Card key={key} className="bg-white overflow-hidden">
@@ -258,7 +260,8 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     const isExpanded = expandedAttributionCards.has(key);
     const lastMonth = getLastRecordedMonth(attr.year) || 12;
     const snapshots = getAccountSnapshotsByMonth(attr.year, lastMonth);
-    const netWorth = calculateNetWorth(attr.year, lastMonth);
+    const accounts = getAccountsForMonth(attr.year, lastMonth).filter(a => !a.isHidden);
+    const netWorth = calculateNetWorth(accounts, attr.year, lastMonth);
 
     return (
       <Card key={key} className="bg-white overflow-hidden">
@@ -371,7 +374,8 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           const key = `monthly-agg-${y}-${month}`;
           const isExpanded = expandedAttributionCards.has(key);
           const snapshots = getAccountSnapshotsByMonth(y, month);
-          const netWorth = calculateNetWorth(y, month);
+          const accounts = getAccountsForMonth(y, month).filter(a => !a.isHidden);
+          const netWorth = calculateNetWorth(accounts, y, month);
           return (
             <Card key={month} className="bg-white overflow-hidden">
               <div
@@ -565,7 +569,8 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             const lastRecordDate = formatDate(lastLog.timestamp);
             
             // 计算该月净资产
-            const monthNetWorth = calculateNetWorth(y, month);
+            const accounts = getAccountsForMonth(y, month).filter(a => !a.isHidden);
+            const monthNetWorth = calculateNetWorth(accounts, y, month);
             
             const key = `${y}-${month.toString().padStart(2, '0')}`;
             const isExpanded = expandedGroups.has(key);

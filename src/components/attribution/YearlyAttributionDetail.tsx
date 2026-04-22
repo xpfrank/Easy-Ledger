@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
-import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
+import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES } from '@/types';
 
@@ -16,8 +16,10 @@ interface Props {
 export default function YearlyAttributionDetail({ year, hideBalance, theme = 'purple', onClose, onEdit }: Props) {
   const attribution = getYearlyAttribution(year);
   const lastMonth = getLastRecordedMonth(year) || 12;
-  const currentNW = calculateNetWorth(year, lastMonth);
-  const lastNW = calculateNetWorth(year - 1, 12);
+  const currentAccounts = getAccountsForMonth(year, lastMonth).filter(a => !a.isHidden);
+  const lastYearAccounts = getAccountsForMonth(year - 1, 12).filter(a => !a.isHidden);
+  const currentNW = calculateNetWorth(currentAccounts, year, lastMonth);
+  const lastNW = calculateNetWorth(lastYearAccounts, year - 1, 12);
   const change = currentNW - lastNW;
   const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
 

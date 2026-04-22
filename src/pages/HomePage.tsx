@@ -77,8 +77,10 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   }, [params]);
 
   const loadData = () => {
-    const assets = calculateTotalAssets(currentYear, currentMonth);
-    const liabilities = calculateTotalLiabilities(currentYear, currentMonth);
+    const accounts = getAccountsForMonth(currentYear, currentMonth).filter(a => !a.isHidden);
+
+    const assets = calculateTotalAssets(accounts, currentYear, currentMonth);
+    const liabilities = calculateTotalLiabilities(accounts, currentYear, currentMonth);
     const worth = assets - liabilities;
 
     setNetWorth(worth);
@@ -89,14 +91,12 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
       lastYear--;
       lastMonth = 12;
     }
-    const lastWorth = calculateNetWorth(lastYear, lastMonth);
+    const lastAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
+    const lastWorth = calculateNetWorth(lastAccounts, lastYear, lastMonth);
     setLastMonthNetWorth(lastWorth);
 
-    setLoanOut(calculateLoanOut(currentYear, currentMonth));
-    setDebtIn(calculateDebtIn(currentYear, currentMonth));
-
-    // 使用月度快照机制获取当前月份的账户列表
-    const accounts = getAccountsForMonth(currentYear, currentMonth).filter(a => !a.isHidden);
+    setLoanOut(calculateLoanOut(accounts, currentYear, currentMonth));
+    setDebtIn(calculateDebtIn(accounts, currentYear, currentMonth));
 
     // 获取保存的展开状态
     const savedExpandedGroups = getExpandedGroups();

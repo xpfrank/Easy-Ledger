@@ -23,6 +23,8 @@ import {
   getAttributionTagEmoji,
   getAccountsForMonth,
   getSettings,
+  getAllAttributionTagOptions,
+  getAllYearlyTagOptions,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -306,9 +308,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       }
       setBalances(newBalances);
 
-      setNetWorth(calculateNetWorth(year, month));
-      setTotalAssets(calculateTotalAssets(year, month));
-      setTotalLiabilities(calculateTotalLiabilities(year, month));
+      setNetWorth(calculateNetWorth(mergedAccounts, year, month));
+      setTotalAssets(calculateTotalAssets(mergedAccounts, year, month));
+      setTotalLiabilities(calculateTotalLiabilities(mergedAccounts, year, month));
     } else {
       const lastMonth = getLastRecordedMonth(year) || 12;
       const newBalances: Record<string, number> = {};
@@ -317,7 +319,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       }
       setBalances(newBalances);
 
-      const yearlyData = getYearlyNetWorth(year);
+      const yearlyData = getYearlyNetWorth(mergedAccounts, year);
       setNetWorth(yearlyData.netWorth);
       setTotalAssets(yearlyData.totalAssets);
       setTotalLiabilities(yearlyData.totalLiabilities);
@@ -364,10 +366,11 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     setMonthlyRecord(accountId, year, month, numValue);
     setHasChanges(true);
 
+    const currentAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
     setTimeout(() => {
-      setNetWorth(calculateNetWorth(year, month));
-      setTotalAssets(calculateTotalAssets(year, month));
-      setTotalLiabilities(calculateTotalLiabilities(year, month));
+      setNetWorth(calculateNetWorth(currentAccounts, year, month));
+      setTotalAssets(calculateTotalAssets(currentAccounts, year, month));
+      setTotalLiabilities(calculateTotalLiabilities(currentAccounts, year, month));
     }, 0);
   };
 
@@ -388,9 +391,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       }
     }
     setBalances(newBalances);
-    setNetWorth(calculateNetWorth(year, month));
-    setTotalAssets(calculateTotalAssets(year, month));
-    setTotalLiabilities(calculateTotalLiabilities(year, month));
+    setNetWorth(calculateNetWorth(accounts, year, month));
+    setTotalAssets(calculateTotalAssets(accounts, year, month));
+    setTotalLiabilities(calculateTotalLiabilities(accounts, year, month));
     setHasChanges(true);
     setShowCopyDialog(false);
   };
@@ -402,9 +405,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       setMonthlyRecord(account.id, year, month, 0);
     }
     setBalances(newBalances);
-    setNetWorth(calculateNetWorth(year, month));
-    setTotalAssets(calculateTotalAssets(year, month));
-    setTotalLiabilities(calculateTotalLiabilities(year, month));
+    setNetWorth(calculateNetWorth(accounts, year, month));
+    setTotalAssets(calculateTotalAssets(accounts, year, month));
+    setTotalLiabilities(calculateTotalLiabilities(accounts, year, month));
     setHasChanges(true);
     setShowClearDialog(false);
   };
@@ -437,8 +440,10 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       lastYear--;
       lastMonthNum = 12;
     }
-    const lastNW = calculateNetWorth(lastYear, lastMonthNum);
-    const currentNW = calculateNetWorth(year, month);
+    const lastAccounts = getAccountsForMonth(lastYear, lastMonthNum).filter(a => !a.isHidden);
+    const currentAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
+    const lastNW = calculateNetWorth(lastAccounts, lastYear, lastMonthNum);
+    const currentNW = calculateNetWorth(currentAccounts, year, month);
     const changeAmt = currentNW - lastNW;
     const changePct = lastNW !== 0 ? (changeAmt / Math.abs(lastNW)) * 100 : 0;
     const level = calculateFluctuationLevel(changePct);
@@ -635,7 +640,8 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
 
   // 保存年度归因
   const handleSaveYearlyAttribution = () => {
-    const lastYearNetWorth = calculateNetWorth(year - 1, 12);
+    const lastYearAccounts = getAccountsForMonth(year - 1, 12).filter(a => !a.isHidden);
+    const lastYearNetWorth = calculateNetWorth(lastYearAccounts, year - 1, 12);
     const yearlyChange = netWorth - lastYearNetWorth;
     const yearlyChangePercent = lastYearNetWorth !== 0 ? (yearlyChange / Math.abs(lastYearNetWorth)) * 100 : 0;
 
@@ -690,9 +696,11 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       lastYear--;
       lastMonthNum = 12;
     }
-    lastNetWorth = calculateNetWorth(lastYear, lastMonthNum);
+    const lastMonthAccounts = getAccountsForMonth(lastYear, lastMonthNum).filter(a => !a.isHidden);
+    lastNetWorth = calculateNetWorth(lastMonthAccounts, lastYear, lastMonthNum);
   } else {
-    lastNetWorth = calculateNetWorth(year - 1, 12);
+    const lastYearAccounts = getAccountsForMonth(year - 1, 12).filter(a => !a.isHidden);
+    lastNetWorth = calculateNetWorth(lastYearAccounts, year - 1, 12);
   }
   const change = netWorth - lastNetWorth;
   const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
@@ -1236,49 +1244,43 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 </div>
               )}
 
-              {/* 原因选择 - 下拉选择器 */}
+              {/* 原因选择 - 两列网格多选 */}
               <div>
                 <div className="text-sm font-medium text-gray-700 mb-3">
                   {previewData.fluctuationLevel === 'abnormal' ? (
                     <span className="text-red-600">* 请选择归因原因（必选）</span>
                   ) : '选择归因原因（可选）'}
                 </div>
-                <Select
-                  value={selectedTags[0] || ''}
-                  onValueChange={(value) => {
-                    if (value) {
-                      setSelectedTags([value as AttributionTag]);
-                    } else {
-                      setSelectedTags([]);
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full h-11">
-                    <SelectValue placeholder="请选择归因原因" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).map((tag) => (
-                      <SelectItem key={tag.value} value={tag.value}>
-                        <span className="flex items-center gap-2">
-                          <span>{tag.emoji}</span>
-                          <span>{tag.label}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedTags.length > 0 && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className="text-sm text-gray-500">已选择：</span>
-                    <span 
-                      className="px-3 py-1 rounded-full text-sm text-white flex items-center gap-1"
-                      style={{ backgroundColor: themeConfig.primary }}
-                    >
-                      {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).find(t => t.value === selectedTags[0])?.emoji}
-                      {(previewData.fluctuationLevel === 'abnormal' ? ABNORMAL_TAGS : NORMAL_TAGS).find(t => t.value === selectedTags[0])?.label}
-                    </span>
-                  </div>
-                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {getAllAttributionTagOptions().map((tag) => {
+                    const isSelected = selectedTags.includes(tag.id as AttributionTag);
+                    return (
+                      <button
+                        key={tag.id}
+                        onClick={() => {
+                          setSelectedTags(prev =>
+                            isSelected
+                              ? prev.filter(t => t !== tag.id)
+                              : [...prev, tag.id as AttributionTag]
+                          );
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2 text-left ${
+                          isSelected
+                            ? 'text-white border-transparent shadow-md'
+                            : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200 hover:bg-gray-100'
+                        }`}
+                        style={{ backgroundColor: isSelected ? themeConfig.primary : undefined, borderColor: isSelected ? themeConfig.primary : undefined }}
+                      >
+                        <span className="text-base flex-shrink-0">{tag.emoji}</span>
+                        <span className="truncate flex-1">{tag.label}</span>
+                        {isSelected
+                          ? <Check size={14} className="flex-shrink-0 ml-auto" />
+                          : tag.editable && <span className="text-xs opacity-50 flex-shrink-0">自</span>
+                        }
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* 备注输入 */}
@@ -1542,23 +1544,26 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
             {/* 年度标签选择 */}
             <div>
               <div className="text-sm font-medium text-gray-700 mb-3">选择原因（可选）</div>
-              <div className="flex flex-wrap gap-2">
-                {YEARLY_TAGS.map((tag) => {
-                  const isSelected = yearlySelectedTags.includes(tag.value);
+              <div className="grid grid-cols-2 gap-2">
+                {getAllYearlyTagOptions().map((tag) => {
+                  const isSelected = yearlySelectedTags.includes(tag.id as YearlyAttributionTag);
                   return (
                     <button
-                      key={tag.value}
-                      onClick={() => handleYearlyTagToggle(tag.value)}
-                      className={`px-4 py-2 rounded-full text-sm flex items-center gap-1.5 transition-all duration-200 ${
+                      key={tag.id}
+                      onClick={() => handleYearlyTagToggle(tag.id as YearlyAttributionTag)}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2 text-left ${
                         isSelected
-                          ? 'text-white shadow-md scale-105'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          ? 'text-white border-transparent shadow-md'
+                          : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200 hover:bg-gray-100'
                       }`}
-                      style={{ backgroundColor: isSelected ? themeConfig.primary : undefined }}
+                      style={{ backgroundColor: isSelected ? themeConfig.primary : undefined, borderColor: isSelected ? themeConfig.primary : undefined }}
                     >
-                      <span className="text-base">{tag.emoji}</span>
-                      <span className="font-medium">{tag.label}</span>
-                      {isSelected && <Check size={14} />}
+                      <span className="text-base flex-shrink-0">{tag.emoji}</span>
+                      <span className="truncate flex-1">{tag.label}</span>
+                      {isSelected
+                        ? <Check size={14} className="flex-shrink-0 ml-auto" />
+                        : tag.editable && <span className="text-xs opacity-50 flex-shrink-0">自</span>
+                      }
                     </button>
                   );
                 })}

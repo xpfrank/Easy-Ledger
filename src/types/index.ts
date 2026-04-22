@@ -164,8 +164,29 @@ export const ABNORMAL_TAGS: TagConfig[] = [
   { value: 'loan_repayment', label: '借款归还', emoji: '🔄', isRequired: true },
   { value: 'large_expense', label: '大额支出', emoji: '🛒', isRequired: true },
   { value: 'transfer', label: '转账调整', emoji: '🔀', isRequired: true },
-  { value: 'abnormal_other', label: '其他', emoji: '📝', isRequired: true },
+  { value: 'abnormal_other', label: '异常变动', emoji: '📝', isRequired: true },
 ];
+
+// 自定义归因标签
+export interface CustomAttributionTag {
+  id: string;
+  label: string;
+  emoji: string;
+  createdAt: string;
+}
+
+// 预定义归因标签（用于显示）
+export interface PresetTagConfig {
+  id: string;
+  label: string;
+  emoji: string;
+  editable: false;
+}
+
+// 完整标签配置（含自定义）
+export interface TagOption extends PresetTagConfig {
+  editable: boolean;
+}
 
 // 月度归因记录
 export interface MonthlyAttribution {
@@ -233,7 +254,7 @@ export interface YearlyAttribution {
 
 // 获取年度归因标签的中文显示
 export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string {
-  const tagLabels: Record<YearlyAttributionTag, string> = {
+  const tagLabels: Record<string, string> = {
     salary_growth: '工资增长',
     'bonus_丰厚': '奖金丰厚',
     investment_return: '投资丰收',
@@ -242,12 +263,24 @@ export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string 
     account_integration: '账户整合',
     yearly_other: '其他',
   };
-  return tagLabels[tag] || tag;
+  if (tagLabels[tag]) return tagLabels[tag];
+  // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
+  if (tag.startsWith('custom_')) {
+    try {
+      const { getCustomAttributionTags } = require('@/lib/storage');
+      const customTags = getCustomAttributionTags();
+      const customTag = customTags.find((t: { id: string; label: string }) => t.id === tag);
+      return customTag ? customTag.label : tag;
+    } catch {
+      return tag;
+    }
+  }
+  return tag;
 }
 
 // 获取年度归因标签的 emoji
 export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string {
-  const tagEmojis: Record<YearlyAttributionTag, string> = {
+  const tagEmojis: Record<string, string> = {
     salary_growth: '💰',
     'bonus_丰厚': '🎁',
     investment_return: '📈',
@@ -256,7 +289,19 @@ export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string 
     account_integration: '🔄',
     yearly_other: '📝',
   };
-  return tagEmojis[tag] || '📝';
+  if (tagEmojis[tag]) return tagEmojis[tag];
+  // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
+  if (tag.startsWith('custom_')) {
+    try {
+      const { getCustomAttributionTags } = require('@/lib/storage');
+      const customTags = getCustomAttributionTags();
+      const customTag = customTags.find((t: { id: string; emoji: string }) => t.id === tag);
+      return customTag ? customTag.emoji : '📝';
+    } catch {
+      return '📝';
+    }
+  }
+  return '📝';
 }
 
 // 预设图标配置

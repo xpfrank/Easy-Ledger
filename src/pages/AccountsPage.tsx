@@ -20,6 +20,7 @@ import {
   exportExcelTemplate,
   getExpandedGroups,
   saveExpandedGroups,
+  getAllAccounts,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -69,7 +70,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
-    const allAccounts = getAccountsForMonth(currentYear, currentMonth);
+    const allAccounts = getAllAccounts();
     setAccounts(allAccounts);
     
     const records = getMonthlyRecordsByMonth(currentYear, currentMonth);

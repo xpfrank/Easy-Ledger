@@ -1,9 +1,9 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig } from '@/types';
-import { getYearlyAttributionTagLabel } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
 const RECORD_LOGS_EXPANDED_KEY = 'simple-ledger-record-logs-expanded';
+const CUSTOM_TAGS_KEY = 'custom_attribution_tags';
 const CURRENT_VERSION = '1.4';
 
 const defaultState: AppState = {
@@ -206,12 +206,20 @@ export function exportDataByRange(startYear: number, startMonth: number, endYear
     return a.year >= startYear && a.year <= endYear;
   });
 
+  const filteredMonthlyConfigs = (data.monthlyAccountConfigs || []).filter(c => {
+    const key = c.year * 100 + c.month;
+    const startKey = startYear * 100 + startMonth;
+    const endKey = endYear * 100 + endMonth;
+    return key >= startKey && key <= endKey;
+  });
+
   return JSON.stringify({
     accounts: data.accounts,
     records: filteredRecords,
     logs: filteredLogs,
     monthlyAttributions: filteredAttributions,
     yearlyAttributions: filteredYearlyAttributions,
+    monthlyAccountConfigs: filteredMonthlyConfigs,
     version: CURRENT_VERSION,
   }, null, 2);
 }
@@ -226,9 +234,31 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
     const currentData = loadData();
 
     if (targetYear === undefined || targetMonth === undefined) {
+      const recordMap = new Map<string, MonthlyRecord>();
+      const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
+      
+      currentData.records.forEach(r => recordMap.set(buildKey(r), r));
+      data.records.forEach(r => recordMap.set(buildKey(r), r));
+
+      const accountMap = new Map<string, Account>();
+      currentData.accounts.forEach(a => accountMap.set(a.id, a));
+      data.accounts.forEach(importedAccount => {
+        const existing = accountMap.get(importedAccount.id);
+        if (existing) {
+          accountMap.set(importedAccount.id, {
+            ...existing,
+            ...importedAccount,
+            isHidden: existing.isHidden,
+            includeInTotal: existing.includeInTotal,
+          });
+        } else {
+          accountMap.set(importedAccount.id, importedAccount);
+        }
+      });
+      
       saveData({
-        accounts: data.accounts,
-        records: data.records,
+        accounts: Array.from(accountMap.values()),
+        records: Array.from(recordMap.values()),
         logs: data.logs || [],
         attributions: data.monthlyAttributions || [],
         yearlyAttributions: data.yearlyAttributions || [],
@@ -248,6 +278,9 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       );
       currentData.attributions = currentData.attributions.filter(a => 
         !(a.year === targetYear && a.month === targetMonth)
+      );
+      currentData.monthlyAccountConfigs = currentData.monthlyAccountConfigs.filter(c => 
+        !(c.year === targetYear && c.month === targetMonth)
       );
     }
 
@@ -274,13 +307,38 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       timestamp: Date.now(),
     }));
 
-    currentData.records.push(...importedRecords);
+    const importedConfigs = (data.monthlyAccountConfigs || []).map((c: MonthlyAccountConfig) => ({
+      ...c,
+      id: generateId(),
+      year: targetYear,
+      month: targetMonth,
+    }));
+
+    const recordMap = new Map<string, MonthlyRecord>();
+    const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
+    currentData.records.forEach(r => recordMap.set(buildKey(r), r));
+    importedRecords.forEach(r => recordMap.set(buildKey(r), r));
+    currentData.records = Array.from(recordMap.values());
+
     currentData.logs.push(...importedLogs);
     currentData.attributions.push(...importedAttributions);
+    currentData.monthlyAccountConfigs.push(...importedConfigs);
 
-    const existingAccountIds = new Set(currentData.accounts.map(a => a.id));
-    const newAccounts = data.accounts.filter((a: Account) => !existingAccountIds.has(a.id));
-    currentData.accounts.push(...newAccounts);
+    data.accounts.forEach((importedAccount: Account) => {
+      const existingIndex = currentData.accounts.findIndex(a => a.id === importedAccount.id);
+      if (existingIndex >= 0) {
+        currentData.accounts[existingIndex] = {
+          ...currentData.accounts[existingIndex],
+          name: importedAccount.name,
+          type: importedAccount.type,
+          icon: importedAccount.icon,
+          isHidden: importedAccount.isHidden,
+          includeInTotal: importedAccount.includeInTotal,
+        };
+      } else {
+        currentData.accounts.push(importedAccount);
+      }
+    });
 
     saveData(currentData);
     return true;
@@ -639,8 +697,13 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
 }
 
 export interface ExcelImportRow {
-  month: string;
+  year: number;
+  month: number;
+  accountId?: string;
   accountName: string;
+  accountType?: string;
+  accountIcon?: string;
+  isHidden?: boolean;
   balance: number;
   attributionTag?: string;
   note?: string;
@@ -651,41 +714,80 @@ export function hasGarbledText(text: string): boolean {
   return cleanText.includes('\uFFFD');
 }
 
+function parseCSVLine(line: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      parts.push(current.trim().replace(/"/g, ''));
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current.trim().replace(/"/g, ''));
+  
+  return parts;
+}
+
+const VALID_ACCOUNT_TYPES = ['cash', 'debit', 'credit', 'digital', 'investment', 'loan', 'debt'];
+
 export function parseExcelCSV(content: string): ExcelImportRow[] {
   const cleanContent = content.replace(/^\uFEFF/, '').trim();
   const lines = cleanContent.split('\n');
   const result: ExcelImportRow[] = [];
 
+  if (lines.length < 2) return result;
+
+  const headerLine = lines[0].toLowerCase();
+  const isNewFormat = headerLine.includes('账户id') && headerLine.includes('账户类型');
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line || line.startsWith('#')) continue;
+    if (!line || line.startsWith('#') || line.startsWith('---')) continue;
 
-    let parts: string[];
-    if (line.includes('\t')) {
-      parts = line.split('\t');
-    } else if (line.includes(',')) {
-      parts = line.split(',');
-    } else if (line.includes(';')) {
-      parts = line.split(';');
+    const parts = parseCSVLine(line);
+    if (parts.length < 3) continue;
+
+    if (isNewFormat && isNaN(parseInt(parts[0]))) continue;
+
+    let year: number, month: number, accountId: string | undefined, accountName: string, accountType: string | undefined, accountIcon: string | undefined, isHidden: boolean | undefined, balance: number, attributionTag: string | undefined, note: string | undefined;
+
+    if (isNewFormat) {
+      year = parseInt(parts[0]);
+      month = parseInt(parts[1]);
+      accountId = parts[2] || undefined;
+      accountName = parts[3];
+      accountType = VALID_ACCOUNT_TYPES.includes(parts[4]) ? parts[4] : undefined;
+      accountIcon = parts[5] || undefined;
+      isHidden = parts[6] === '1' ? true : parts[6] === '0' ? false : undefined;
+      balance = parseFloat(parts[7].replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
+      attributionTag = parts[8] || undefined;
+      note = parts[9] || undefined;
     } else {
+      const monthRaw = parts[0].replace(/^#.*/, '');
+      const normalizedMonth = normalizeMonthFormat(monthRaw);
+      if (!normalizedMonth) continue;
+      const [y, m] = normalizedMonth.split('-');
+      year = parseInt(y);
+      month = parseInt(m);
+      accountName = parts[1];
+      balance = parseFloat(parts[2].replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
+      attributionTag = parts[3] || undefined;
+      note = parts[4] || undefined;
+    }
+
+    if (!year || !month || !accountName || isNaN(balance)) {
+      result.push({ year: year || 0, month: month || 0, accountName, balance: 0, attributionTag: 'ERROR_PARSE', note: `第${i + 1}行格式错误` });
       continue;
     }
 
-    if (parts.length < 3) continue;
-
-    const monthRaw = parts[0].trim().replace(/"/g, '').replace(/^#.*/, '');
-    const accountName = parts[1].trim().replace(/"/g, '');
-    const balanceStr = parts[2].trim().replace(/"/g, '').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, '');
-    const balance = parseFloat(balanceStr);
-    const attributionTag = parts[3]?.trim().replace(/"/g, '') || undefined;
-    const note = parts[4]?.trim().replace(/"/g, '') || undefined;
-
-    if (!monthRaw || !accountName) continue;
-
-    const normalizedMonth = normalizeMonthFormat(monthRaw);
-    if (!normalizedMonth || isNaN(balance)) continue;
-
-    result.push({ month: normalizedMonth, accountName, balance, attributionTag, note });
+    result.push({ year, month, accountId, accountName, accountType, accountIcon, isHidden, balance, attributionTag, note });
   }
 
   return result;
@@ -762,15 +864,18 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
         // 检查是否已添加过
         const alreadyAdded = data.accounts.some(a => normalizeAccountName(a.name) === normalizedRowName);
         if (!alreadyAdded) {
-          // 自动创建账户（默认类型：储蓄卡）
+          // 使用导入数据中的类型、图标和隐藏状态，或使用默认值
+          const accountType = (row.accountType && VALID_ACCOUNT_TYPES.includes(row.accountType)) ? row.accountType as AccountType : 'debit';
+          const accountIcon = row.accountIcon || 'credit-card';
+          const isHidden = row.isHidden ?? false;
           const newAccount: Account = {
             id: generateId(),
             name: row.accountName,
-            type: 'debit',
-            icon: 'credit-card',
+            type: accountType,
+            icon: accountIcon,
             balance: 0,
             includeInTotal: true,
-            isHidden: false,
+            isHidden: isHidden,
           };
           data.accounts.push(newAccount);
           createdAccounts.push(row.accountName);
@@ -781,9 +886,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 
     // 第二遍：导入资产数据
     for (const row of rows) {
-      const [yearStr, monthStr] = row.month.split('-');
-      const year = parseInt(yearStr);
-      const month = parseInt(monthStr);
+      const year = row.year;
+      const month = row.month;
 
       const normalizedRowName = normalizeAccountName(row.accountName);
 
@@ -893,8 +997,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
     let snapshotImportMonth = 0;
     
     if (mergeMode === 'overwrite' && rows.length > 0) {
-      snapshotImportYear = parseInt(rows[0].month.split('-')[0]);
-      snapshotImportMonth = parseInt(rows[0].month.split('-')[1]);
+      snapshotImportYear = rows[0].year;
+      snapshotImportMonth = rows[0].month;
       snapshotCompleted = true;
     }
 
@@ -988,7 +1092,7 @@ export function exportExcelTemplate(): string {
 export function exportToCSV(startYear?: number, startMonth?: number, endYear?: number, endMonth?: number): string {
   const data = loadData();
   const BOM = '\uFEFF';
-  const header = '月份(YYYY-MM),账户名称,余额,归因标签(可选),备注(可选)';
+  const header = '年份,月份,账户ID,账户名称,账户类型,账户图标,是否隐藏,余额,归因标签(可选),备注(可选)';
 
   const yearSet = new Set<number>();
   const monthSet = new Set<number>();
@@ -1015,8 +1119,6 @@ export function exportToCSV(startYear?: number, startMonth?: number, endYear?: n
 
   for (const year of sortedYears) {
     for (const month of sortedMonths) {
-      const monthStr = `${year}-${month.toString().padStart(2, '0')}`;
-      
       for (const account of data.accounts) {
         const record = data.records.find(r => 
           r.accountId === account.id && r.year === year && r.month === month
@@ -1026,9 +1128,10 @@ export function exportToCSV(startYear?: number, startMonth?: number, endYear?: n
           const attribution = data.attributions.find(a => 
             a.year === year && a.month === month
           );
-          const tag = attribution?.tags?.[0] || '';
+          const tag = attribution?.tags?.[0] ? getAttributionTagLabel(attribution.tags[0] as AttributionTag) : '';
           const note = attribution?.note || '';
-          rows.push(`${monthStr},${account.name},${record.balance.toFixed(2)},${tag},${note}`);
+          const escapedName = account.name.includes(',') ? `"${account.name}"` : account.name;
+          rows.push(`${year},${month},${account.id},${escapedName},${account.type},${account.icon},${account.isHidden ? 1 : 0},${record.balance.toFixed(2)},${tag},${note}`);
         }
       }
     }
@@ -1056,7 +1159,7 @@ export function exportMonthlyAttributionCSV(startYear?: number, startMonth?: num
 
   const rows: string[] = [header];
   for (const attr of sortedAttributions) {
-    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('|');
+    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('、');
     const note = (attr.note || '').replace(/,/g, ';');
     rows.push(`${attr.year},${attr.month},${tags},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${note}`);
   }
@@ -1075,10 +1178,17 @@ export function exportYearlyAttributionCSV(startYear?: number, endYear?: number)
 
   const sortedAttributions = filteredAttributions.sort((a, b) => a.year - b.year);
 
+  const formatKeyMonth = (item: string): string => {
+    if (/^\d+$/.test(item)) {
+      return `${item}月`;
+    }
+    return getAttributionTagLabel(item as AttributionTag);
+  };
+
   const rows: string[] = [header];
   for (const attr of sortedAttributions) {
-    const tags = attr.tags.map(t => getYearlyAttributionTagLabel(t)).join('|');
-    const keyMonths = attr.keyMonths.join('|');
+    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('、');
+    const keyMonths = attr.keyMonths.map(formatKeyMonth).join('、');
     const note = (attr.note || '').replace(/,/g, ';');
     rows.push(`${attr.year},${tags},${keyMonths},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${attr.netWorth.toFixed(2)},${note}`);
   }
@@ -1098,6 +1208,7 @@ function parseAttributionTagFromLabel(label: string): AttributionTag | null {
     '借款归还': 'loan_repayment',
     '大额支出': 'large_expense',
     '转账调整': 'transfer',
+    '异常变动': 'abnormal_other',
   };
   return labelToTag[label] || null;
 }
@@ -1107,7 +1218,8 @@ export function importMonthlyAttributionCSV(
   mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number; skippedCount: number } {
   try {
-    const lines = csvContent.split('\n').filter(line => line.trim());
+    const cleanContent = csvContent.replace(/^\uFEFF/, '');
+    const lines = cleanContent.split('\n').filter(line => line.trim());
     if (lines.length < 2) {
       return { success: false, message: 'CSV文件内容为空', importedCount: 0, skippedCount: 0 };
     }
@@ -1117,7 +1229,7 @@ export function importMonthlyAttributionCSV(
     let skippedCount = 0;
 
     for (const row of rows) {
-      const parts = row.split(',');
+      const parts = parseCSVLine(row);
       if (parts.length < 4) {
         skippedCount++;
         continue;
@@ -1197,7 +1309,8 @@ export function importYearlyAttributionCSV(
   mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number; skippedCount: number } {
   try {
-    const lines = csvContent.split('\n').filter(line => line.trim());
+    const cleanContent = csvContent.replace(/^\uFEFF/, '');
+    const lines = cleanContent.split('\n').filter(line => line.trim());
     if (lines.length < 2) {
       return { success: false, message: 'CSV文件内容为空', importedCount: 0, skippedCount: 0 };
     }
@@ -1207,7 +1320,7 @@ export function importYearlyAttributionCSV(
     let skippedCount = 0;
 
     for (const row of rows) {
-      const parts = row.split(',');
+      const parts = parseCSVLine(row);
       if (parts.length < 5) {
         skippedCount++;
         continue;
@@ -1357,7 +1470,7 @@ export function deleteMonthlyAttribution(year: number, month: number): void {
 }
 
 export function getAttributionTagLabel(tag: AttributionTag): string {
-  const tagLabels: Record<AttributionTag, string> = {
+  const tagLabels: Record<string, string> = {
     salary: '工资积累',
     investment: '投资收益',
     daily: '日常波动',
@@ -1368,13 +1481,20 @@ export function getAttributionTagLabel(tag: AttributionTag): string {
     loan_repayment: '借款归还',
     large_expense: '大额支出',
     transfer: '转账调整',
-    abnormal_other: '其他',
+    abnormal_other: '异常变动',
   };
-  return tagLabels[tag] || tag;
+  if (tagLabels[tag]) return tagLabels[tag];
+  // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
+  if (tag.startsWith('custom_')) {
+    const customTags = getCustomAttributionTags();
+    const customTag = customTags.find(t => t.id === tag);
+    return customTag ? customTag.label : tag;
+  }
+  return tag;
 }
 
 export function getAttributionTagEmoji(tag: AttributionTag): string {
-  const tagEmojis: Record<AttributionTag, string> = {
+  const tagEmojis: Record<string, string> = {
     salary: '💰',
     investment: '📈',
     daily: '🔄',
@@ -1387,7 +1507,91 @@ export function getAttributionTagEmoji(tag: AttributionTag): string {
     transfer: '🔀',
     abnormal_other: '📝',
   };
-  return tagEmojis[tag] || '📝';
+  if (tagEmojis[tag]) return tagEmojis[tag];
+  // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
+  if (tag.startsWith('custom_')) {
+    const customTags = getCustomAttributionTags();
+    const customTag = customTags.find(t => t.id === tag);
+    return customTag ? customTag.emoji : '📝';
+  }
+  return '📝';
+}
+
+export function getCustomAttributionTags(): CustomAttributionTag[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TAGS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomAttributionTag(tag: Omit<CustomAttributionTag, 'id' | 'createdAt'>): CustomAttributionTag {
+  const tags = getCustomAttributionTags();
+  const newTag: CustomAttributionTag = {
+    ...tag,
+    id: `custom_${Date.now()}`,
+    createdAt: new Date().toISOString(),
+  };
+  localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify([...tags, newTag]));
+  return newTag;
+}
+
+export function deleteCustomAttributionTag(id: string): void {
+  const tags = getCustomAttributionTags().filter(t => t.id !== id);
+  localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify(tags));
+}
+
+const PRESET_MONTHLY_TAGS: TagOption[] = [
+  { id: 'salary', label: '工资积累', emoji: '💰', editable: false },
+  { id: 'investment', label: '投资收益', emoji: '📈', editable: false },
+  { id: 'daily', label: '日常波动', emoji: '🔄', editable: false },
+  { id: 'other', label: '其他', emoji: '📝', editable: false },
+  { id: 'salary_income', label: '工资收入', emoji: '💰', editable: false },
+  { id: 'bonus', label: '奖金', emoji: '🎁', editable: false },
+  { id: 'year_end_bonus', label: '年终奖', emoji: '🧧', editable: false },
+  { id: 'loan_repayment', label: '借款归还', emoji: '🔄', editable: false },
+  { id: 'large_expense', label: '大额支出', emoji: '🛒', editable: false },
+  { id: 'transfer', label: '转账调整', emoji: '🔀', editable: false },
+  { id: 'abnormal_other', label: '异常变动', emoji: '📝', editable: false },
+];
+
+export function getAllAttributionTagOptions(): TagOption[] {
+  const customTags = getCustomAttributionTags().map(t => ({
+    id: t.id,
+    label: t.label,
+    emoji: t.emoji,
+    editable: true,
+  }));
+  return [...PRESET_MONTHLY_TAGS, ...customTags];
+}
+
+const PRESET_YEARLY_TAGS: TagOption[] = [
+  { id: 'salary_growth', label: '工资增长', emoji: '💰', editable: false },
+  { id: 'bonus_丰厚', label: '奖金丰厚', emoji: '🎁', editable: false },
+  { id: 'investment_return', label: '投资丰收', emoji: '📈', editable: false },
+  { id: 'asset_change', label: '资产变动', emoji: '🏠', editable: false },
+  { id: 'large_expense', label: '大额支出', emoji: '💸', editable: false },
+  { id: 'account_integration', label: '账户整合', emoji: '🔄', editable: false },
+  { id: 'yearly_other', label: '其他', emoji: '📝', editable: false },
+];
+
+export function getAllYearlyTagOptions(): TagOption[] {
+  const customTags = getCustomAttributionTags().map(t => ({
+    id: t.id,
+    label: t.label,
+    emoji: t.emoji,
+    editable: true,
+  }));
+  return [...PRESET_YEARLY_TAGS, ...customTags];
+}
+
+export function findAttributionTagOption(tagId: string): TagOption | undefined {
+  return getAllAttributionTagOptions().find(t => t.id === tagId);
+}
+
+export function findAttributionTagOptionByLabel(label: string): TagOption | undefined {
+  return getAllAttributionTagOptions().find(t => t.label === label);
 }
 
 export function getYearlyAttribution(year: number): YearlyAttribution | null {
@@ -1519,12 +1723,13 @@ export function getAccountBalanceForMonth(accountId: string, year: number, month
   const data = loadData();
   const targetKey = year * 100 + month;
 
-  // 1. 严格查找目标月份记录
-  const record = data.records.find(
-    r => r.accountId === accountId && r.year === year && r.month === month
-  );
-  if (record) {
-    return record.balance;
+  // 1. 严格查找目标月份记录（取最新的：id最大的）
+  const monthRecords = data.records
+    .filter(r => r.accountId === accountId && r.year === year && r.month === month)
+    .sort((a, b) => b.id.localeCompare(a.id));
+  
+  if (monthRecords.length > 0) {
+    return monthRecords[0].balance;
   }
 
   // 2. 向前查找（历史继承），严格小于目标月份
@@ -1588,7 +1793,7 @@ export function getAccountsForMonth(year: number, month: number): Account[] {
     const hasOldRecord = data.records.some(r => {
       if (r.accountId !== account.id) return false;
       const recordKey = r.year * 100 + r.month;
-      return recordKey <= targetKey;
+      return recordKey < targetKey;
     });
 
     if (hasOldRecord) {
@@ -1596,9 +1801,9 @@ export function getAccountsForMonth(year: number, month: number): Account[] {
     }
   }
 
-  // 4. 合并：该月有记录的 + 应继承的
+  // 4. 合并：该月有记录的 + 应继承的（includeInTotal 过滤由计算函数处理）
   const allVisibleIds = new Set([...monthRecordIds, ...inheritedIds]);
-  return data.accounts.filter(a => allVisibleIds.has(a.id));
+  return data.accounts.filter(a => allVisibleIds.has(a.id) && !a.isHidden);
 }
 
 /**
@@ -1757,4 +1962,146 @@ export function migrateToMonthlyAccountConfigs(): void {
 
   data.monthlyAccountConfigs = configs;
   saveData(data);
+}
+
+// ========== 数据健康检查与去重工具 ==========
+
+function buildRecordKey(r: MonthlyRecord): string {
+  return `${r.accountId}-${r.year}-${r.month}`;
+}
+
+export function validateData(): { isHealthy: boolean; duplicates: string[]; recordCount: number } {
+  const data = loadData();
+  const seen = new Map<string, boolean>();
+  const duplicates: string[] = [];
+
+  data.records.forEach(r => {
+    const key = buildRecordKey(r);
+    if (seen.has(key)) {
+      duplicates.push(key);
+    }
+    seen.set(key, true);
+  });
+
+  return {
+    isHealthy: duplicates.length === 0,
+    duplicates,
+    recordCount: data.records.length,
+  };
+}
+
+export function dedupeRecords(): number {
+  const data = loadData();
+  const recordMap = new Map<string, MonthlyRecord>();
+  let removedCount = 0;
+
+  data.records.forEach(r => {
+    const key = buildRecordKey(r);
+    if (recordMap.has(key)) {
+      removedCount++;
+    }
+    recordMap.set(key, r);
+  });
+
+  data.records = Array.from(recordMap.values());
+  saveData(data);
+
+  return removedCount;
+}
+
+export interface FullBackup {
+  version: string;
+  exportedAt: string;
+  accounts: Account[];
+  records: MonthlyRecord[];
+  attributions: MonthlyAttribution[];
+  yearlyAttributions: YearlyAttribution[];
+  settings: AppSettings;
+}
+
+export function exportFullBackupJSON(): string {
+  const data = loadData();
+  const backup: FullBackup = {
+    version: CURRENT_VERSION,
+    exportedAt: new Date().toISOString(),
+    accounts: data.accounts,
+    records: data.records,
+    attributions: data.attributions,
+    yearlyAttributions: data.yearlyAttributions,
+    settings: data.settings,
+  };
+  return JSON.stringify(backup, null, 2);
+}
+
+export function importFullBackupJSON(
+  jsonContent: string,
+  mergeMode: 'overwrite' | 'merge' = 'overwrite'
+): { success: boolean; message: string; importedAccounts: number; importedRecords: number } {
+  try {
+    const backup = JSON.parse(jsonContent) as FullBackup;
+    
+    if (!backup.accounts || !backup.records) {
+      return { success: false, message: '备份文件格式无效', importedAccounts: 0, importedRecords: 0 };
+    }
+
+    const data = loadData();
+
+    if (mergeMode === 'overwrite') {
+      data.accounts = backup.accounts;
+      data.records = backup.records;
+      data.attributions = backup.attributions || [];
+      data.yearlyAttributions = backup.yearlyAttributions || [];
+      if (backup.settings) {
+        data.settings = backup.settings;
+      }
+    } else {
+      const existingAccountNames = new Set(data.accounts.map(a => a.name));
+      for (const account of backup.accounts) {
+        if (!existingAccountNames.has(account.name)) {
+          data.accounts.push(account);
+        }
+      }
+
+      const existingRecordKeys = new Set(
+        data.records.map(r => `${r.accountId}-${r.year}-${r.month}`)
+      );
+      for (const record of backup.records) {
+        const key = `${record.accountId}-${record.year}-${record.month}`;
+        if (!existingRecordKeys.has(key)) {
+          data.records.push(record);
+        }
+      }
+
+      const existingAttrKeys = new Set(
+        data.attributions.map(a => `${a.year}-${a.month}`)
+      );
+      for (const attr of backup.attributions || []) {
+        const key = `${attr.year}-${attr.month}`;
+        if (!existingAttrKeys.has(key)) {
+          data.attributions.push(attr);
+        }
+      }
+
+      const existingYearlyKeys = new Set(
+        data.yearlyAttributions.map(a => a.year)
+      );
+      for (const attr of backup.yearlyAttributions || []) {
+        if (!existingYearlyKeys.has(attr.year)) {
+          data.yearlyAttributions.push(attr);
+        }
+      }
+    }
+
+    saveData(data);
+
+    return {
+      success: true,
+      message: `成功导入 ${backup.accounts.length} 个账户和 ${backup.records.length} 条记录`,
+      importedAccounts: backup.accounts.length,
+      importedRecords: backup.records.length,
+    };
+  } catch (error) {
+    console.error('Failed to import full backup:', error);
+    return { success: false, message: '导入失败：文件格式错误', importedAccounts: 0, importedRecords: 0 };
+  }
 }

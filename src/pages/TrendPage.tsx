@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getAttributionTagLabel, getAttributionTagEmoji } from '@/lib/storage';
+import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -312,8 +312,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
       if (hasRecord) {
         // 有记录，使用正常计算
-        totalAssets = calculateTotalAssets(year, month);
-        totalLiabilities = calculateTotalLiabilities(year, month);
+        const accounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
+        totalAssets = calculateTotalAssets(accounts, year, month);
+        totalLiabilities = calculateTotalLiabilities(accounts, year, month);
         netWorth = totalAssets - totalLiabilities;
       } else {
         // 无记录，净资产设为 0（表示该月无数据）
@@ -334,7 +335,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       const lastMonthKey = `${lastYear}-${lastMonth.toString().padStart(2, '0')}`;
       let lastNetWorth: number;
       if (hasRecordSet.has(lastMonthKey)) {
-        lastNetWorth = calculateNetWorth(lastYear, lastMonth);
+        const lastMonthAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
+        lastNetWorth = calculateNetWorth(lastMonthAccounts, lastYear, lastMonth);
       } else {
         lastNetWorth = 0;
       }
@@ -403,14 +405,21 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       }
 
       // 使用与首页一致的计算函数
-      const totalAssets = calculateTotalAssets(year, lastMonth);
-      const totalLiabilities = calculateTotalLiabilities(year, lastMonth);
+      const accounts = getAccountsForMonth(year, lastMonth).filter(a => !a.isHidden);
+      const totalAssets = calculateTotalAssets(accounts, year, lastMonth);
+      const totalLiabilities = calculateTotalLiabilities(accounts, year, lastMonth);
       const netWorth = totalAssets - totalLiabilities;
 
       // 计算上一年度数据用于对比
-      const lastYearNetWorth = calculateNetWorth(year - 1, 12);
+      const lastYearAccounts = getAccountsForMonth(year - 1, 12).filter(a => !a.isHidden);
+      const lastYearNetWorth = calculateNetWorth(lastYearAccounts, year - 1, 12);
       const change = netWorth - lastYearNetWorth;
       const changePercent = lastYearNetWorth !== 0 ? (change / Math.abs(lastYearNetWorth)) * 100 : 0;
+
+      const yearlyAttr = getYearlyAttribution(year);
+      let fluctuationLevel: 'normal' | 'warning' | 'abnormal' = 'normal';
+      if (Math.abs(changePercent) > 30) fluctuationLevel = 'abnormal';
+      else if (Math.abs(changePercent) > 10) fluctuationLevel = 'warning';
 
       history.push({
         year,
@@ -420,6 +429,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         change,
         changePercent,
         hasData: yearRecords.length > 0,
+        attribution: yearlyAttr ? {
+          tags: yearlyAttr.tags as unknown as AttributionTag[],
+          note: yearlyAttr.note,
+          fluctuationLevel,
+        } : undefined,
       });
     }
 
@@ -467,26 +481,27 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     if (filterTag === 'all') return history;
 
     return history.map((point: TrendPoint | YearlyNetWorth | QuarterlyNetWorth) => {
-      if (!('attribution' in point) || !point.attribution) {
+      const hasAttribution = 'attribution' in point && point.attribution && point.attribution.tags?.length > 0;
+      if (!hasAttribution) {
         return { ...point, isFiltered: true };
       }
 
       let shouldShow = false;
       switch (filterTag) {
         case 'salary':
-          shouldShow = point.attribution.tags.includes('salary') || point.attribution.tags.includes('salary_income');
+          shouldShow = point.attribution!.tags.includes('salary') || point.attribution!.tags.includes('salary_income');
           break;
         case 'bonus':
-          shouldShow = point.attribution.tags.includes('bonus') || point.attribution.tags.includes('year_end_bonus');
+          shouldShow = point.attribution!.tags.includes('bonus') || point.attribution!.tags.includes('year_end_bonus');
           break;
         case 'investment':
-          shouldShow = point.attribution.tags.includes('investment');
+          shouldShow = point.attribution!.tags.includes('investment');
           break;
         case 'expense':
-          shouldShow = point.attribution.tags.includes('large_expense');
+          shouldShow = point.attribution!.tags.includes('large_expense');
           break;
         case 'abnormal':
-          shouldShow = point.attribution.fluctuationLevel === 'abnormal';
+          shouldShow = point.attribution!.fluctuationLevel === 'abnormal';
           break;
         default:
           shouldShow = true;
@@ -800,15 +815,15 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           tickLine={false}
                           allowDataOverflow={true}
                           interval={rechartsData.length > 16 ? 2 : rechartsData.length > 8 ? 1 : 0}
-                          tickFormatter={(value, index) => {
+                          tickFormatter={(value) => {
                             if (trendType === 'yearly') return value;
+                            const item = rechartsData.find(d => d.label === value);
+                            if (!item) return value;
                             if (useQuarterlyView) {
-                              const item = rechartsData[index];
-                              if (item && (item as any).quarter === 1) return `${(item as any).year}年`;
+                              if (item.quarter === 1) return `${item.year}年`;
                               return value;
                             }
-                            const item = rechartsData[index];
-                            if (item && item.month === 1) return `${item.year}`;
+                            if (item.month === 1) return `${item.year}年`;
                             return value.split('-')[1] + '月';
                           }}
                         />
@@ -866,16 +881,29 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         />
                         {/* 年度分割线 */}
                         {rechartsData.map((item: any, index: number) => {
-                          if (index > 0 && item.month === 1 && trendType === 'monthly') {
-                            return (
-                              <ReferenceLine
-                                key={`boundary-${index}`}
-                                x={item.label}
-                                stroke="#9ca3af"
-                                strokeWidth={1}
-                                ifOverflow="extendDomain"
-                              />
-                            );
+                          if (index > 0) {
+                            if (trendType === 'monthly' && !useQuarterlyView && item.month === 1) {
+                              return (
+                                <ReferenceLine
+                                  key={`boundary-${item.year}`}
+                                  x={item.label}
+                                  stroke="#9ca3af"
+                                  strokeWidth={1}
+                                  ifOverflow="extendDomain"
+                                />
+                              );
+                            }
+                            if (useQuarterlyView && item.quarter === 1) {
+                              return (
+                                <ReferenceLine
+                                  key={`boundary-${item.year}-Q${item.quarter}`}
+                                  x={item.label}
+                                  stroke="#9ca3af"
+                                  strokeWidth={1}
+                                  ifOverflow="extendDomain"
+                                />
+                              );
+                            }
                           }
                           return null;
                         })}
@@ -953,9 +981,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           <span className="text-xs text-gray-500 whitespace-nowrap">
                             {abnormalLegend.maxPoint.showYear ? `${abnormalLegend.maxPoint.year}年` : ''}{abnormalLegend.maxPoint.label}
                           </span>
-                          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.themeColor }}>
-                            ¥{formatBalance(abnormalLegend.maxPoint.netWorth)}
-                          </span>
                         </div>
                       )}
                       {abnormalLegend.hasBoth && abnormalLegend.minPoint && (
@@ -969,9 +994,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           </div>
                           <span className="text-xs text-gray-500 whitespace-nowrap">
                             {abnormalLegend.minPoint.showYear ? `${abnormalLegend.minPoint.year}年` : ''}{abnormalLegend.minPoint.label}
-                          </span>
-                          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: abnormalLegend.lowPointColor }}>
-                            ¥{formatBalance(abnormalLegend.minPoint.netWorth)}
                           </span>
                         </div>
                       )}

@@ -11,6 +11,7 @@ import {
   getSettings,
   deleteAccount,
   loadData,
+  getAccountsForMonth,
 } from '@/lib/storage';
 import { getAccountTypeLabel, getAccountHistory, calculateTotalAssets } from '@/lib/calculator';
 import { THEMES } from '@/types';
@@ -272,6 +273,7 @@ function aggregateToQuarter(data: any[], isCredit: boolean): any[] {
       label: `${year.slice(2)}Q${quarter}`,
       fullLabel: `${year}年第${quarter}季度`,
       year: parseInt(year),
+      quarter: quarterNum,
       balance: isCredit ? representativeItem.debt || 0 : representativeItem.balance,
       debt: isCredit ? representativeItem.debt || 0 : 0,
       surplus: isCredit ? representativeItem.surplus || 0 : 0,
@@ -300,7 +302,8 @@ function calculateContribution(account: Account): ContributionData {
   const currentBalance = getAccountMonthBalance(account, year, month);
 
   // 计算当月总资产
-  const totalAssets = calculateTotalAssets(year, month);
+  const accounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
+  const totalAssets = calculateTotalAssets(accounts, year, month);
 
   // 计算上月数据
   let lastYear = year;
@@ -310,7 +313,8 @@ function calculateContribution(account: Account): ContributionData {
     lastMonth = 12;
   }
   const lastMonthBalance = getAccountMonthBalance(account, lastYear, lastMonth);
-  const lastTotalAssets = calculateTotalAssets(lastYear, lastMonth);
+  const lastYearAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
+  const lastTotalAssets = calculateTotalAssets(lastYearAccounts, lastYear, lastMonth);
 
   // 判断是否为负债账户
   const isDebtAccount = account.type === 'credit' || account.type === 'debt';
@@ -365,10 +369,20 @@ function calculateContribution(account: Account): ContributionData {
 function getYearBoundaries(data: any[]): { index: number; year: number }[] {
   const boundaries: { index: number; year: number }[] = [];
 
+  // 判断是否为季度聚合数据
+  const isQuarterly = data.length > 0 && 'quarter' in data[0];
+
   data.forEach((item, index) => {
-    // 在每年1月的数据点处添加分割线
-    if (item.month && item.month.endsWith('-01')) {
-      boundaries.push({ index, year: item.year });
+    if (isQuarterly) {
+      // 季度数据：在每年Q1（第一季度）处添加分割线，但不显示第一年的
+      if (index > 0 && item.quarter === 1) {
+        boundaries.push({ index, year: item.year });
+      }
+    } else {
+      // 月度数据：在每年1月的数据点处添加分割线
+      if (item.month && item.month.endsWith('-01')) {
+        boundaries.push({ index, year: item.year });
+      }
     }
   });
 
@@ -775,17 +789,21 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis
-                          dataKey="label"
+                          dataKey="month"
                           tick={{ fontSize: 9 }}
                           axisLine={false}
                           tickLine={false}
                           interval={0}
-                          tickFormatter={(value, index) => {
+                          tickFormatter={(value: string, index: number) => {
+                            if (!value) return '';
                             const item = trendData[index];
-                            if (item && item.month && item.month.endsWith('-01')) {
+                            if (item && 'quarter' in item && item.quarter === 1) {
                               return `${item.year}年`;
                             }
-                            return value;
+                            if (value.endsWith('-01')) {
+                              return `${value.split('-')[0]}年`;
+                            }
+                            return `${parseInt(value.split('-')[1], 10)}月`;
                           }}
                         />
                         <YAxis
@@ -842,7 +860,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                             return (
                               <ReferenceLine
                                 key={`boundary-${boundary.index}`}
-                                x={dataPoint.label}
+                                x={dataPoint.month}
                                 stroke="#9ca3af"
                                 strokeWidth={1}
                                 ifOverflow="extendDomain"
@@ -867,7 +885,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         {/* 信用卡极值点标记 - 使用动画组件 */}
                         {extremePoints?.maxPoint && (
                           <ReferenceDot
-                            x={extremePoints.maxPoint.label}
+                            x={extremePoints.maxPoint.month}
                             y={extremePoints.maxPoint.debt}
                             shape={(props: any) => (
                               <AnimatedPulseDot
@@ -884,7 +902,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         )}
                         {/* 底部滑块用于缩放和滑动 */}
                         <Brush
-                          dataKey="label"
+                          dataKey="month"
                           height={20}
                           stroke={themeConfig.primary}
                           fill={`${themeConfig.primary}20`}
@@ -904,17 +922,21 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis
-                          dataKey="label"
+                          dataKey="month"
                           tick={{ fontSize: 9 }}
                           axisLine={false}
                           tickLine={false}
                           interval={0}
-                          tickFormatter={(value, index) => {
+                          tickFormatter={(value: string, index: number) => {
+                            if (!value) return '';
                             const item = trendData[index];
-                            if (item && item.month && item.month.endsWith('-01')) {
+                            if (item && 'quarter' in item && item.quarter === 1) {
                               return `${item.year}年`;
                             }
-                            return value;
+                            if (value.endsWith('-01')) {
+                              return `${value.split('-')[0]}年`;
+                            }
+                            return `${parseInt(value.split('-')[1], 10)}月`;
                           }}
                         />
                         <YAxis
@@ -971,7 +993,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                             return (
                               <ReferenceLine
                                 key={`boundary-${boundary.index}`}
-                                x={dataPoint.label}
+                                x={dataPoint.month}
                                 stroke="#9ca3af"
                                 strokeWidth={1}
                                 ifOverflow="extendDomain"
@@ -996,7 +1018,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         {/* 储蓄卡极值点标记 - 使用动画组件 */}
                         {extremePoints?.maxPoint && (
                           <ReferenceDot
-                            x={extremePoints.maxPoint.label}
+                            x={extremePoints.maxPoint.month}
                             y={extremePoints.maxPoint.balance}
                             shape={(props: any) => (
                               <AnimatedPulseDot
@@ -1013,7 +1035,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         )}
                         {extremePoints?.minPoint && extremePoints.hasBoth && (
                           <ReferenceDot
-                            x={extremePoints.minPoint.label}
+                            x={extremePoints.minPoint.month}
                             y={extremePoints.minPoint.balance}
                             shape={(props: any) => (
                               <AnimatedPulseDot
@@ -1030,7 +1052,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         )}
                         {/* 底部滑块用于缩放和滑动 */}
                         <Brush
-                          dataKey="label"
+                          dataKey="month"
                           height={20}
                           stroke={themeConfig.primary}
                           fill={`${themeConfig.primary}20`}
