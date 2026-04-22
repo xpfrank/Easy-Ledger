@@ -238,11 +238,11 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
       
       currentData.records.forEach(r => recordMap.set(buildKey(r), r));
-      data.records.forEach(r => recordMap.set(buildKey(r), r));
+      data.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
 
       const accountMap = new Map<string, Account>();
       currentData.accounts.forEach(a => accountMap.set(a.id, a));
-      data.accounts.forEach(importedAccount => {
+      data.accounts.forEach((importedAccount: Account) => {
         const existing = accountMap.get(importedAccount.id);
         if (existing) {
           accountMap.set(importedAccount.id, {
@@ -1212,12 +1212,12 @@ export function exportYearlyAttributionCSV(startYear?: number, endYear?: number)
     if (/^\d+$/.test(item)) {
       return `${item}月`;
     }
-    return getAttributionTagLabel(item as AttributionTag);
+    return getYearlyAttributionTagLabel(item as YearlyAttributionTag);
   };
 
   const rows: string[] = [header];
   for (const attr of sortedAttributions) {
-    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('、');
+    const tags = attr.tags.map(t => getYearlyAttributionTagLabel(t)).join('、');
     const keyMonths = attr.keyMonths.map(formatKeyMonth).join('、');
     const note = (attr.note || '').replace(/,/g, ';');
     rows.push(`${attr.year},${tags},${keyMonths},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${attr.netWorth.toFixed(2)},${note}`);
@@ -1423,7 +1423,7 @@ export function batchImportByRange(
   mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number } {
   const filteredRows = rows.filter(row => {
-    const [yearStr, monthStr] = row.month.split('-');
+    const [yearStr, monthStr] = row.month.toString().split('-');
     const year = parseInt(yearStr);
     const month = parseInt(monthStr);
 

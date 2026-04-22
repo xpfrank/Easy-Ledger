@@ -185,7 +185,7 @@ export interface PresetTagConfig {
 }
 
 // 完整标签配置（含自定义）
-export interface TagOption extends PresetTagConfig {
+export interface TagOption extends Omit<PresetTagConfig, 'editable'> {
   editable: boolean;
 }
 
@@ -268,13 +268,17 @@ export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string 
   // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
   if (tag.startsWith('custom_')) {
     try {
-      const { getCustomAttributionTags } = require('@/lib/storage');
-      const customTags = getCustomAttributionTags();
-      const customTag = customTags.find((t: { id: string; label: string }) => t.id === tag);
-      return customTag ? customTag.label : tag;
+      const storage = window.localStorage;
+      const customTagsStr = storage.getItem('custom_attribution_tags');
+      if (customTagsStr) {
+        const customTags = JSON.parse(customTagsStr);
+        const customTag = customTags.find((t: { id: string; label: string }) => t.id === tag);
+        return customTag ? customTag.label : tag;
+      }
     } catch {
-      return tag;
+      // ignore
     }
+    return tag;
   }
   return tag;
 }
@@ -294,13 +298,17 @@ export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string 
   // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
   if (tag.startsWith('custom_')) {
     try {
-      const { getCustomAttributionTags } = require('@/lib/storage');
-      const customTags = getCustomAttributionTags();
-      const customTag = customTags.find((t: { id: string; emoji: string }) => t.id === tag);
-      return customTag ? customTag.emoji : '📝';
+      const storage = window.localStorage;
+      const customTagsStr = storage.getItem('custom_attribution_tags');
+      if (customTagsStr) {
+        const customTags = JSON.parse(customTagsStr);
+        const customTag = customTags.find((t: { id: string; emoji: string }) => t.id === tag);
+        return customTag ? customTag.emoji : '📝';
+      }
     } catch {
-      return '📝';
+      // ignore
     }
+    return '📝';
   }
   return '📝';
 }
