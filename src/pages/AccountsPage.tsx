@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -21,6 +21,7 @@ import {
   getExpandedGroups,
   saveExpandedGroups,
   getAllAccounts,
+  reorderAccountInGroup,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -139,6 +140,11 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
 
   const toggleHidden = (account: Account) => {
     updateAccount(account.id, { isHidden: !account.isHidden });
+    loadAccounts();
+  };
+
+  const handleReorder = (accountId: string, direction: 'up' | 'down') => {
+    reorderAccountInGroup(accountId, direction);
     loadAccounts();
   };
 
@@ -337,6 +343,35 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={group.accounts.indexOf(account) === 0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReorder(account.id, 'up');
+                            }}
+                          >
+                            <ArrowUp size={15} className={
+                              group.accounts.indexOf(account) === 0 ? 'text-gray-200' : 'text-gray-400'
+                            } />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={group.accounts.indexOf(account) === group.accounts.length - 1}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReorder(account.id, 'down');
+                            }}
+                          >
+                            <ArrowDown size={15} className={
+                              group.accounts.indexOf(account) === group.accounts.length - 1
+                                ? 'text-gray-200' : 'text-gray-400'
+                            } />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"

@@ -466,8 +466,8 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
       ? getCreditTrendData(account.id, months)
       : getSavingsTrendData(account.id, months);
 
-    // 超过24个月时自动按季度聚合
-    if (rawData.length > 24) {
+    // 超过16个月时自动按季度聚合
+    if (rawData.length > 16) {
       return aggregateToQuarter(rawData, account.type === 'credit');
     }
     return rawData;

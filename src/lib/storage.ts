@@ -500,7 +500,37 @@ export function getAccountById(id: string): Account | undefined {
 
 export function getAllAccounts(): Account[] {
   const data = loadData();
-  return data.accounts;
+  return [...data.accounts].sort(
+    (a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999)
+  );
+}
+
+export function reorderAccountInGroup(
+  accountId: string,
+  direction: 'up' | 'down'
+): void {
+  const data = loadData();
+  const target = data.accounts.find(a => a.id === accountId);
+  if (!target) return;
+
+  const sameGroup = [...data.accounts]
+    .filter(a => a.type === target.type)
+    .sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
+
+  const idx = sameGroup.findIndex(a => a.id === accountId);
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= sameGroup.length) return;
+
+  sameGroup.forEach((acc, i) => {
+    const real = data.accounts.find(a => a.id === acc.id);
+    if (real) real.sortOrder = i;
+  });
+
+  const a = data.accounts.find(a => a.id === sameGroup[idx].id)!;
+  const b = data.accounts.find(a => a.id === sameGroup[swapIdx].id)!;
+  [a.sortOrder, b.sortOrder] = [b.sortOrder, a.sortOrder];
+
+  saveData(data);
 }
 
 export function setMonthlyRecord(accountId: string, year: number, month: number, balance: number): MonthlyRecord {
@@ -1803,7 +1833,9 @@ export function getAccountsForMonth(year: number, month: number): Account[] {
 
   // 4. 合并：该月有记录的 + 应继承的（includeInTotal 过滤由计算函数处理）
   const allVisibleIds = new Set([...monthRecordIds, ...inheritedIds]);
-  return data.accounts.filter(a => allVisibleIds.has(a.id) && !a.isHidden);
+  return data.accounts
+    .filter(a => allVisibleIds.has(a.id) && !a.isHidden)
+    .sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
 }
 
 /**

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, AlertTriangle, Filter } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth } from '@/lib/storage';
+import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllAttributionTagOptions } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -41,7 +41,7 @@ interface TrendPageProps {
 
 type TimeRange = '6' | '12' | 'all';
 type TrendType = 'monthly' | 'yearly';
-type FilterTag = 'all' | 'salary' | 'bonus' | 'investment' | 'expense' | 'abnormal';
+type FilterTag = 'all' | 'abnormal' | string;
 
 interface YearlyNetWorth {
   year: number;
@@ -187,6 +187,25 @@ function aggregateToQuarter(data: TrendPoint[]): QuarterlyNetWorth[] {
       return a.month - b.month;
     })[months.length - 1];
 
+    // 聚合该季度所有月份的归因标签
+    const quarterTagSet = new Set<string>();
+    let quarterFluctuationLevel: 'normal' | 'warning' | 'abnormal' = 'normal';
+    let quarterNote = '';
+    
+    months.forEach(m => {
+      if (m.attribution?.tags?.length) {
+        m.attribution.tags.forEach(tag => quarterTagSet.add(tag));
+      }
+      if (m.attribution?.fluctuationLevel === 'abnormal') {
+        quarterFluctuationLevel = 'abnormal';
+      } else if (m.attribution?.fluctuationLevel === 'warning' && quarterFluctuationLevel !== 'abnormal') {
+        quarterFluctuationLevel = 'warning';
+      }
+      if (m.attribution?.note && !quarterNote.includes(m.attribution.note)) {
+        quarterNote = quarterNote ? `${quarterNote}; ${m.attribution.note}` : m.attribution.note;
+      }
+    });
+
     return {
       year,
       quarter: quarterNum,
@@ -196,6 +215,11 @@ function aggregateToQuarter(data: TrendPoint[]): QuarterlyNetWorth[] {
       _originalMonths: months,
       fullLabel: `${year}年第${quarterNum}季度`,
       label: `${year.toString().slice(2)}Q${quarterNum}`,
+      attribution: quarterTagSet.size > 0 ? {
+        tags: Array.from(quarterTagSet) as AttributionTag[],
+        note: quarterNote || undefined,
+        fluctuationLevel: quarterFluctuationLevel,
+      } : undefined,
     };
   }).sort((a, b) => {
     if (a.year !== b.year) return a.year - b.year;
@@ -219,16 +243,53 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [hideBalance, setHideBalance] = useState(false);
   const [filterTag, setFilterTag] = useState<FilterTag>('all');
+
+  // 季度聚合视图状态
+  const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyNetWorth[]>([]);
+
+  // 获取所有可用标签选项（含自定义）
+  const allTagOptions = useMemo(() => getAllAttributionTagOptions(), []);
+
+  // 是否使用季度聚合视图（必须在 history 之前定义）
+  const useQuarterlyView = timeRange === 'all' && monthlyHistory.length > 16;
+
+  // 当前显示的历史数据（根据是否启用季度视图自动切换）
+  const history = trendType === 'monthly' 
+    ? (useQuarterlyView ? quarterlyHistory as any : monthlyHistory) 
+    : yearlyHistory;
+
+  // 从当前 history 数据中，提取实际出现过的归因标签 ID
+  const activeTagIds = useMemo(() => {
+    const tagSet = new Set<string>();
+    (history as any[]).forEach(point => {
+      if (point.attribution?.tags?.length) {
+        point.attribution.tags.forEach((tag: string) => tagSet.add(tag));
+      }
+    });
+    return tagSet;
+  }, [history]);
+
+  // 构建筛选栏：只显示有数据的标签 + 全部 + 异常
+  const filterTagList = useMemo(() => {
+    const list = [
+      { id: 'all', label: '全部', emoji: '📊' },
+      { id: 'abnormal', label: '异常', emoji: '⚠️' },
+    ];
+    allTagOptions.forEach(t => {
+      if (activeTagIds.has(t.id)) {
+        list.push({ id: t.id, label: t.label, emoji: t.emoji });
+      }
+    });
+    return list;
+  }, [allTagOptions, activeTagIds]);
+
   // 年份区间选择器状态
   const [yearRange, setYearRange] = useState<{ start: number; end: number }>(() => {
     const now = new Date();
     return { start: now.getFullYear() - 4, end: now.getFullYear() };
   });
-  // 季度聚合视图状态
-  const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyNetWorth[]>([]);
-  // 是否使用季度聚合视图
-  const useQuarterlyView = timeRange === 'all' && monthlyHistory.length > 24;
-  // 问题3修复：聚合节点展开状态
+
+  // 聚合节点展开状态
   const [expandedAggregate, setExpandedAggregate] = useState<{
     label: string;
     fullLabel: string;
@@ -471,11 +532,6 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
   }, [monthlyHistory, useQuarterlyView]);
 
-  // 当前显示的历史数据（根据是否启用季度视图自动切换）
-  const history = trendType === 'monthly' 
-    ? (useQuarterlyView ? quarterlyHistory as any : monthlyHistory) 
-    : yearlyHistory;
-
   // 根据筛选标签计算是否过滤
   const filteredHistory = useMemo(() => {
     if (filterTag === 'all') return history;
@@ -487,24 +543,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       }
 
       let shouldShow = false;
-      switch (filterTag) {
-        case 'salary':
-          shouldShow = point.attribution!.tags.includes('salary') || point.attribution!.tags.includes('salary_income');
-          break;
-        case 'bonus':
-          shouldShow = point.attribution!.tags.includes('bonus') || point.attribution!.tags.includes('year_end_bonus');
-          break;
-        case 'investment':
-          shouldShow = point.attribution!.tags.includes('investment');
-          break;
-        case 'expense':
-          shouldShow = point.attribution!.tags.includes('large_expense');
-          break;
-        case 'abnormal':
-          shouldShow = point.attribution!.fluctuationLevel === 'abnormal';
-          break;
-        default:
-          shouldShow = true;
+      
+      // 异常波动：按波动等级筛选
+      if (filterTag === 'abnormal') {
+        shouldShow = point.attribution!.fluctuationLevel === 'abnormal';
+      } 
+      // 通用标签匹配：直接比对标签 ID（支持自定义标签）
+      else {
+        shouldShow = point.attribution!.tags.includes(filterTag as AttributionTag);
       }
 
       return { ...point, isFiltered: !shouldShow };
@@ -730,28 +776,31 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           )}
         </div>
 
-        {/* 筛选栏（月度趋势和年度趋势都显示） */}
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
-          {[
-            { key: 'all', label: '全部', emoji: '📊' },
-            { key: 'salary', label: '工资', emoji: '💰' },
-            { key: 'bonus', label: '奖金', emoji: '🎁' },
-            { key: 'investment', label: '投资', emoji: '📈' },
-            { key: 'expense', label: '支出', emoji: '🛒' },
-            { key: 'abnormal', label: '异常', emoji: '⚠️' },
-          ].map(item => (
-            <button
-              key={item.key}
-              className={`px-3 py-1.5 rounded-md text-xs whitespace-nowrap transition-colors ${
-                filterTag === item.key
-                  ? 'bg-white shadow text-gray-800'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-              onClick={() => setFilterTag(item.key as FilterTag)}
-            >
-              {item.emoji} {item.label}
-            </button>
-          ))}
+        {/* 归因筛选 */}
+        <div className="bg-white rounded-xl border border-gray-100 p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Filter size={12} className="text-gray-400" />
+            <span className="text-xs text-gray-400 font-medium">归因筛选</span>
+            <span className="text-xs text-gray-300 ml-auto">
+              {filterTagList.length - 2 > 0 ? `已使用 ${filterTagList.length - 2} 个标签` : '暂无归因数据'}
+            </span>
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+            {filterTagList.map(item => (
+              <button
+                key={item.id}
+                className={`px-2.5 py-1 rounded-lg text-xs whitespace-nowrap transition-all flex-shrink-0 border ${
+                  filterTag === item.id
+                    ? 'bg-gray-900 text-white border-gray-900 font-medium'
+                    : 'bg-gray-50 text-gray-600 border-transparent hover:bg-gray-100'
+                }`}
+                onClick={() => setFilterTag(item.id)}
+              >
+                <span className="mr-0.5">{item.emoji}</span>
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {filteredHistory.filter((h: any) => !h.isFiltered).length === 0 ? (

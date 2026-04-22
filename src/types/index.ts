@@ -23,6 +23,7 @@ export interface Account {
   repaymentDay?: number;
   graceDays?: number;
   creditLimit?: number;
+  sortOrder?: number;
 }
 
 // 月度记录
