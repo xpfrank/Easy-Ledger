@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench, Plus, X } from 'lucide-react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType } from '@/types';
@@ -53,7 +53,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [newTagLabel, setNewTagLabel] = useState('');
   const [newTagEmoji, setNewTagEmoji] = useState('🏷️');
   const [tagAddError, setTagAddError] = useState('');
-  const [showTagAdd, setShowTagAdd] = useState(false);
 
   const handleAddTag = () => {
     if (!newTagLabel.trim()) { setTagAddError('请输入标签名称'); return; }
@@ -63,7 +62,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     setNewTagLabel('');
     setNewTagEmoji('🏷️');
     setTagAddError('');
-    setShowTagAdd(false);
   };
 
   const handleDeleteTag = (id: string) => {
