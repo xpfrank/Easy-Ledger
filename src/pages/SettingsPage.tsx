@@ -148,7 +148,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     setNewTagLabel('');
     setNewTagEmoji('🏷️');
     setTagAddError('');
-    setShowTagAdd(false);
+    setShowTagDialog(false);
   };
 
   const handleDeleteTag = (id: string) => {

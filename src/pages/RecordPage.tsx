@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
-import { NORMAL_TAGS, ABNORMAL_TAGS, YEARLY_TAGS, THEMES } from '@/types';
+import { THEMES } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
