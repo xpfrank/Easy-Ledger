@@ -185,7 +185,10 @@ export interface PresetTagConfig {
 }
 
 // 完整标签配置（含自定义）
-export interface TagOption extends Omit<PresetTagConfig, 'editable'> {
+export interface TagOption {
+  id: string;
+  label: string;
+  emoji: string;
   editable: boolean;
 }
 
@@ -265,19 +268,8 @@ export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string 
     yearly_other: '其他',
   };
   if (tagLabels[tag]) return tagLabels[tag];
-  // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
+  // 自定义标签：直接返回 tag id
   if (tag.startsWith('custom_')) {
-    try {
-      const storage = window.localStorage;
-      const customTagsStr = storage.getItem('custom_attribution_tags');
-      if (customTagsStr) {
-        const customTags = JSON.parse(customTagsStr);
-        const customTag = customTags.find((t: { id: string; label: string }) => t.id === tag);
-        return customTag ? customTag.label : tag;
-      }
-    } catch {
-      // ignore
-    }
     return tag;
   }
   return tag;
@@ -295,19 +287,8 @@ export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string 
     yearly_other: '📝',
   };
   if (tagEmojis[tag]) return tagEmojis[tag];
-  // 自定义标签：只有 custom_ 前缀的才需要查 localStorage
+  // 自定义标签：直接返回默认 emoji
   if (tag.startsWith('custom_')) {
-    try {
-      const storage = window.localStorage;
-      const customTagsStr = storage.getItem('custom_attribution_tags');
-      if (customTagsStr) {
-        const customTags = JSON.parse(customTagsStr);
-        const customTag = customTags.find((t: { id: string; emoji: string }) => t.id === tag);
-        return customTag ? customTag.emoji : '📝';
-      }
-    } catch {
-      // ignore
-    }
     return '📝';
   }
   return '📝';
