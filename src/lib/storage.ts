@@ -237,12 +237,12 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       const recordMap = new Map<string, MonthlyRecord>();
       const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
       
-      currentData.records.forEach(r => recordMap.set(buildKey(r), r));
-      data.records.forEach(r => recordMap.set(buildKey(r), r));
+      currentData.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
+      data.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
 
       const accountMap = new Map<string, Account>();
       currentData.accounts.forEach(a => accountMap.set(a.id, a));
-      data.accounts.forEach(importedAccount => {
+      data.accounts.forEach((importedAccount: Account) => {
         const existing = accountMap.get(importedAccount.id);
         if (existing) {
           accountMap.set(importedAccount.id, {
@@ -316,8 +316,8 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
 
     const recordMap = new Map<string, MonthlyRecord>();
     const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
-    currentData.records.forEach(r => recordMap.set(buildKey(r), r));
-    importedRecords.forEach(r => recordMap.set(buildKey(r), r));
+    currentData.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
+    importedRecords.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
     currentData.records = Array.from(recordMap.values());
 
     currentData.logs.push(...importedLogs);
@@ -728,7 +728,7 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
 
 export interface ExcelImportRow {
   year: number;
-  month: string;
+  month: number;
   accountId?: string;
   accountName: string;
   accountType?: string;
@@ -817,7 +817,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
       continue;
     }
 
-    result.push({ year, month, accountId, accountName, accountType, accountIcon, isHidden, balance, attributionTag, note });
+    result.push({ year, month, accountId, accountName, accountType, accountIcon, isHidden, balance, attributionTag, note } as ExcelImportRow);
   }
 
   return result;
@@ -883,7 +883,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
     const data = loadData();
     let importedCount = 0;
     const unmatchedAccounts: string[] = [];
-    const attributionData: { year: number; month: number; change: number; tags: string[]; note?: string }[] = [];
+    const attributionData: { year: number; month: number; change: number; tags: AttributionTag[]; note?: string }[] = [];
     const createdAccounts: string[] = [];
 
     // 第一遍：收集并自动创建不存在的账户
@@ -950,7 +950,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
           year,
           month,
           change: row.balance - existingRecord.balance,
-          tags: row.attributionTag ? [row.attributionTag] : [],
+          tags: row.attributionTag ? [row.attributionTag as AttributionTag] : [],
           note: row.note
         });
         existingRecord.balance = row.balance;
@@ -959,7 +959,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
           year,
           month,
           change: row.balance,
-          tags: row.attributionTag ? [row.attributionTag] : [],
+          tags: row.attributionTag ? [row.attributionTag as AttributionTag] : [],
           note: row.note
         });
         data.records.push({
@@ -976,7 +976,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 
     // 处理归因数据导入
     if (attributionData.length > 0) {
-      const uniqueMonths = new Map<string, { year: number; month: number; tags: string[]; note?: string }>();
+      const uniqueMonths = new Map<string, { year: number; month: number; tags: AttributionTag[]; note?: string }>();
       
       for (const attr of attributionData) {
         const key = `${attr.year}-${attr.month}`;
@@ -995,10 +995,10 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
           const existingAttr = data.attributions.find(a => a.year === attr.year && a.month === attr.month);
           if (existingAttr) {
             if (mergeMode === 'overwrite') {
-              existingAttr.tags = attr.tags as any;
+              existingAttr.tags = attr.tags;
               existingAttr.note = attr.note;
             } else {
-              existingAttr.tags = [...new Set([...existingAttr.tags, ...attr.tags])] as any;
+              existingAttr.tags = [...new Set([...existingAttr.tags, ...attr.tags])];
               if (attr.note && !existingAttr.note) {
                 existingAttr.note = attr.note;
               }
@@ -1011,7 +1011,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
               change: 0,
               changePercent: 0,
               fluctuationLevel: 'normal',
-              tags: attr.tags as any,
+              tags: attr.tags,
               note: attr.note,
               timestamp: Date.now(),
             });
@@ -1027,8 +1027,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
     let snapshotImportMonth = 0;
     
     if (mergeMode === 'overwrite' && rows.length > 0) {
-      snapshotImportYear = rows[0].year;
-      snapshotImportMonth = rows[0].month;
+      snapshotImportYear = Number(rows[0].year);
+      snapshotImportMonth = Number(rows[0].month);
       snapshotCompleted = true;
     }
 
