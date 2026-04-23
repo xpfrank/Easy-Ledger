@@ -1423,9 +1423,8 @@ export function batchImportByRange(
   mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number } {
   const filteredRows = rows.filter(row => {
-    const [yearStr, monthStr] = row.month.split('-');
-    const year = parseInt(yearStr);
-    const month = parseInt(monthStr);
+    const year = row.year;
+    const month = parseInt(row.month);
 
     const rowKey = year * 100 + month;
     const startKey = startYear * 100 + startMonth;

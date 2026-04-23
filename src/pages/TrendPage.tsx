@@ -552,7 +552,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       } 
       // 通用标签匹配：直接比对标签 ID（支持自定义标签）
       else {
-        shouldShow = point.attribution!.tags.includes(filterTag as AttributionTag);
+        shouldShow = point.attribution!.tags.some(tag => tag === filterTag);
       }
 
       return { ...point, isFiltered: !shouldShow };
