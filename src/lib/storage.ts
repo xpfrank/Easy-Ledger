@@ -1,5 +1,4 @@
 import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption } from '@/types';
-import { getYearlyAttributionTagLabel } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
@@ -239,11 +238,11 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
       const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
       
       currentData.records.forEach(r => recordMap.set(buildKey(r), r));
-      data.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
+      data.records.forEach(r => recordMap.set(buildKey(r), r));
 
       const accountMap = new Map<string, Account>();
       currentData.accounts.forEach(a => accountMap.set(a.id, a));
-      data.accounts.forEach((importedAccount: Account) => {
+      data.accounts.forEach(importedAccount => {
         const existing = accountMap.get(importedAccount.id);
         if (existing) {
           accountMap.set(importedAccount.id, {
@@ -317,8 +316,8 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
 
     const recordMap = new Map<string, MonthlyRecord>();
     const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
-    currentData.records.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
-    importedRecords.forEach((r: MonthlyRecord) => recordMap.set(buildKey(r), r));
+    currentData.records.forEach(r => recordMap.set(buildKey(r), r));
+    importedRecords.forEach(r => recordMap.set(buildKey(r), r));
     currentData.records = Array.from(recordMap.values());
 
     currentData.logs.push(...importedLogs);
@@ -729,7 +728,7 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
 
 export interface ExcelImportRow {
   year: number;
-  month: number;
+  month: string;
   accountId?: string;
   accountName: string;
   accountType?: string;
@@ -1213,7 +1212,7 @@ export function exportYearlyAttributionCSV(startYear?: number, endYear?: number)
     if (/^\d+$/.test(item)) {
       return `${item}月`;
     }
-    return getYearlyAttributionTagLabel(item as YearlyAttributionTag);
+    return getAttributionTagLabel(item as AttributionTag);
   };
 
   const rows: string[] = [header];
@@ -1424,7 +1423,7 @@ export function batchImportByRange(
   mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number } {
   const filteredRows = rows.filter(row => {
-    const [yearStr, monthStr] = row.month.toString().split('-');
+    const [yearStr, monthStr] = row.month.split('-');
     const year = parseInt(yearStr);
     const month = parseInt(monthStr);
 
@@ -1543,6 +1542,30 @@ export function getAttributionTagEmoji(tag: AttributionTag): string {
   if (tag.startsWith('custom_')) {
     const customTags = getCustomAttributionTags();
     const customTag = customTags.find(t => t.id === tag);
+    return customTag ? customTag.emoji : '📝';
+  }
+  return '📝';
+}
+
+export function getYearlyAttributionTagLabel(tag: string): string {
+  const yearlyOption = PRESET_YEARLY_TAGS.find(t => t.id === tag);
+  if (yearlyOption) return yearlyOption.label;
+  const monthlyOption = PRESET_MONTHLY_TAGS.find(t => t.id === tag);
+  if (monthlyOption) return monthlyOption.label;
+  if (tag.startsWith('custom_')) {
+    const customTag = getCustomAttributionTags().find(t => t.id === tag);
+    return customTag ? customTag.label : tag;
+  }
+  return tag;
+}
+
+export function getYearlyAttributionTagEmoji(tag: string): string {
+  const yearlyOption = PRESET_YEARLY_TAGS.find(t => t.id === tag);
+  if (yearlyOption) return yearlyOption.emoji;
+  const monthlyOption = PRESET_MONTHLY_TAGS.find(t => t.id === tag);
+  if (monthlyOption) return monthlyOption.emoji;
+  if (tag.startsWith('custom_')) {
+    const customTag = getCustomAttributionTags().find(t => t.id === tag);
     return customTag ? customTag.emoji : '📝';
   }
   return '📝';
