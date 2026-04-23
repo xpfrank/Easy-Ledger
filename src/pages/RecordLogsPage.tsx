@@ -18,12 +18,13 @@ import {
   getAccountSnapshotsByMonth,
   getAttributionTagLabel,
   getAttributionTagEmoji,
+  getYearlyAttributionTagLabel,
+  getYearlyAttributionTagEmoji,
   getMonthlyRecord,
   getAccountsForMonth,
 } from '@/lib/storage';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
-import { getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/types';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionDetail';
 

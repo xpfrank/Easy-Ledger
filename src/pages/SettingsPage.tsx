@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import type { PageRoute, ThemeType } from '@/types';
+import type { PageRoute, ThemeType, CustomAttributionTag } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
-import type { CustomAttributionTag } from '@/types';
 import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -12,6 +11,93 @@ import { THEMES } from '@/types';
 interface SettingsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
 }
+
+const CollapsibleSection = ({
+  icon,
+  iconBg,
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  icon: string;
+  iconBg: string;
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`mb-2 rounded-2xl overflow-hidden border border-gray-100 ${open ? 'open' : ''}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`w-full flex items-center gap-3 px-4 py-3.5 transition-colors ${
+          open ? 'bg-sky-50' : 'bg-gray-50 hover:bg-gray-100'
+        }`}
+      >
+        <div
+          className="w-8 h-8 rounded-xl flex items-center justify-center text-base flex-shrink-0"
+          style={{ background: iconBg }}
+        >
+          {icon}
+        </div>
+        <span className="flex-1 text-left text-sm font-semibold text-gray-700">{title}</span>
+        <svg
+          className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      <div
+        className="overflow-hidden transition-all duration-300 ease-in-out"
+        style={{
+          maxHeight: open ? '600px' : '0px',
+          padding: open ? '0 16px 16px' : '0 16px',
+          opacity: open ? 1 : 0,
+        }}
+      >
+        <div className="pt-3">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const FeatureItem = ({ emoji, title, desc }: { emoji: string; title: string; desc: string }) => (
+  <div className="flex items-start gap-3 p-2.5 bg-gray-50 rounded-xl">
+    <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
+      {emoji}
+    </div>
+    <div>
+      <h4 className="text-[13px] font-semibold text-gray-800 mb-0.5">{title}</h4>
+      <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
+    </div>
+  </div>
+);
+
+const FlowStep = ({ num, children, isLast }: { num: number; children: React.ReactNode; isLast?: boolean }) => (
+  <div className="flex gap-3 relative pl-2" style={{ paddingBottom: isLast ? 0 : 16 }}>
+    {!isLast && (
+      <div className="absolute left-[19px] top-6 w-0.5 h-[calc(100%-16px)] bg-gray-200" />
+    )}
+    <div className="w-6 h-6 rounded-full bg-sky-500 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0 z-10">
+      {num}
+    </div>
+    <div className="pt-0.5 text-[13px] text-gray-600 leading-relaxed">{children}</div>
+  </div>
+);
+
+const DataCard = ({ icon, title, desc }: { icon: string; title: string; desc: string }) => (
+  <div className="p-3 bg-gray-50 rounded-xl text-center">
+    <div className="text-xl mb-1.5">{icon}</div>
+    <div className="text-xs font-semibold text-gray-700 mb-0.5">{title}</div>
+    <div className="text-[11px] text-gray-500 leading-snug">{desc}</div>
+  </div>
+);
 
 export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -62,6 +148,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     setNewTagLabel('');
     setNewTagEmoji('🏷️');
     setTagAddError('');
+    setShowTagAdd(false);
   };
 
   const handleDeleteTag = (id: string) => {
@@ -1127,96 +1214,134 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
       {/* 使用说明对话框 */}
       <Dialog open={showAboutDialog} onOpenChange={setShowAboutDialog}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>使用说明</DialogTitle>
+        <DialogContent className="max-w-md max-h-[85vh] p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="px-5 pt-5 pb-3 flex-shrink-0">
+            <DialogTitle className="text-lg font-bold tracking-tight">使用说明</DialogTitle>
           </DialogHeader>
-          <div className="space-y-5 py-4 text-sm">
-            {/* 核心功能 */}
-            <div className="bg-blue-50 p-3 rounded-lg">
-              <h3 className="font-medium mb-2 text-blue-700">核心功能</h3>
-              <ul className="text-gray-600 space-y-1 list-disc list-inside">
-                <li><b>资产管理</b>：统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户</li>
-                <li><b>月度记账</b>：按月录入账户余额，实时追踪个人净资产变化</li>
-                <li><b>资产趋势</b>：可视化展示净资产变化趋势，支持月度/年度视图</li>
-                <li><b>月度归因</b>：记录每月资产变动原因（工资、奖金、投资等）</li>
-                <li><b>记账日志</b>：自动记录每一次余额修改，操作全程可追溯</li>
-              </ul>
-            </div>
-
-            {/* 账户类型说明 */}
-            <div>
-              <h3 className="font-medium mb-2">账户类型说明</h3>
-              <div className="text-gray-600 space-y-1">
-                <p><b>资产类</b>（现金、储蓄卡、网络支付、投资）：余额直接计入总资产</p>
-                <p><b>负债类</b>（信用卡、借入）：余额为欠款金额，计入负资产</p>
-                <p><b>债权类</b>（借出）：独立统计，不计入净资产</p>
+          
+          <div className="overflow-y-auto px-5 pb-5 -webkit-overflow-scrolling-touch">
+            {/* 快速上手 */}
+            <div className="bg-gradient-to-br from-sky-500 to-sky-600 rounded-2xl p-4 text-white mb-5">
+              <div className="flex items-center gap-2 mb-3.5 font-semibold text-[15px]">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+                快速上手
+              </div>
+              <div className="space-y-2.5">
+                {[
+                  '进入「账户管理」添加你的银行卡、支付宝等账户',
+                  '在「月度记账」中选择月份，录入各账户余额',
+                  '查看「资产趋势」和「记账记录」，追踪净资产变化',
+                ].map((text, i) => (
+                  <div key={i} className="flex items-start gap-2.5 text-[13px] text-white/90 leading-relaxed">
+                    <span className="w-[22px] h-[22px] rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-px">
+                      {i + 1}
+                    </span>
+                    {text}
+                  </div>
+                ))}
               </div>
             </div>
+
+            {/* 核心功能 */}
+            <CollapsibleSection icon="🎯" iconBg="#dbeafe" title="核心功能" defaultOpen>
+              <div className="space-y-2">
+                <FeatureItem emoji="💳" title="资产管理" desc="统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户" />
+                <FeatureItem emoji="📝" title="月度记账" desc="按月录入账户余额，实时追踪个人净资产变化趋势" />
+                <FeatureItem emoji="📈" title="资产趋势" desc="可视化折线图展示净资产变化，支持月度/年度双视图" />
+                <FeatureItem emoji="🏷️" title="月度归因" desc="记录每月资产变动原因（工资、奖金、投资等），支持自定义标签" />
+                <FeatureItem emoji="📋" title="记账日志" desc="自动记录每一次余额修改，操作全程可追溯" />
+              </div>
+            </CollapsibleSection>
+
+            {/* 账户类型 */}
+            <CollapsibleSection icon="🏦" iconBg="#fef3c7" title="账户类型说明">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2.5 p-2.5 bg-green-50 rounded-xl">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-green-200 text-green-800 flex-shrink-0">资产类</span>
+                  <span className="text-xs text-gray-600 leading-relaxed">现金、储蓄卡、网络支付、投资 — 余额直接计入总资产</span>
+                </div>
+                <div className="flex items-center gap-2.5 p-2.5 bg-red-50 rounded-xl">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-red-200 text-red-800 flex-shrink-0">负债类</span>
+                  <span className="text-xs text-gray-600 leading-relaxed">信用卡、借入 — 余额为欠款金额，计入负资产</span>
+                </div>
+                <div className="flex items-center gap-2.5 p-2.5 bg-amber-50 rounded-xl">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-200 text-amber-800 flex-shrink-0">债权类</span>
+                  <span className="text-xs text-gray-600 leading-relaxed">借出 — 独立统计，不计入净资产</span>
+                </div>
+              </div>
+            </CollapsibleSection>
 
             {/* 记账流程 */}
-            <div>
-              <h3 className="font-medium mb-2">记账流程</h3>
-              <ol className="text-gray-600 space-y-1 list-decimal list-inside">
-                <li>在「账户管理」中添加你的账户</li>
-                <li>进入「月度记账」，选择对应月份，录入各账户余额</li>
-                <li>支持「复制上月余额」快速录入，也可单独修改单个账户</li>
-                <li>资产发生较大变化时，可添加月度归因说明</li>
-                <li>修改后自动保存，历史记录可在「记账记录」中查看</li>
-              </ol>
-            </div>
-
-            {/* 资产趋势说明 */}
-            <div>
-              <h3 className="font-medium mb-2">资产趋势</h3>
-              <div className="text-gray-600 space-y-1">
-                <p>进入「资产趋势」页面，可查看：</p>
-                <ul className="list-disc list-inside ml-2">
-                  <li>净资产变化折线图，直观展示财务状况</li>
-                  <li>支持筛选标签，快速定位特定变动月份</li>
-                  <li>点击数据点查看当月账户快照</li>
-                  <li>支持月度趋势和年度趋势两种视图</li>
-                </ul>
+            <CollapsibleSection icon="🔄" iconBg="#fce7f3" title="记账流程">
+              <div className="space-y-0 pt-1">
+                <FlowStep num={1}>在<strong className="text-gray-800 font-semibold">「账户管理」</strong>中添加你的各类账户</FlowStep>
+                <FlowStep num={2}>进入<strong className="text-gray-800 font-semibold">「月度记账」</strong>，选择对应月份录入各账户余额</FlowStep>
+                <FlowStep num={3}>支持<strong className="text-gray-800 font-semibold">「复制上月余额」</strong>快速录入，也可单独修改单个账户</FlowStep>
+                <FlowStep num={4}>资产发生较大变化时，可添加<strong className="text-gray-800 font-semibold">月度归因说明</strong></FlowStep>
+                <FlowStep num={5} isLast>修改后自动保存，历史记录可在<strong className="text-gray-800 font-semibold">「记账记录」</strong>中查看</FlowStep>
               </div>
-            </div>
+            </CollapsibleSection>
 
-            {/* 数据导入与导出 */}
-            <div>
-              <h3 className="font-medium mb-2">数据导入与导出</h3>
-              <div className="text-gray-600 space-y-1">
-                <p><b>JSON 导出/导入</b>：完整备份恢复，数据可跨设备迁移</p>
-                <p><b>CSV 批量导入</b>：支持表格批量导入账户余额</p>
-                <p><b>CSV 模板字段</b>：月份、账户名称、余额、归因标签(可选)、备注(可选)</p>
-                <p><b>清空数据</b>：一键清除全部数据，操作前请务必完成备份</p>
+            {/* 资产趋势 */}
+            <CollapsibleSection icon="📊" iconBg="#e0e7ff" title="资产趋势">
+              <div className="space-y-2">
+                <FeatureItem emoji="📉" title="净资产变化折线图" desc="直观展示财务状况，支持高低点自动标注" />
+                <FeatureItem emoji="🔍" title="归因筛选" desc="按标签筛选，快速定位特定变动月份" />
+                <FeatureItem emoji="👆" title="数据点交互" desc="点击数据点查看当月账户快照和归因详情" />
+                <FeatureItem emoji="🔀" title="双视图切换" desc="支持月度趋势和年度趋势两种视图模式" />
               </div>
-            </div>
+            </CollapsibleSection>
 
-            {/* 隐私与安全 */}
-            <div className="bg-green-50 p-3 rounded-lg">
-              <h3 className="font-medium mb-1 text-green-700">隐私与安全</h3>
-              <p className="text-gray-600">
-                本应用为纯本地运行，无需联网，所有数据仅存储在您的设备中。建议定期导出备份，避免数据意外丢失。
+            {/* 数据导入导出 */}
+            <CollapsibleSection icon="💾" iconBg="#ffedd5" title="数据导入与导出">
+              <div className="grid grid-cols-2 gap-2">
+                <DataCard icon="📦" title="JSON 备份" desc="完整备份恢复，跨设备迁移" />
+                <DataCard icon="📑" title="CSV 导出" desc="分类导出数据，便于表格查看" />
+                <DataCard icon="📥" title="CSV 导入" desc="按类型单独导入余额/归因/年度" />
+                <DataCard icon="🗑️" title="清空数据" desc="一键清除全部，操作前请备份" />
+              </div>
+              <p className="mt-3 text-xs text-gray-500 leading-relaxed">
+                <strong>CSV 模板字段：</strong>月份、账户名称、余额、归因标签（可选）、备注（可选）
               </p>
-            </div>
-            
-            {/* 公众号二维码 */}
-            <div className="pt-4 border-t">
-              <h3 className="font-medium mb-3">关于作者</h3>
-              <div className="flex flex-col items-center">
-                <p className="text-gray-600 mb-2">出品人：Frank</p>
-                <p className="text-gray-600 mb-3">公众号：Frank技术</p>
-                <div className="w-40 h-40 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
-                  <img 
-                    src="/qrcode.png" 
-                    alt="Frank技术公众号" 
-                    className="w-full h-full object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="160" height="160"%3E%3Crect fill="%23f3f4f6" width="160" height="160"/%3E%3Ctext fill="%236b7280" font-size="14" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EFrank技术%3C/text%3E%3C/svg%3E';
-                    }}
-                  />
-                </div>
-                <p className="text-xs text-gray-400 mt-2">扫码关注公众号</p>
+            </CollapsibleSection>
+
+            {/* 隐私安全 */}
+            <div className="bg-gradient-to-br from-emerald-50 to-green-100 border border-emerald-200 rounded-2xl p-4 flex gap-3 items-start mb-5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-lg flex-shrink-0">
+                🔒
               </div>
+              <div>
+                <h4 className="text-sm font-bold text-emerald-800 mb-1">隐私与安全</h4>
+                <p className="text-xs text-emerald-700 leading-relaxed">
+                  本应用为纯本地运行，无需联网，所有数据仅存储在您的设备中。建议定期导出备份，避免数据意外丢失。
+                </p>
+              </div>
+            </div>
+
+            {/* 公众号二维码 */}
+            <div className="pt-4 border-t border-gray-100 text-center mb-4">
+              <p className="text-sm font-semibold text-gray-700 mb-1">关于作者</p>
+              <p className="text-xs text-gray-500 mb-3">出品人：Frank · 公众号：Frank技术</p>
+              <div className="w-36 h-36 bg-gray-100 rounded-xl mx-auto overflow-hidden flex items-center justify-center">
+                <img
+                  src="/qrcode.png"
+                  alt="Frank技术公众号"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src =
+                      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="144" height="144"%3E%3Crect fill="%23f3f4f6" width="144" height="144"/%3E%3Ctext fill="%236b7280" font-size="12" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EFrank技术%3C/text%3E%3C/svg%3E';
+                  }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">扫码关注公众号</p>
+            </div>
+
+            {/* 底部品牌 */}
+            <div className="text-center pt-3 border-t border-gray-100">
+              <div className="text-[13px] font-semibold text-gray-700 mb-0.5">Easy Ledger</div>
+              <div className="text-xs text-gray-400">当前版本 1.0.2 · 出品人 Frank</div>
             </div>
           </div>
         </DialogContent>

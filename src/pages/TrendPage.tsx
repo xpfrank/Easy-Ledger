@@ -3,8 +3,8 @@ import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, AlertTriang
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag } from '@/types';
-import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllAttributionTagOptions } from '@/lib/storage';
+import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag, YearlyAttributionTag } from '@/types';
+import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllAttributionTagOptions, getAllYearlyTagOptions, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -51,7 +51,7 @@ interface YearlyNetWorth {
   change: number;
   changePercent: number;
   attribution?: {
-    tags: AttributionTag[];
+    tags: YearlyAttributionTag[];
     note?: string;
     fluctuationLevel: 'normal' | 'warning' | 'abnormal';
   };
@@ -248,7 +248,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyNetWorth[]>([]);
 
   // 获取所有可用标签选项（含自定义）
-  const allTagOptions = useMemo(() => getAllAttributionTagOptions(), []);
+  const allTagOptions = useMemo(() => {
+    return trendType === 'yearly' ? getAllYearlyTagOptions() : getAllAttributionTagOptions();
+  }, [trendType]);
 
   // 是否使用季度聚合视图（必须在 history 之前定义）
   const useQuarterlyView = timeRange === 'all' && monthlyHistory.length > 16;
@@ -491,7 +493,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
         changePercent,
         hasData: yearRecords.length > 0,
         attribution: yearlyAttr ? {
-          tags: yearlyAttr.tags as unknown as AttributionTag[],
+          tags: yearlyAttr.tags,
           note: yearlyAttr.note,
           fluctuationLevel,
         } : undefined,
@@ -918,9 +920,16 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                 )}
                                 {!isQuarterly && data.data.attribution && data.data.attribution.tags && data.data.attribution.tags.length > 0 && (
                                   <div className="text-gray-400 mt-1 flex gap-1">
-                                    {data.data.attribution.tags.slice(0, 2).map((tag: AttributionTag, i: number) => (
-                                      <span key={i}>{getAttributionTagEmoji(tag)}{getAttributionTagLabel(tag)}</span>
-                                    ))}
+                                    {data.data.attribution.tags.slice(0, 2).map((tag: any, i: number) => {
+                                      const isYearlyData = data.month === 0;
+                                      const label = isYearlyData
+                                        ? getYearlyAttributionTagLabel(tag as YearlyAttributionTag)
+                                        : getAttributionTagLabel(tag as AttributionTag);
+                                      const emoji = isYearlyData
+                                        ? getYearlyAttributionTagEmoji(tag as YearlyAttributionTag)
+                                        : getAttributionTagEmoji(tag as AttributionTag);
+                                      return <span key={i}>{emoji}{label}</span>;
+                                    })}
                                   </div>
                                 )}
                               </div>
@@ -1156,11 +1165,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                     <span className="text-xs font-medium text-gray-500">变化归因</span>
                     <button
                       onClick={() => {
-                        const d = selectedData as TrendPoint;
+                        const isYearlyData = !('month' in selectedData);
                         onPageChange('record', {
-                          year: d.year,
-                          month: d.month,
-                          mode: 'monthly',
+                          year: (selectedData as any).year,
+                          ...(isYearlyData ? {} : { month: (selectedData as TrendPoint).month }),
+                          mode: isYearlyData ? 'yearly' : 'monthly',
                           openAttributionEdit: true,
                         });
                         setSelectedData(null);
@@ -1177,19 +1186,28 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {selectedData.attribution.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
-                        style={{
-                          backgroundColor: `${themeConfig.primary}15`,
-                          color: themeConfig.primary,
-                        }}
-                      >
-                        {getAttributionTagEmoji(tag)}
-                        {getAttributionTagLabel(tag)}
-                      </span>
-                    ))}
+                    {selectedData.attribution.tags.map((tag) => {
+                      const isYearly = !('month' in selectedData);
+                      const label = isYearly 
+                        ? getYearlyAttributionTagLabel(tag as YearlyAttributionTag)
+                        : getAttributionTagLabel(tag as AttributionTag);
+                      const emoji = isYearly
+                        ? getYearlyAttributionTagEmoji(tag as YearlyAttributionTag)
+                        : getAttributionTagEmoji(tag as AttributionTag);
+                      return (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
+                          style={{
+                            backgroundColor: `${themeConfig.primary}15`,
+                            color: themeConfig.primary,
+                          }}
+                        >
+                          {emoji}
+                          {label}
+                        </span>
+                      );
+                    })}
                   </div>
 
                   {selectedData.attribution.note && (
