@@ -156,6 +156,21 @@ export type RecordMode = 'monthly' | 'yearly';
 // 波动评级
 export type FluctuationLevel = 'normal' | 'warning' | 'abnormal';
 
+// 归因标签分类
+export interface AttributionCategory {
+  id: string;
+  label: string;
+  emoji: string;
+  color: string;
+}
+
+export const ATTRIBUTION_CATEGORIES: AttributionCategory[] = [
+  { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e' },
+  { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444' },
+  { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6' },
+  { id: 'other', label: '其他', emoji: '📋', color: '#6b7280' },
+];
+
 // 归因标签类型
 export type AttributionTag =
   | 'salary'
@@ -203,6 +218,7 @@ export interface CustomAttributionTag {
   id: string;
   label: string;
   emoji: string;
+  category: string;
   createdAt: string;
 }
 
@@ -220,6 +236,7 @@ export interface TagOption {
   label: string;
   emoji: string;
   editable: boolean;
+  category?: string;
 }
 
 // 月度归因记录
