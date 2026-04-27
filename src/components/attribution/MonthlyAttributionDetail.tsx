@@ -1,9 +1,11 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth } from '@/lib/calculator';
-import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth } from '@/lib/storage';
+import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
-import { type ThemeType, THEMES } from '@/types';
+import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption } from '@/types';
+import { useState } from 'react';
+import { ChevronRight, Check } from 'lucide-react';
 
 interface Props {
   year: number;
@@ -32,6 +34,38 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
     .slice(0, 3);
 
   const themeConfig = THEMES[theme];
+  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
+
+  const getTagsByCategory = () => {
+    const allTags = getAllAttributionTagOptions();
+    const grouped: Record<string, TagOption[]> = {};
+    
+    ATTRIBUTION_CATEGORIES.forEach(cat => {
+      grouped[cat.id] = allTags.filter(t => t.category === cat.id);
+    });
+    
+    const uncategorized = allTags.filter(t => !t.category);
+    if (uncategorized.length > 0) {
+      grouped['other'] = [...(grouped['other'] || []), ...uncategorized];
+    }
+    
+    return grouped;
+  };
+
+  const toggleCategory = (catId: string) => {
+    setOpenCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(catId)) {
+        next.delete(catId);
+      } else {
+        next.add(catId);
+      }
+      return next;
+    });
+  };
+
+  const groupedTags = getTagsByCategory();
+  const selectedTags = new Set<string>(attribution?.tags || []);
 
   if (!attribution) {
     return null;
@@ -131,20 +165,67 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
             </div>
           )}
 
-          {/* 归因信息 - 添加 hideBalance 判断 */}
+          {/* 归因信息 */}
           <div className="bg-gray-50 rounded-xl p-4">
-            <div className="text-sm font-medium mb-2">归因信息</div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500">归因原因：</span>
-                <span className="font-medium">
-                  {attribution.tags.map(tag => (
-                    <span key={tag} className="mr-2">
-                      {getAttributionTagEmoji(tag)} {getAttributionTagLabel(tag)}
+            <div className="text-sm font-medium mb-3">归因信息</div>
+            
+            {/* 已选标签快捷栏 */}
+            {attribution.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {attribution.tags.map(tag => {
+                  const tagOption = findAttributionTagOption(tag);
+                  return (
+                    <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200">
+                      {tagOption?.emoji || getAttributionTagEmoji(tag as any)} {tagOption?.label || getAttributionTagLabel(tag as any)}
                     </span>
-                  ))}
-                </span>
+                  );
+                })}
               </div>
+            )}
+            
+            {/* 分类折叠选择面板 */}
+            <div className="space-y-2">
+              {ATTRIBUTION_CATEGORIES.map(cat => {
+                const catTags = groupedTags[cat.id] || [];
+                if (catTags.length === 0) return null;
+                return (
+                  <div key={cat.id} className="border border-gray-100 rounded-lg overflow-hidden">
+                    <button 
+                      onClick={() => toggleCategory(cat.id)}
+                      className="w-full flex items-center justify-between p-2.5 bg-white hover:bg-gray-50 transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{cat.emoji}</span>
+                        <span className="text-xs font-medium text-gray-700">{cat.label}</span>
+                        <span className="text-xs text-gray-400">({catTags.length})</span>
+                      </div>
+                      <ChevronRight size={14} className={`text-gray-300 transition-transform ${openCategories.has(cat.id) ? 'rotate-90' : ''}`} />
+                    </button>
+                    {openCategories.has(cat.id) && (
+                      <div className="p-2 grid grid-cols-2 gap-1.5 bg-gray-50/50">
+                        {catTags.map(tag => (
+                          <button
+                            key={tag.id}
+                            className={`flex items-center gap-1.5 p-2 rounded-lg text-xs transition-all ${
+                              selectedTags.has(tag.id)
+                                ? 'bg-sky-50 border-2 border-sky-400 text-sky-700'
+                                : 'bg-white border-2 border-transparent hover:border-gray-200 text-gray-600'
+                            }`}
+                          >
+                            <span>{tag.emoji}</span>
+                            <span>{tag.label}</span>
+                            {selectedTags.has(tag.id) && <Check size={12} className="ml-auto text-sky-500" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* 影响金额和备注保持原样 */}
+            <div className="mt-3 pt-3 border-t border-gray-100">
               <div className="flex items-center gap-2">
                 <span className="text-gray-500">影响金额：</span>
                 <span className={attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}>
@@ -153,7 +234,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                 </span>
               </div>
               {attribution.note && (
-                <div>
+                <div className="mt-2">
                   <span className="text-gray-500">详细备注：</span>
                   <p className="text-sm mt-1">{attribution.note}</p>
                 </div>
