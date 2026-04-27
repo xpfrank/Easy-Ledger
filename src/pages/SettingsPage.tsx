@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench, Target } from 'lucide-react';
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
-import { Toast } from '@capacitor/toast';
-import { isAndroid } from '@/lib/platform';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType, CustomAttributionTag } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions, getYearlyGoal, saveYearlyGoal } from '@/lib/storage';
+import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { GoalEditModal } from '@/components/home/GoalEditModal';
 import { THEMES } from '@/types';
 
 interface SettingsPageProps {
@@ -111,7 +106,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [showThemeDialog, setShowThemeDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showTagDialog, setShowTagDialog] = useState(false);
-  const [showGoalEdit, setShowGoalEdit] = useState(false);
   const [importError, setImportError] = useState('');
   const [theme, setTheme] = useState<ThemeType>('blue');
 
@@ -183,6 +177,12 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [copied, setCopied] = useState(false);
   const exportTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // 检测是否在 Capacitor Android 环境中
+  const isCapacitorAndroid = () => {
+    return typeof (window as any).Capacitor !== 'undefined' && 
+           (window as any).Capacitor.getPlatform() === 'android';
+  };
+
   const handleExport = async () => {
     const isCSV = exportFormat === 'csv';
     let data = '';
@@ -211,7 +211,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       }
       data = parts.join('\n');
       ext = 'csv';
-      mimeType = 'text/csv';
+      mimeType = 'text/csv;charset=utf-8';
     } else {
       data = exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
       ext = 'json';
@@ -219,43 +219,47 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     }
 
     const fileName = `${fileNameBase}.${ext}`;
-
-    if (isAndroid()) {
+    
+    // 尝试使用 Web Share API（在 Android Chrome 中可用）
+    if (navigator.share && navigator.canShare && isCapacitorAndroid()) {
       try {
-        const writeResult = await Filesystem.writeFile({
-          path: fileName,
-          data: data,
-          directory: Directory.Cache,
-          encoding: Encoding.UTF8,
-        });
-
-        await Share.share({
-          title: '记账数据导出',
-          text: `记账数据 (${exportStartYear}年${exportStartMonth}月 - ${exportEndYear}年${exportEndMonth}月)`,
-          url: writeResult.uri,
-          dialogTitle: '导出数据到',
-        });
-
-        setShowExportDialog(false);
-        await Toast.show({ text: '文件已生成，请选择保存位置', duration: 'short' });
-        return;
-      } catch (err) {
-        console.error('Android export failed:', err);
-        setExportedData(data);
-        setShowExportSuccess(true);
-        setShowExportDialog(false);
+        const blob = new Blob([data], { type: mimeType });
+        const file = new File([blob], fileName, { type: mimeType });
+        
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: '记账数据导出',
+            text: `记账数据 (${exportStartYear}年${exportStartMonth}月 - ${exportEndYear}年${exportEndMonth}月)`
+          });
+          setShowExportDialog(false);
+          return;
+        }
+      } catch (error) {
+        // 用户取消分享或分享失败，继续尝试其他方式
+        console.log('Share API failed:', error);
       }
-      return;
     }
-
-    const blob = new Blob([data], { type: `${mimeType};charset=utf-8` });
+    
+    // 标准浏览器下载方式
+    const blob = new Blob([data], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-    setShowExportDialog(false);
+    
+    // 对于 Android WebView，尝试使用 intent 方式
+    if (isCapacitorAndroid()) {
+      // 显示数据复制对话框作为备选方案
+      setExportedData(data);
+      setShowExportSuccess(true);
+      setShowExportDialog(false);
+    } else {
+      // 标准浏览器
+      a.click();
+      URL.revokeObjectURL(url);
+      setShowExportDialog(false);
+    }
   };
 
   const handleCopyToClipboard = async () => {
@@ -361,74 +365,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     URL.revokeObjectURL(url);
   };
 
-  const handleAndroidImport = async () => {
-    setImportError('');
-
-    try {
-      const dirResult = await Filesystem.readdir({
-        path: 'EasyLedger',
-        directory: Directory.ExternalStorage,
-      });
-
-      const targetFiles = dirResult.files.filter(f => 
-        f.name.endsWith('.json') || f.name.endsWith('.csv')
-      );
-
-      if (targetFiles.length === 0) {
-        setImportError('未在 Download/EasyLedger 目录找到 .json 或 .csv 文件');
-        return;
-      }
-
-      const fileName = targetFiles[0].name;
-      const readResult = await Filesystem.readFile({
-        path: `EasyLedger/${fileName}`,
-        directory: Directory.ExternalStorage,
-        encoding: Encoding.UTF8,
-      });
-
-      const content = readResult.data as string;
-
-      if (fileName.endsWith('.json')) {
-        if (importData(content, importTargetYear, importTargetMonth, importJsonMergeMode)) {
-          setShowImportDialog(false);
-          await Toast.show({ text: '导入成功', duration: 'short' });
-          window.location.reload();
-        } else {
-          setImportError('JSON 格式错误，导入失败');
-        }
-      } else if (fileName.endsWith('.csv')) {
-        if (importType === 'balance') {
-          const parsed = parseExcelCSV(content);
-          if (parsed.length > 0) {
-            const result = batchImportFromExcel(parsed, importExcelMergeMode);
-            alert(result.message);
-            if (result.success) {
-              setShowImportDialog(false);
-              window.location.reload();
-            }
-          } else {
-            setImportError('CSV 解析失败，请检查格式');
-          }
-        } else if (importType === 'monthlyAttribution') {
-          const result = importMonthlyAttributionCSV(content, importAttributionMergeMode);
-          setImportError(result.message);
-          if (result.success) window.location.reload();
-        } else if (importType === 'yearlyAttribution') {
-          const result = importYearlyAttributionCSV(content, importAttributionMergeMode);
-          setImportError(result.message);
-          if (result.success) window.location.reload();
-        }
-      }
-    } catch (err: any) {
-      console.error('Android import failed:', err);
-      if (err.message?.includes('not found') || err.message?.includes('ENOENT')) {
-        setImportError('目录不存在，请先在手机 Download 下创建 EasyLedger 文件夹并放入文件');
-      } else {
-        setImportError(`读取失败: ${err.message || '未知错误'}`);
-      }
-    }
-  };
-
   const handleCloseImportDialog = (open: boolean) => {
     setShowImportDialog(open);
     if (!open) {
@@ -464,7 +400,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     >
       <div className="flex items-center gap-3">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          <span style={iconColor ? { color: iconColor } : undefined}>{icon}</span>
+          <span className={iconColor}>{icon}</span>
         </div>
         <div className="text-left">
           <div className={`font-medium text-sm ${danger ? 'text-red-500' : 'text-gray-800'}`}>{title}</div>
@@ -476,14 +412,14 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   );
 
   return (
-    <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
+    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold text-white">设置</h1>
+          <h1 className="text-lg font-semibold">设置</h1>
         </div>
       </header>
 
@@ -496,42 +432,29 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-2">个性化</h2>
           <Card className="bg-white overflow-hidden divide-y divide-gray-100">
             {/* 主题皮肤 */}
-            <SettingRow
-              icon={<Palette size={18} />}
-              iconBg={`${themeConfig.primary}15`}
-              iconColor={themeConfig.primary}
-              title="主题皮肤"
-              subtitle={`当前：${themeConfig.name}`}
-              onClick={() => setShowThemeDialog(true)}
-              rightNode={
-                <div className="flex items-center gap-1.5">
-                  <div
-                    className="w-5 h-5 rounded-full"
-                    style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom}, ${themeConfig.gradientTo})` }}
-                  />
-                  <ChevronRight size={16} className="text-gray-300" />
-                </div>
-              }
-            />
-
-            {/* 年度目标设置 */}
-            <button
+            <button 
               className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-              onClick={() => setShowGoalEdit(true)}
+              onClick={() => setShowThemeDialog(true)}
             >
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-                  style={{ backgroundColor: `${themeConfig.primary}15` }}>
-                  <Target size={18} style={{ color: themeConfig.primary }} />
+                <div 
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: `${themeConfig.primary}15` }}
+                >
+                  <Palette size={18} style={{ color: themeConfig.primary }} />
                 </div>
                 <div className="text-left">
-                  <div className="font-medium text-sm text-gray-800">年度目标设置</div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    {getYearlyGoal() ? `目标 ¥${(getYearlyGoal()!.targetAmount / 10000).toFixed(0)}万` : '设置年度净资产目标'}
-                  </div>
+                  <div className="font-medium text-sm text-gray-800">主题皮肤</div>
+                  <div className="text-xs text-gray-400 mt-0.5">当前：{themeConfig.name}</div>
                 </div>
               </div>
-              <ChevronRight size={16} className="text-gray-300" />
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-5 h-5 rounded-full"
+                  style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom}, ${themeConfig.gradientTo})` }}
+                />
+                <ChevronRight size={16} className="text-gray-300" />
+              </div>
             </button>
 
             {/* 归因标签管理 */}
@@ -586,8 +509,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           <Card className="bg-white overflow-hidden divide-y divide-gray-100">
             <SettingRow
               icon={<Download size={18} />}
-              iconBg="bg-sky-50"
-              iconColor={themeConfig.primary}
+              iconBg="" iconColor=""
               title="导出数据"
               subtitle="按时间范围导出 JSON / CSV"
               onClick={() => setShowExportDialog(true)}
@@ -600,16 +522,14 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             />
             <SettingRow
               icon={<Upload size={18} />}
-              iconBg="bg-blue-50" 
-              iconColor="#3b82f6"
+              iconBg="bg-blue-50" iconColor="text-blue-500"
               title="导入数据"
               subtitle="从文件恢复或批量录入"
               onClick={() => setShowImportDialog(true)}
             />
             <SettingRow
               icon={<Trash2 size={18} />}
-              iconBg="bg-red-50" 
-              iconColor="#f87171"
+              iconBg="bg-red-50" iconColor="text-red-400"
               title="清空所有数据"
               subtitle="删除所有账户和记录"
               onClick={() => setShowClearDialog(true)}
@@ -625,8 +545,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           <Card className="bg-white overflow-hidden">
             <SettingRow
               icon={<Wrench size={18} />}
-              iconBg="bg-orange-50" 
-              iconColor="#f97316"
+              iconBg="bg-orange-50" iconColor="text-orange-500"
               title="修复重复数据"
               subtitle="检测并去除重复记录"
               onClick={() => {
@@ -648,19 +567,18 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           <Card className="bg-white overflow-hidden divide-y divide-gray-100">
             <SettingRow
               icon={<Info size={18} />}
-              iconBg="bg-gray-100" 
-              iconColor="#6b7280"
+              iconBg="bg-gray-100" iconColor="text-gray-500"
               title="使用说明"
               subtitle="了解如何使用本应用"
               onClick={() => setShowAboutDialog(true)}
             />
             <div className="flex items-center gap-3 px-4 py-3.5">
               <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
-                <FileText size={18} style={{ color: '#6b7280' }} />
+                <FileText size={18} className="text-gray-500" />
               </div>
               <div>
                 <div className="font-medium text-sm text-gray-800">应用版本</div>
-                <div className="text-xs text-gray-400 mt-0.5">当前版本 2.0.1</div>
+                <div className="text-xs text-gray-400 mt-0.5">当前版本 1.0.2</div>
               </div>
             </div>
           </Card>
@@ -1029,36 +947,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                       </div>
                     </div>
                     <div>
-                      {isAndroid() ? (
-                        <div className="space-y-3">
-                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                            <p className="text-xs text-amber-800 leading-relaxed">
-                              <strong>Android 导入步骤：</strong><br/>
-                              1. 将 CSV/JSON 文件放入手机 <strong>Download/EasyLedger/</strong> 目录<br/>
-                              2. 点击下方"扫描并导入"按钮
-                            </p>
-                          </div>
-                          <Button
-                            onClick={handleAndroidImport}
-                            className="w-full text-white"
-                            style={{ backgroundColor: themeConfig.primary }}
-                          >
-                            <Upload size={16} className="mr-1" />
-                            扫描 Download/EasyLedger 目录
-                          </Button>
-                          {importError && (
-                            <p className="text-red-500 text-sm">{importError}</p>
-                          )}
-                        </div>
-                      ) : (
-                        <input
-                          type="file"
-                          accept=".json"
-                          onChange={handleImport}
-                          className="w-full"
-                        />
-                      )}
-                      {importError && !isAndroid() && (
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImport}
+                        className="w-full"
+                      />
+                      {importError && (
                         <p className="text-red-500 text-sm mt-2">{importError}</p>
                       )}
                     </div>
@@ -1086,38 +981,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                     </Button>
 
                     {/* 文件选择 - 仅支持 CSV */}
-                    {isAndroid() ? (
-                      <div className="space-y-3">
-                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                          <p className="text-xs text-amber-800 leading-relaxed">
-                            <strong>Android 导入步骤：</strong><br/>
-                            1. 将 CSV 文件放入手机 <strong>Download/EasyLedger/</strong> 目录<br/>
-                            2. 点击下方"扫描并导入"按钮
-                          </p>
-                        </div>
-                        <Button
-                          onClick={handleAndroidImport}
-                          className="w-full text-white"
-                          style={{ backgroundColor: themeConfig.primary }}
-                        >
-                          <Upload size={16} className="mr-1" />
-                          扫描 Download/EasyLedger 目录
-                        </Button>
-                        {importError && (
-                          <p className="text-red-500 text-sm">{importError}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <>
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={handleExcelFileChange}
-                          className="w-full text-sm"
-                        />
-                        <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
-                      </>
-                    )}
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleExcelFileChange}
+                      className="w-full text-sm"
+                    />
+                    <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
 
                     {/* Excel 数据预览 */}
                     {excelData.length > 0 && (
@@ -1382,9 +1252,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                 <FeatureItem emoji="📈" title="资产趋势" desc="可视化折线图展示净资产变化，支持月度/年度双视图" />
                 <FeatureItem emoji="🏷️" title="月度归因" desc="记录每月资产变动原因（工资、奖金、投资等），支持自定义标签" />
                 <FeatureItem emoji="📋" title="记账日志" desc="自动记录每一次余额修改，操作全程可追溯" />
-                <FeatureItem emoji="🎯" title="年度目标" desc="设定年度净资产目标金额，首页实时显示达成进度和距离目标差额" />
-                <FeatureItem emoji="❤️" title="资产健康度分析" desc="综合评估资产多样性、负债比例、流动性等维度，给出健康评级和优化建议" />
-                <FeatureItem emoji="⇅" title="账户自定义排序" desc="在账户管理中开启「排序」模式，通过上下箭头调整同类账户显示顺序" />
               </div>
             </CollapsibleSection>
 
@@ -1414,24 +1281,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                 <FlowStep num={3}>支持<strong className="text-gray-800 font-semibold">「复制上月余额」</strong>快速录入，也可单独修改单个账户</FlowStep>
                 <FlowStep num={4}>资产发生较大变化时，可添加<strong className="text-gray-800 font-semibold">月度归因说明</strong></FlowStep>
                 <FlowStep num={5} isLast>修改后自动保存，历史记录可在<strong className="text-gray-800 font-semibold">「记账记录」</strong>中查看</FlowStep>
-              </div>
-            </CollapsibleSection>
-
-            {/* 年度目标 */}
-            <CollapsibleSection icon="🎯" iconBg="#dcfce7" title="年度目标">
-              <div className="space-y-0 pt-1">
-                <FlowStep num={1}>进入<strong className="text-gray-800 font-semibold">「设置 → 年度目标设置」</strong>，输入本年目标净资产金额</FlowStep>
-                <FlowStep num={2}>首页顶部卡片将实时显示<strong className="text-gray-800 font-semibold">当前达成进度</strong>（进度条 + 百分比）</FlowStep>
-                <FlowStep num={3} isLast>距离目标差额会直观标注，帮助你掌控全年储蓄节奏</FlowStep>
-              </div>
-            </CollapsibleSection>
-
-            {/* 资产健康度 */}
-            <CollapsibleSection icon="❤️" iconBg="#fee2e2" title="资产健康度分析">
-              <div className="space-y-2 pt-1">
-                <FeatureItem emoji="📊" title="多维度评分" desc="从资产多样性、负债比例、流动性、增长稳定性四个维度综合评估" />
-                <FeatureItem emoji="🏅" title="健康评级" desc="评级分为优秀 / 良好 / 待改善，一眼掌握财务状况" />
-                <FeatureItem emoji="💡" title="优化建议" desc="根据你的数据给出个性化改善建议，帮助优化资产结构" />
               </div>
             </CollapsibleSection>
 
@@ -1492,7 +1341,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             {/* 底部品牌 */}
             <div className="text-center pt-3 border-t border-gray-100">
               <div className="text-[13px] font-semibold text-gray-700 mb-0.5">Easy Ledger</div>
-              <div className="text-xs text-gray-400">当前版本 2.0.1 · 出品人 Frank</div>
+              <div className="text-xs text-gray-400">当前版本 1.0.2 · 出品人 Frank</div>
             </div>
           </div>
         </DialogContent>
@@ -1545,23 +1394,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* 年度目标编辑弹窗 */}
-      {showGoalEdit && (
-        <GoalEditModal
-          currentYear={new Date().getFullYear()}
-          primaryColor={themeConfig.primary}
-          onClose={() => setShowGoalEdit(false)}
-          onSave={(amount) => {
-            saveYearlyGoal({
-              year: new Date().getFullYear(),
-              targetAmount: amount,
-              createdAt: Date.now(),
-            });
-            setShowGoalEdit(false);
-          }}
-        />
-      )}
     </div>
   );
 }
