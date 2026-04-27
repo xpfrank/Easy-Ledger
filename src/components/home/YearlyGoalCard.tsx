@@ -42,7 +42,7 @@ const progressData = goalProgress || (goal ? calculateGoalProgress(currentNetWor
     );
   }
 
-  const { progress, estimatedMonthsToGoal, isOnTrack } = progressData;
+  const { progress, estimatedMonthsToGoal, isOnTrack, monthlyGrowthRate } = progressData;
   const remaining = goal.targetAmount - currentNetWorth;
 
   return (
@@ -81,12 +81,32 @@ const progressData = goalProgress || (goal ? calculateGoalProgress(currentNetWor
         </div>
 
         {/* 预测文字 */}
-        {estimatedMonthsToGoal > 0 && (
+        {progress >= 100 ? (
+          <div className="flex items-center gap-1 text-xs text-emerald-500">
+            <TrendingUp size={12} />
+            已达成年度目标
+          </div>
+        ) : estimatedMonthsToGoal > 0 ? (
           <div className="flex items-center gap-1 text-xs" style={{ color: primaryColor }}>
             <TrendingUp size={12} />
             {isOnTrack
               ? `按当前速度，预计提前${estimatedMonthsToGoal}个月达成目标`
               : `预计还需 ${estimatedMonthsToGoal} 个月达成目标`}
+          </div>
+        ) : estimatedMonthsToGoal === 0 && monthlyGrowthRate > 0 ? (
+          <div className="flex items-center gap-1 text-xs text-emerald-500">
+            <TrendingUp size={12} />
+            即将达成目标
+          </div>
+        ) : estimatedMonthsToGoal === -1 ? (
+          <div className="flex items-center gap-1 text-xs text-red-500">
+            <TrendingUp size={12} />
+            当前趋势下难以达成目标
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 text-xs text-gray-400">
+            <TrendingUp size={12} />
+            暂无足够数据预测达成时间
           </div>
         )}
       </CardContent>
