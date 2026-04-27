@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Filter, ChevronDown, ChevronUp, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
 import type { PageRoute, RecordLog, RecordMode, MonthlyAttribution, YearlyAttribution, ThemeType } from '@/types';

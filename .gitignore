@@ -1,16 +1,21 @@
-```
+```gitignore
 # Dependencies
 node_modules/
 
 # Build outputs
 dist/
 build/
-target/
+.next/
+.nuxt/
+public/build/
+
+# Logs
+*.log
 
 # Environment variables
-.env
 .env.local
-*.env.*
+.env.*
+!.env.example
 
 # IDE files
 .vscode/
@@ -18,31 +23,37 @@ target/
 *.swp
 *.swo
 
-# Logs
-*.log
-
-# Python cache (if present)
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Temporary files
-*.tmp
-*.temp
+# OS files
+.DS_Store
+Thumbs.db
 
 # Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# MyPy cache
-.mypy_cache/
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.Pytest_cache/
 
-# PyTest cache
-.pytest_cache/
+# Node.js specific
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS generated files
+# Temporary files
+*.tmp
+*.temp
 .DS_Store
-Thumbs.db
+```
+
+Wait, I need to reconsider. The only changes are in TypeScript/React files (`src/lib/storage.ts`, `src/pages/RecordLogsPage.tsx`), which are source code files. There are no build artifacts, dependency directories, or temporary files in the change list.
+
+```gitignore
+
 ```
