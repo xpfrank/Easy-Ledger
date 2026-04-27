@@ -1229,8 +1229,12 @@ export function exportMonthlyAttributionCSV(startYear?: number, startMonth?: num
 
   const rows: string[] = [header];
   for (const attr of sortedAttributions) {
-    const tags = attr.tags.map(t => getAttributionTagLabel(t)).join('、');
-    const note = (attr.note || '').replace(/,/g, ';');
+    const tags = attr.tags.map(t => {
+      const emoji = getAttributionTagEmoji(t as AttributionTag);
+      const label = getAttributionTagLabel(t as AttributionTag);
+      return `${emoji}${label}`;
+    }).join('|');
+    const note = (attr.note || '').replace(/,/g, ';').replace(/\|/g, '｜');
     rows.push(`${attr.year},${attr.month},${tags},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${note}`);
   }
 
@@ -1267,6 +1271,8 @@ export function exportYearlyAttributionCSV(startYear?: number, endYear?: number)
 }
 
 function parseAttributionTagFromLabel(label: string): AttributionTag | null {
+  const cleanLabel = label.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]+/u, '').trim();
+  
   const labelToTag: Record<string, AttributionTag> = {
     '工资积累': 'salary',
     '投资收益': 'investment',
@@ -1280,7 +1286,17 @@ function parseAttributionTagFromLabel(label: string): AttributionTag | null {
     '转账调整': 'transfer',
     '异常变动': 'abnormal_other',
   };
-  return labelToTag[label] || null;
+  if (labelToTag[cleanLabel]) return labelToTag[cleanLabel];
+  
+  const customTags = getCustomAttributionTags();
+  const customMatch = customTags.find(t => t.label === cleanLabel);
+  if (customMatch) return customMatch.id as AttributionTag;
+  
+  const allOptions = getAllAttributionTagOptions();
+  const idMatch = allOptions.find(t => t.id === label || t.id === cleanLabel);
+  if (idMatch) return idMatch.id as AttributionTag;
+  
+  return null;
 }
 
 export function importMonthlyAttributionCSV(
@@ -1317,7 +1333,10 @@ export function importMonthlyAttributionCSV(
         continue;
       }
 
-      const tags = tagsStr.split('|').filter(Boolean).map(t => parseAttributionTagFromLabel(t)).filter((t): t is AttributionTag => t !== null);
+      const tagLabels = tagsStr.split(/[|、]/).filter(Boolean);
+      const tags = tagLabels
+        .map(t => parseAttributionTagFromLabel(t.trim()))
+        .filter((t): t is AttributionTag => t !== null);
 
       const data = loadData();
       const existingIndex = data.attributions.findIndex(a => a.year === year && a.month === month);
@@ -1638,17 +1657,21 @@ export function deleteCustomAttributionTag(id: string): void {
 }
 
 const PRESET_MONTHLY_TAGS: TagOption[] = [
-  { id: 'salary', label: '工资积累', emoji: '💰', editable: false },
-  { id: 'investment', label: '投资收益', emoji: '📈', editable: false },
-  { id: 'daily', label: '日常波动', emoji: '🔄', editable: false },
-  { id: 'other', label: '其他', emoji: '📝', editable: false },
-  { id: 'salary_income', label: '工资收入', emoji: '💰', editable: false },
-  { id: 'bonus', label: '奖金', emoji: '🎁', editable: false },
-  { id: 'year_end_bonus', label: '年终奖', emoji: '🧧', editable: false },
-  { id: 'loan_repayment', label: '借款归还', emoji: '🔄', editable: false },
-  { id: 'large_expense', label: '大额支出', emoji: '🛒', editable: false },
-  { id: 'transfer', label: '转账调整', emoji: '🔀', editable: false },
-  { id: 'abnormal_other', label: '异常变动', emoji: '📝', editable: false },
+  // 收入类
+  { id: 'salary', label: '工资积累', emoji: '💰', editable: false, category: 'income' },
+  { id: 'investment', label: '投资收益', emoji: '📈', editable: false, category: 'income' },
+  { id: 'salary_income', label: '工资收入', emoji: '💵', editable: false, category: 'income' },
+  { id: 'bonus', label: '奖金', emoji: '🎁', editable: false, category: 'income' },
+  { id: 'year_end_bonus', label: '年终奖', emoji: '🧧', editable: false, category: 'income' },
+  // 支出/流出类
+  { id: 'daily', label: '日常波动', emoji: '🔄', editable: false, category: 'expense' },
+  { id: 'large_expense', label: '大额支出', emoji: '🛒', editable: false, category: 'expense' },
+  { id: 'loan_repayment', label: '借款归还', emoji: '💸', editable: false, category: 'expense' },
+  // 调整类
+  { id: 'transfer', label: '转账调整', emoji: '⚡', editable: false, category: 'adjust' },
+  { id: 'abnormal_other', label: '异常变动', emoji: '📝', editable: false, category: 'adjust' },
+  // 其他
+  { id: 'other', label: '其他', emoji: '📌', editable: false, category: 'other' },
 ];
 
 export function getAllAttributionTagOptions(): TagOption[] {
@@ -1657,18 +1680,19 @@ export function getAllAttributionTagOptions(): TagOption[] {
     label: t.label,
     emoji: t.emoji,
     editable: true,
+    category: t.category || 'other',
   }));
   return [...PRESET_MONTHLY_TAGS, ...customTags];
 }
 
 const PRESET_YEARLY_TAGS: TagOption[] = [
-  { id: 'salary_growth', label: '工资增长', emoji: '💰', editable: false },
-  { id: 'bonus_丰厚', label: '奖金丰厚', emoji: '🎁', editable: false },
-  { id: 'investment_return', label: '投资丰收', emoji: '📈', editable: false },
-  { id: 'asset_change', label: '资产变动', emoji: '🏠', editable: false },
-  { id: 'large_expense', label: '大额支出', emoji: '💸', editable: false },
-  { id: 'account_integration', label: '账户整合', emoji: '🔄', editable: false },
-  { id: 'yearly_other', label: '其他', emoji: '📝', editable: false },
+  { id: 'salary_growth', label: '工资增长', emoji: '💰', editable: false, category: 'income' },
+  { id: 'bonus_丰厚', label: '奖金丰厚', emoji: '🎁', editable: false, category: 'income' },
+  { id: 'investment_return', label: '投资丰收', emoji: '📈', editable: false, category: 'income' },
+  { id: 'asset_change', label: '资产变动', emoji: '🏠', editable: false, category: 'adjust' },
+  { id: 'large_expense', label: '大额支出', emoji: '💸', editable: false, category: 'expense' },
+  { id: 'account_integration', label: '账户整合', emoji: '🔄', editable: false, category: 'adjust' },
+  { id: 'yearly_other', label: '其他', emoji: '📝', editable: false, category: 'other' },
 ];
 
 export function getAllYearlyTagOptions(): TagOption[] {
@@ -1677,6 +1701,7 @@ export function getAllYearlyTagOptions(): TagOption[] {
     label: t.label,
     emoji: t.emoji,
     editable: true,
+    category: t.category || 'other',
   }));
   return [...PRESET_YEARLY_TAGS, ...customTags];
 }
