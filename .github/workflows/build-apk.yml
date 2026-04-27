@@ -44,46 +44,8 @@ jobs:
           npx cap add android
         fi
         
-    - name: Fix Kotlin Conflict
-      run: |
-        # 修复 Kotlin 依赖冲突
-        cat > android/build.gradle << 'GRADLEEOF'
-        buildscript {
-            ext.kotlin_version = '1.8.22'
-            
-            repositories {
-                google()
-                mavenCentral()
-            }
-            dependencies {
-                classpath 'com.android.tools.build:gradle:8.7.2'
-                classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-                classpath 'com.google.gms:google-services:4.4.2'
-            }
-        }
-
-        apply from: "variables.gradle"
-
-        allprojects {
-            repositories {
-                google()
-                mavenCentral()
-            }
-            
-            configurations.all {
-                resolutionStrategy {
-                    force "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-                    force "org.jetbrains.kotlin:kotlin-stdlib-common:$kotlin_version"
-                    force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-                    force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
-                }
-            }
-        }
-
-        task clean(type: Delete) {
-            delete rootProject.buildDir
-        }
-        GRADLEEOF
+    - name: Sync Capacitor Android
+      run: npx cap sync android
         
     - name: Fix Android SDK versions
       run: |
