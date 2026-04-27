@@ -1642,42 +1642,134 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 </div>
               )}
 
-              {/* 原因选择 - 两列网格多选 */}
+              {/* 原因选择 - 分类折叠面板 */}
               <div>
                 <div className="text-sm font-medium text-gray-700 mb-3">
                   {previewData.fluctuationLevel === 'abnormal' ? (
                     <span className="text-red-600">* 请选择归因原因（必选）</span>
                   ) : '选择归因原因（可选）'}
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {getAllAttributionTagOptions().map((tag) => {
-                    const isSelected = selectedTags.includes(tag.id as AttributionTag);
-                    return (
-                      <button
-                        key={tag.id}
-                        onClick={() => {
-                          setSelectedTags(prev =>
-                            isSelected
-                              ? prev.filter(t => t !== tag.id)
-                              : [...prev, tag.id as AttributionTag]
-                          );
-                        }}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2 text-left ${
-                          isSelected
-                            ? 'text-white border-transparent shadow-md'
-                            : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200 hover:bg-gray-100'
-                        }`}
-                        style={{ backgroundColor: isSelected ? themeConfig.primary : undefined, borderColor: isSelected ? themeConfig.primary : undefined }}
-                      >
-                        <span className="text-base flex-shrink-0">{tag.emoji}</span>
-                        <span className="truncate flex-1">{tag.label}</span>
-                        {isSelected
-                          ? <Check size={14} className="flex-shrink-0 ml-auto" />
-                          : tag.editable && <span className="text-xs opacity-50 flex-shrink-0">自</span>
-                        }
-                      </button>
-                    );
-                  })}
+
+                {/* 已选标签快捷栏 */}
+                {selectedTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-3 p-2 bg-gray-50 rounded-xl">
+                    {selectedTags.map(tagId => {
+                      const tag = getAllAttributionTagOptions().find(t => t.id === tagId);
+                      if (!tag) return null;
+                      return (
+                        <span
+                          key={tagId}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm"
+                        >
+                          <span>{tag.emoji}</span>
+                          <span className="text-gray-700">{tag.label}</span>
+                          <button
+                            onClick={() => setSelectedTags(prev => prev.filter(t => t !== tagId))}
+                            className="ml-0.5 w-4 h-4 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 分类折叠面板 */}
+                <div className="space-y-2">
+                  {(() => {
+                    const allTags = getAllAttributionTagOptions();
+                    const categories = [
+                      { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
+                      { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
+                      { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
+                      { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
+                    ] as const;
+
+                    return categories.map(cat => {
+                      const catTags = allTags.filter(t => t.category === cat.id);
+                      if (catTags.length === 0) return null;
+
+                      const selectedCount = catTags.filter(t => selectedTags.includes(t.id as AttributionTag)).length;
+
+                      return (
+                        <div key={cat.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => {
+                              const key = `monthly-cat-${cat.id}`;
+                              const el = document.getElementById(key);
+                              const icon = document.getElementById(`monthly-icon-${cat.id}`);
+                              if (el) {
+                                const isOpen = el.style.maxHeight !== '0px' && el.style.maxHeight !== '';
+                                el.style.maxHeight = isOpen ? '0px' : `${el.scrollHeight}px`;
+                                el.style.opacity = isOpen ? '0' : '1';
+                                if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+                              }
+                            }}
+                            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{ backgroundColor: cat.bgColor }}>
+                                {cat.emoji}
+                              </span>
+                              <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                              {selectedCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium" style={{ backgroundColor: cat.color }}>
+                                  {selectedCount}
+                                </span>
+                              )}
+                            </div>
+                            <svg
+                              id={`monthly-icon-${cat.id}`}
+                              className="w-4 h-4 text-gray-400 transition-transform duration-300"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                          <div
+                            id={`monthly-cat-${cat.id}`}
+                            className="overflow-hidden transition-all duration-300"
+                            style={{ maxHeight: cat.id === 'income' ? `${catTags.length * 48 + 16}px` : '0px', opacity: cat.id === 'income' ? 1 : 0 }}
+                          >
+                            <div className="p-2 grid grid-cols-2 gap-1.5">
+                              {catTags.map(tag => {
+                                const isSelected = selectedTags.includes(tag.id as AttributionTag);
+                                return (
+                                  <button
+                                    key={tag.id}
+                                    onClick={() => {
+                                      setSelectedTags(prev =>
+                                        isSelected
+                                          ? prev.filter(t => t !== tag.id)
+                                          : [...prev, tag.id as AttributionTag]
+                                      );
+                                    }}
+                                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
+                                      isSelected
+                                        ? 'shadow-sm'
+                                        : 'bg-white border-gray-100 hover:border-gray-200'
+                                    }`}
+                                    style={{
+                                      backgroundColor: isSelected ? cat.bgColor : undefined,
+                                      borderColor: isSelected ? cat.borderColor : undefined,
+                                      color: isSelected ? cat.color : '#4b5563',
+                                    }}
+                                  >
+                                    <span className="text-sm flex-shrink-0">{tag.emoji}</span>
+                                    <span className="truncate flex-1">{tag.label}</span>
+                                    {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: cat.color }} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
@@ -1939,32 +2031,124 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
               </div>
             </div>
 
-            {/* 年度标签选择 */}
+            {/* 年度标签选择 - 分类折叠面板 */}
             <div>
               <div className="text-sm font-medium text-gray-700 mb-3">选择原因（可选）</div>
-              <div className="grid grid-cols-2 gap-2">
-                {getAllYearlyTagOptions().map((tag) => {
-                  const isSelected = yearlySelectedTags.includes(tag.id as YearlyAttributionTag);
-                  return (
-                    <button
-                      key={tag.id}
-                      onClick={() => handleYearlyTagToggle(tag.id as YearlyAttributionTag)}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2 text-left ${
-                        isSelected
-                          ? 'text-white border-transparent shadow-md'
-                          : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200 hover:bg-gray-100'
-                      }`}
-                      style={{ backgroundColor: isSelected ? themeConfig.primary : undefined, borderColor: isSelected ? themeConfig.primary : undefined }}
-                    >
-                      <span className="text-base flex-shrink-0">{tag.emoji}</span>
-                      <span className="truncate flex-1">{tag.label}</span>
-                      {isSelected
-                        ? <Check size={14} className="flex-shrink-0 ml-auto" />
-                        : tag.editable && <span className="text-xs opacity-50 flex-shrink-0">自</span>
-                      }
-                    </button>
-                  );
-                })}
+
+              {/* 已选标签快捷栏 */}
+              {yearlySelectedTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3 p-2 bg-gray-50 rounded-xl">
+                  {yearlySelectedTags.map(tagId => {
+                    const tag = getAllYearlyTagOptions().find(t => t.id === tagId);
+                    if (!tag) return null;
+                    return (
+                      <span
+                        key={tagId}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm"
+                      >
+                        <span>{tag.emoji}</span>
+                        <span className="text-gray-700">{tag.label}</span>
+                        <button
+                          onClick={() => setYearlySelectedTags(prev => prev.filter(t => t !== tagId))}
+                          className="ml-0.5 w-4 h-4 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 分类折叠面板 */}
+              <div className="space-y-2">
+                {(() => {
+                  const allTags = getAllYearlyTagOptions();
+                  const categories = [
+                    { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
+                    { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
+                    { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
+                    { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
+                  ] as const;
+
+                  return categories.map(cat => {
+                    const catTags = allTags.filter(t => t.category === cat.id);
+                    if (catTags.length === 0) return null;
+
+                    const selectedCount = catTags.filter(t => yearlySelectedTags.includes(t.id as YearlyAttributionTag)).length;
+
+                    return (
+                      <div key={cat.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                        <button
+                          onClick={() => {
+                            const key = `yearly-cat-${cat.id}`;
+                            const el = document.getElementById(key);
+                            const icon = document.getElementById(`yearly-icon-${cat.id}`);
+                            if (el) {
+                              const isOpen = el.style.maxHeight !== '0px' && el.style.maxHeight !== '';
+                              el.style.maxHeight = isOpen ? '0px' : `${el.scrollHeight}px`;
+                              el.style.opacity = isOpen ? '0' : '1';
+                              if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+                            }
+                          }}
+                          className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{ backgroundColor: cat.bgColor }}>
+                              {cat.emoji}
+                            </span>
+                            <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                            {selectedCount > 0 && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium" style={{ backgroundColor: cat.color }}>
+                                {selectedCount}
+                              </span>
+                            )}
+                          </div>
+                          <svg
+                            id={`yearly-icon-${cat.id}`}
+                            className="w-4 h-4 text-gray-400 transition-transform duration-300"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        <div
+                          id={`yearly-cat-${cat.id}`}
+                          className="overflow-hidden transition-all duration-300"
+                          style={{ maxHeight: cat.id === 'income' ? `${catTags.length * 48 + 16}px` : '0px', opacity: cat.id === 'income' ? 1 : 0 }}
+                        >
+                          <div className="p-2 grid grid-cols-2 gap-1.5">
+                            {catTags.map(tag => {
+                              const isSelected = yearlySelectedTags.includes(tag.id as YearlyAttributionTag);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => handleYearlyTagToggle(tag.id as YearlyAttributionTag)}
+                                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
+                                    isSelected
+                                      ? 'shadow-sm'
+                                      : 'bg-white border-gray-100 hover:border-gray-200'
+                                  }`}
+                                  style={{
+                                    backgroundColor: isSelected ? cat.bgColor : undefined,
+                                    borderColor: isSelected ? cat.borderColor : undefined,
+                                    color: isSelected ? cat.color : '#4b5563',
+                                  }}
+                                >
+                                  <span className="text-sm flex-shrink-0">{tag.emoji}</span>
+                                  <span className="truncate flex-1">{tag.label}</span>
+                                  {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: cat.color }} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
 

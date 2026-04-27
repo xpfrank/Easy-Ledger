@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType, CustomAttributionTag } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
+import { ATTRIBUTION_CATEGORIES } from '@/types';
 import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES } from '@/types';
@@ -138,15 +139,20 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [customTags, setCustomTags] = useState<CustomAttributionTag[]>([]);
   const [newTagLabel, setNewTagLabel] = useState('');
   const [newTagEmoji, setNewTagEmoji] = useState('🏷️');
+  const [newTagCategory, setNewTagCategory] = useState('other');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [tagAddError, setTagAddError] = useState('');
+
+  const COMMON_EMOJIS = ['💰', '📈', '🔄', '📝', '🎁', '🧧', '🛒', '⚡', '📌', '💵', '💸', '🤝', '🏠', '🚗', '✈️', '🍔', '👶', '💊', '📚', '🎮'];
 
   const handleAddTag = () => {
     if (!newTagLabel.trim()) { setTagAddError('请输入标签名称'); return; }
     if (newTagLabel.trim().length > 8) { setTagAddError('标签名称最多8个字'); return; }
-    const tag = saveCustomAttributionTag({ label: newTagLabel.trim(), emoji: newTagEmoji });
+    const tag = saveCustomAttributionTag({ label: newTagLabel.trim(), emoji: newTagEmoji, category: newTagCategory });
     setCustomTags(prev => [...prev, tag]);
     setNewTagLabel('');
     setNewTagEmoji('🏷️');
+    setNewTagCategory('other');
     setTagAddError('');
     setShowTagDialog(false);
   };
@@ -679,34 +685,90 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               )}
 
               {/* 新增输入区 */}
-              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div className="bg-gray-50 rounded-xl p-3 space-y-3">
                 <div className="text-xs text-gray-500 font-medium">添加新标签</div>
-                <div className="flex items-center gap-2">
-                  <input
-                    className="w-10 h-9 border border-gray-200 rounded-lg text-center text-base bg-white focus:outline-none focus:ring-2 focus:border-transparent"
-                    style={{ '--tw-ring-color': themeConfig.primary } as any}
-                    value={newTagEmoji}
-                    onChange={e => setNewTagEmoji(e.target.value.slice(-2) || '🏷️')}
-                    placeholder="🏷️"
-                    maxLength={2}
-                  />
-                  <input
-                    className="flex-1 h-9 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:border-transparent"
-                    style={{ '--tw-ring-color': themeConfig.primary } as any}
-                    placeholder="标签名称（最多8字）"
-                    value={newTagLabel}
-                    onChange={e => { setNewTagLabel(e.target.value.slice(0, 8)); setTagAddError(''); }}
-                    maxLength={8}
-                    onKeyDown={e => e.key === 'Enter' && handleAddTag()}
-                  />
-                  <button
-                    className="h-9 px-3 rounded-lg text-white text-sm font-medium flex-shrink-0 transition-opacity hover:opacity-80"
-                    style={{ backgroundColor: themeConfig.primary }}
-                    onClick={handleAddTag}
-                  >
-                    添加
-                  </button>
+                
+                {/* 分类选择 */}
+                <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                  {ATTRIBUTION_CATEGORIES.map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setNewTagCategory(cat.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all ${
+                        newTagCategory === cat.id 
+                          ? 'text-white shadow-sm' 
+                          : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300'
+                      }`}
+                      style={newTagCategory === cat.id ? { backgroundColor: cat.color } : {}}
+                    >
+                      <span>{cat.emoji}</span>
+                      <span>{cat.label}</span>
+                    </button>
+                  ))}
                 </div>
+
+                {/* Emoji 选择 */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-gray-400">选择图标</span>
+                    <button 
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className="text-xs text-sky-500 hover:text-sky-600"
+                    >
+                      {showEmojiPicker ? '收起' : '展开'}
+                    </button>
+                  </div>
+                  {showEmojiPicker && (
+                    <div className="grid grid-cols-8 gap-1.5 p-2 bg-white rounded-lg border border-gray-100">
+                      {COMMON_EMOJIS.map(emoji => (
+                        <button
+                          key={emoji}
+                          onClick={() => setNewTagEmoji(emoji)}
+                          className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center transition-all ${
+                            newTagEmoji === emoji ? 'bg-sky-100 ring-2 ring-sky-400' : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!showEmojiPicker && (
+                    <div className="flex items-center gap-2">
+                      <span className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-lg">
+                        {newTagEmoji}
+                      </span>
+                      <input
+                        className="flex-1 h-9 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:border-transparent"
+                        style={{ '--tw-ring-color': themeConfig.primary } as any}
+                        placeholder="或输入自定义 emoji"
+                        value={newTagEmoji}
+                        onChange={e => setNewTagEmoji(e.target.value.slice(0, 2) || '🏷️')}
+                        maxLength={2}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 标签名称 */}
+                <input
+                  className="w-full h-9 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ '--tw-ring-color': themeConfig.primary } as any}
+                  placeholder="标签名称（最多8字）"
+                  value={newTagLabel}
+                  onChange={e => { setNewTagLabel(e.target.value.slice(0, 8)); setTagAddError(''); }}
+                  maxLength={8}
+                  onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                />
+                
+                <button
+                  className="w-full h-9 rounded-lg text-white text-sm font-medium transition-opacity hover:opacity-80"
+                  style={{ backgroundColor: themeConfig.primary }}
+                  onClick={handleAddTag}
+                >
+                  添加
+                </button>
+                
                 {tagAddError && <p className="text-xs text-red-500">{tagAddError}</p>}
                 <p className="text-xs text-gray-400">添加后可在月度归因、年度归因编辑页面选择使用</p>
               </div>
