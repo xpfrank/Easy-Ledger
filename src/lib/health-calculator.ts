@@ -270,19 +270,29 @@ export function calculateGoalProgress(
     monthlyGrowthRate = totalChange / attributions.length;
   }
 
-  let estimatedMonthsToGoal = -1;
-  if (monthlyGrowthRate > 0) {
-    const remainingAmount = goal.targetAmount - currentNetWorth;
-    estimatedMonthsToGoal = Math.ceil(remainingAmount / monthlyGrowthRate);
-  }
+  const remainingAmount = goal.targetAmount - currentNetWorth;
+  let estimatedMonthsToGoal = 0;
+  let isOnTrack = false;
 
-  const isOnTrack = progress > 0 && estimatedMonthsToGoal > 0 && estimatedMonthsToGoal <= 12;
+  if (remainingAmount <= 0) {
+    estimatedMonthsToGoal = 0;
+    isOnTrack = true;
+  } else if (monthlyGrowthRate > 0) {
+    estimatedMonthsToGoal = Math.ceil(remainingAmount / monthlyGrowthRate);
+    isOnTrack = estimatedMonthsToGoal <= (12 - new Date().getMonth());
+  } else if (monthlyGrowthRate < 0) {
+    estimatedMonthsToGoal = -1;
+    isOnTrack = false;
+  } else {
+    estimatedMonthsToGoal = 0;
+    isOnTrack = false;
+  }
 
   return {
     progress: Math.round(progress * 100) / 100,
-    estimatedMonthsToGoal: Math.max(0, estimatedMonthsToGoal),
+    estimatedMonthsToGoal,
     isOnTrack,
-    monthlyGrowthRate: Math.round(monthlyGrowthRate),
+    monthlyGrowthRate: Math.round(monthlyGrowthRate * 100) / 100,
   };
 }
 
