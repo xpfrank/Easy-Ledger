@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench, Target } from 'lucide-react';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { Toast } from '@capacitor/toast';
+import { isAndroid } from '@/lib/platform';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType, CustomAttributionTag } from '@/types';
@@ -179,12 +183,6 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [copied, setCopied] = useState(false);
   const exportTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 检测是否在 Capacitor Android 环境中
-  const isCapacitorAndroid = () => {
-    return typeof (window as any).Capacitor !== 'undefined' && 
-           (window as any).Capacitor.getPlatform() === 'android';
-  };
-
   const handleExport = async () => {
     const isCSV = exportFormat === 'csv';
     let data = '';
@@ -213,7 +211,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       }
       data = parts.join('\n');
       ext = 'csv';
-      mimeType = 'text/csv;charset=utf-8';
+      mimeType = 'text/csv';
     } else {
       data = exportDataByRange(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth);
       ext = 'json';
@@ -221,47 +219,43 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     }
 
     const fileName = `${fileNameBase}.${ext}`;
-    
-    // 尝试使用 Web Share API（在 Android Chrome 中可用）
-    if (navigator.share && navigator.canShare && isCapacitorAndroid()) {
+
+    if (isAndroid()) {
       try {
-        const blob = new Blob([data], { type: mimeType });
-        const file = new File([blob], fileName, { type: mimeType });
-        
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: '记账数据导出',
-            text: `记账数据 (${exportStartYear}年${exportStartMonth}月 - ${exportEndYear}年${exportEndMonth}月)`
-          });
-          setShowExportDialog(false);
-          return;
-        }
-      } catch (error) {
-        // 用户取消分享或分享失败，继续尝试其他方式
-        console.log('Share API failed:', error);
+        const writeResult = await Filesystem.writeFile({
+          path: fileName,
+          data: data,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+
+        await Share.share({
+          title: '记账数据导出',
+          text: `记账数据 (${exportStartYear}年${exportStartMonth}月 - ${exportEndYear}年${exportEndMonth}月)`,
+          url: writeResult.uri,
+          dialogTitle: '导出数据到',
+        });
+
+        setShowExportDialog(false);
+        await Toast.show({ text: '文件已生成，请选择保存位置', duration: 'short' });
+        return;
+      } catch (err) {
+        console.error('Android export failed:', err);
+        setExportedData(data);
+        setShowExportSuccess(true);
+        setShowExportDialog(false);
       }
+      return;
     }
-    
-    // 标准浏览器下载方式
-    const blob = new Blob([data], { type: mimeType });
+
+    const blob = new Blob([data], { type: `${mimeType};charset=utf-8` });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
-    
-    // 对于 Android WebView，尝试使用 intent 方式
-    if (isCapacitorAndroid()) {
-      // 显示数据复制对话框作为备选方案
-      setExportedData(data);
-      setShowExportSuccess(true);
-      setShowExportDialog(false);
-    } else {
-      // 标准浏览器
-      a.click();
-      URL.revokeObjectURL(url);
-      setShowExportDialog(false);
-    }
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportDialog(false);
   };
 
   const handleCopyToClipboard = async () => {
@@ -365,6 +359,74 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     link.download = '资产导入模板.csv';
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleAndroidImport = async () => {
+    setImportError('');
+
+    try {
+      const dirResult = await Filesystem.readdir({
+        path: 'EasyLedger',
+        directory: Directory.ExternalStorage,
+      });
+
+      const targetFiles = dirResult.files.filter(f => 
+        f.name.endsWith('.json') || f.name.endsWith('.csv')
+      );
+
+      if (targetFiles.length === 0) {
+        setImportError('未在 Download/EasyLedger 目录找到 .json 或 .csv 文件');
+        return;
+      }
+
+      const fileName = targetFiles[0].name;
+      const readResult = await Filesystem.readFile({
+        path: `EasyLedger/${fileName}`,
+        directory: Directory.ExternalStorage,
+        encoding: Encoding.UTF8,
+      });
+
+      const content = readResult.data as string;
+
+      if (fileName.endsWith('.json')) {
+        if (importData(content, importTargetYear, importTargetMonth, importJsonMergeMode)) {
+          setShowImportDialog(false);
+          await Toast.show({ text: '导入成功', duration: 'short' });
+          window.location.reload();
+        } else {
+          setImportError('JSON 格式错误，导入失败');
+        }
+      } else if (fileName.endsWith('.csv')) {
+        if (importType === 'balance') {
+          const parsed = parseExcelCSV(content);
+          if (parsed.length > 0) {
+            const result = batchImportFromExcel(parsed, importExcelMergeMode);
+            alert(result.message);
+            if (result.success) {
+              setShowImportDialog(false);
+              window.location.reload();
+            }
+          } else {
+            setImportError('CSV 解析失败，请检查格式');
+          }
+        } else if (importType === 'monthlyAttribution') {
+          const result = importMonthlyAttributionCSV(content, importAttributionMergeMode);
+          setImportError(result.message);
+          if (result.success) window.location.reload();
+        } else if (importType === 'yearlyAttribution') {
+          const result = importYearlyAttributionCSV(content, importAttributionMergeMode);
+          setImportError(result.message);
+          if (result.success) window.location.reload();
+        }
+      }
+    } catch (err: any) {
+      console.error('Android import failed:', err);
+      if (err.message?.includes('not found') || err.message?.includes('ENOENT')) {
+        setImportError('目录不存在，请先在手机 Download 下创建 EasyLedger 文件夹并放入文件');
+      } else {
+        setImportError(`读取失败: ${err.message || '未知错误'}`);
+      }
+    }
   };
 
   const handleCloseImportDialog = (open: boolean) => {
@@ -967,13 +1029,36 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                       </div>
                     </div>
                     <div>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleImport}
-                        className="w-full"
-                      />
-                      {importError && (
+                      {isAndroid() ? (
+                        <div className="space-y-3">
+                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                            <p className="text-xs text-amber-800 leading-relaxed">
+                              <strong>Android 导入步骤：</strong><br/>
+                              1. 将 CSV/JSON 文件放入手机 <strong>Download/EasyLedger/</strong> 目录<br/>
+                              2. 点击下方"扫描并导入"按钮
+                            </p>
+                          </div>
+                          <Button
+                            onClick={handleAndroidImport}
+                            className="w-full text-white"
+                            style={{ backgroundColor: themeConfig.primary }}
+                          >
+                            <Upload size={16} className="mr-1" />
+                            扫描 Download/EasyLedger 目录
+                          </Button>
+                          {importError && (
+                            <p className="text-red-500 text-sm">{importError}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleImport}
+                          className="w-full"
+                        />
+                      )}
+                      {importError && !isAndroid() && (
                         <p className="text-red-500 text-sm mt-2">{importError}</p>
                       )}
                     </div>
@@ -1001,13 +1086,38 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                     </Button>
 
                     {/* 文件选择 - 仅支持 CSV */}
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={handleExcelFileChange}
-                      className="w-full text-sm"
-                    />
-                    <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
+                    {isAndroid() ? (
+                      <div className="space-y-3">
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                          <p className="text-xs text-amber-800 leading-relaxed">
+                            <strong>Android 导入步骤：</strong><br/>
+                            1. 将 CSV 文件放入手机 <strong>Download/EasyLedger/</strong> 目录<br/>
+                            2. 点击下方"扫描并导入"按钮
+                          </p>
+                        </div>
+                        <Button
+                          onClick={handleAndroidImport}
+                          className="w-full text-white"
+                          style={{ backgroundColor: themeConfig.primary }}
+                        >
+                          <Upload size={16} className="mr-1" />
+                          扫描 Download/EasyLedger 目录
+                        </Button>
+                        {importError && (
+                          <p className="text-red-500 text-sm">{importError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          type="file"
+                          accept=".csv"
+                          onChange={handleExcelFileChange}
+                          className="w-full text-sm"
+                        />
+                        <p className="text-xs text-gray-400">支持 .csv 格式，建议使用 UTF-8 编码</p>
+                      </>
+                    )}
 
                     {/* Excel 数据预览 */}
                     {excelData.length > 0 && (
