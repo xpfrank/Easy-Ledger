@@ -57,9 +57,9 @@ try {
 // ========== 新增：强制 Kotlin 版本统一，解决 Duplicate class 错误 ==========
 configurations.all {
     resolutionStrategy {
-        force "org.jetbrains.kotlin:kotlin-stdlib:1.9.20"
-        force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.20"
-        force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.20"
+        force "org.jetbrains.kotlin:kotlin-stdlib:2.0.0"
+        force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.0"
+        force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.0"
     }
 }
 // ==================================================================
