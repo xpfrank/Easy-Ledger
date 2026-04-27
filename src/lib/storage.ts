@@ -1,4 +1,4 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption, YearlyGoal } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
@@ -111,6 +111,23 @@ export function getSettings(): AppSettings {
 export function updateSettings(settings: Partial<AppSettings>): void {
   const data = loadData();
   data.settings = { ...data.settings, ...settings };
+  saveData(data);
+}
+
+export function getYearlyGoal(): YearlyGoal | undefined {
+  const data = loadData();
+  return data.settings.yearlyGoal;
+}
+
+export function saveYearlyGoal(goal: YearlyGoal): void {
+  const data = loadData();
+  data.settings.yearlyGoal = goal;
+  saveData(data);
+}
+
+export function clearYearlyGoal(): void {
+  const data = loadData();
+  delete data.settings.yearlyGoal;
   saveData(data);
 }
 
@@ -363,6 +380,17 @@ export function addAccount(account: Omit<Account, 'id'>): Account {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
+  
+  // 记录账户的首次激活时间，防止新账户被回溯填充到创建之前的月份
+  data.monthlyAccountConfigs.push({
+    id: generateId(),
+    accountId: newAccount.id,
+    year: currentYear,
+    month: currentMonth,
+    status: 'active',
+    firstActiveYear: currentYear,
+    firstActiveMonth: currentMonth,
+  });
   
   if (newAccount.balance !== 0) {
     data.records.push({
@@ -727,8 +755,8 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
 }
 
 export interface ExcelImportRow {
-  year: number;
-  month: number;
+  year: number | string;
+  month: number | string;
   accountId?: string;
   accountName: string;
   accountType?: string;
@@ -909,6 +937,18 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
           };
           data.accounts.push(newAccount);
           createdAccounts.push(row.accountName);
+          
+          // 记录账户的首次激活时间，防止新账户被回溯填充到创建之前的月份
+          data.monthlyAccountConfigs.push({
+            id: generateId(),
+            accountId: newAccount.id,
+            year: Number(row.year),
+            month: Number(row.month),
+            status: 'active',
+            firstActiveYear: Number(row.year),
+            firstActiveMonth: Number(row.month),
+          });
+          
           accountSet.add(normalizedRowName);
         }
       }
@@ -947,8 +987,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 
       if (existingRecord) {
         attributionData.push({
-          year,
-          month,
+          year: Number(year),
+          month: Number(month),
           change: row.balance - existingRecord.balance,
           tags: row.attributionTag ? [row.attributionTag as AttributionTag] : [],
           note: row.note
@@ -956,8 +996,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
         existingRecord.balance = row.balance;
       } else {
         attributionData.push({
-          year,
-          month,
+          year: Number(year),
+          month: Number(month),
           change: row.balance,
           tags: row.attributionTag ? [row.attributionTag as AttributionTag] : [],
           note: row.note
@@ -965,8 +1005,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
         data.records.push({
           id: generateId(),
           accountId: targetAccount.id,
-          year,
-          month,
+          year: Number(year),
+          month: Number(month),
           balance: row.balance,
         });
       }
@@ -1423,8 +1463,9 @@ export function batchImportByRange(
   mergeMode: 'overwrite' | 'merge' | 'skip' = 'merge'
 ): { success: boolean; message: string; importedCount: number } {
   const filteredRows = rows.filter(row => {
-    const year = row.year;
-    const month = row.month;
+    const [yearStr, monthStr] = row.month.split('-');
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
 
     const rowKey = year * 100 + month;
     const startKey = startYear * 100 + startMonth;
@@ -1812,15 +1853,15 @@ export function getAccountBalanceForMonth(accountId: string, year: number, month
 /**
  * 获取指定月份应显示的账户列表（基于 records 优先）
  * 策略：
- * 1. 该月有明确记录的账户 → 直接显示
+ * 1. 该月有明确记录的账户 → 直接显示（不受首次激活时间限制）
  * 2. 该月无记录，但历史上曾有记录且未被当月删除 → 继承显示
- * 3. 月度配置仅用于判断"某月是否被删除"
+ * 3. 继承逻辑需检查账户首次激活时间，防止新账户被回溯填充到创建之前的月份
  */
 export function getAccountsForMonth(year: number, month: number): Account[] {
   const data = loadData();
   const targetKey = year * 100 + month;
 
-  // 1. 获取该月有明确记录的账户ID
+  // 1. 获取该月有明确记录的账户ID（显式记录，不受首次激活时间限制）
   const monthRecordIds = new Set(
     data.records
       .filter(r => r.year === year && r.month === month)
@@ -1834,13 +1875,31 @@ export function getAccountsForMonth(year: number, month: number): Account[] {
       .map(c => c.accountId)
   );
 
-  // 3. 收集应继承显示的账户ID（历史上存在 + 未被当月删除）
+  // 3. 构建账户首次激活时间查找表
+  const accountFirstActiveMap = new Map<string, number>();
+  for (const config of data.monthlyAccountConfigs) {
+    if (config.status === 'active') {
+      const key = config.firstActiveYear * 100 + config.firstActiveMonth;
+      const existing = accountFirstActiveMap.get(config.accountId);
+      if (existing === undefined || key < existing) {
+        accountFirstActiveMap.set(config.accountId, key);
+      }
+    }
+  }
+
+  // 4. 收集应继承显示的账户ID（只继承到账户创建之后的月份）
   const inheritedIds = new Set<string>();
   
   for (const account of data.accounts) {
     if (monthRecordIds.has(account.id)) continue;
     if (deletedIds.has(account.id)) continue;
     if (account.isHidden) continue;
+
+    // 关键修复：只有当目标月份不早于账户首次激活月份时，才继承显示
+    const firstActiveKey = accountFirstActiveMap.get(account.id);
+    if (firstActiveKey !== undefined && targetKey < firstActiveKey) {
+      continue; // 该账户在目标月份尚未创建，不继承
+    }
 
     // 检查该账户是否在目标月份之前曾有记录
     const hasOldRecord = data.records.some(r => {
@@ -1854,7 +1913,7 @@ export function getAccountsForMonth(year: number, month: number): Account[] {
     }
   }
 
-  // 4. 合并：该月有记录的 + 应继承的（includeInTotal 过滤由计算函数处理）
+  // 5. 合并：该月有记录的 + 应继承的
   const allVisibleIds = new Set([...monthRecordIds, ...inheritedIds]);
   return data.accounts
     .filter(a => allVisibleIds.has(a.id) && !a.isHidden)

@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, AlertTriangle, Filter } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag, YearlyAttributionTag } from '@/types';
+import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag, YearlyAttributionTag, TimeRange } from '@/types';
 import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllAttributionTagOptions, getAllYearlyTagOptions, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -39,7 +38,6 @@ interface TrendPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
 }
 
-type TimeRange = '6' | '12' | 'all';
 type TrendType = 'monthly' | 'yearly';
 type FilterTag = 'all' | 'abnormal' | string;
 
@@ -552,7 +550,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       } 
       // 通用标签匹配：直接比对标签 ID（支持自定义标签）
       else {
-        shouldShow = point.attribution!.tags.some(tag => tag === filterTag);
+        shouldShow = (point.attribution!.tags as string[]).includes(filterTag);
       }
 
       return { ...point, isFiltered: !shouldShow };
@@ -692,14 +690,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const abnormalLegend = getAbnormalLegend();
 
   return (
-    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+    <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold">资产趋势</h1>
+          <h1 className="text-lg font-semibold text-white">资产趋势</h1>
         </div>
       </header>
 
@@ -708,15 +706,15 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
       <div className="p-4 space-y-4">
         {/* 趋势类型切换 + 时间范围选择 */}
-        <div className="flex gap-2">
-          {/* 趋势类型下拉 */}
+        <div className="flex gap-2 items-stretch">
+          {/* 左侧下拉 - 调整高度和圆角与右侧对齐 */}
           <div className="relative">
             <button
-              className="flex items-center gap-1 px-4 py-2 bg-white rounded-lg border border-gray-200 text-sm font-medium"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-white rounded-xl border border-gray-100 text-sm font-medium text-gray-700 shadow-sm h-full"
               onClick={() => setShowTrendDropdown(!showTrendDropdown)}
             >
               {trendType === 'monthly' ? '月度趋势' : '年度趋势'}
-              <ChevronDown size={16} className="text-gray-400" />
+              <ChevronDown size={15} className="text-gray-400" />
             </button>
 
             {showTrendDropdown && (
@@ -745,37 +743,46 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             )}
           </div>
 
-          {/* 时间范围选择（月度趋势）/ 年份区间选择（年度趋势） */}
-          {trendType === 'monthly' ? (
-            <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)} className="flex-1">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="6">近6月</TabsTrigger>
-                <TabsTrigger value="12">近1年</TabsTrigger>
-                <TabsTrigger value="all">全部</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          ) : (
-            <div className="flex items-center gap-2 px-2">
-              <span className="text-sm text-gray-600">年份区间:</span>
-              <input
-                type="number"
-                value={yearRange.start}
-                onChange={(e) => setYearRange({ ...yearRange, start: parseInt(e.target.value) || 2020 })}
-                className="w-20 px-2 py-1 border rounded text-sm"
-                min="2000"
-                max="2100"
-              />
-              <span>-</span>
-              <input
-                type="number"
-                value={yearRange.end}
-                onChange={(e) => setYearRange({ ...yearRange, end: parseInt(e.target.value) || 2025 })}
-                className="w-20 px-2 py-1 border rounded text-sm"
-                min="2000"
-                max="2100"
-              />
-            </div>
-          )}
+          {/* 右侧分段 - 包进白色卡片，与左侧风格统一 */}
+          <div className="flex-1 bg-white rounded-xl border border-gray-100 p-1 shadow-sm flex gap-1">
+            {(trendType === 'monthly' ? (
+              (['6', '12', 'all'] as TimeRange[]).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                  className={`flex-1 text-center py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                    timeRange === range ? 'text-white' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  style={{
+                    backgroundColor: timeRange === range ? themeConfig.primary : 'transparent',
+                  }}
+                >
+                  {range === '6' ? '近6月' : range === '12' ? '近1年' : '全部'}
+                </button>
+              ))
+            ) : (
+              <div className="flex items-center gap-2 px-2 w-full">
+                <span className="text-sm text-gray-600 whitespace-nowrap">年份区间:</span>
+                <input
+                  type="number"
+                  value={yearRange.start}
+                  onChange={(e) => setYearRange({ ...yearRange, start: parseInt(e.target.value) || 2020 })}
+                  className="w-16 px-2 py-1 border rounded text-sm"
+                  min="2000"
+                  max="2100"
+                />
+                <span className="text-gray-400">-</span>
+                <input
+                  type="number"
+                  value={yearRange.end}
+                  onChange={(e) => setYearRange({ ...yearRange, end: parseInt(e.target.value) || 2025 })}
+                  className="w-16 px-2 py-1 border rounded text-sm"
+                  min="2000"
+                  max="2100"
+                />
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* 归因筛选 */}

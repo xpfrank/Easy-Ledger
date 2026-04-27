@@ -16,6 +16,8 @@ import {
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { THEMES } from '@/types';
+import { getSettings } from '@/lib/storage';
 
 interface AccountEditPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -25,6 +27,14 @@ interface AccountEditPageProps {
 export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProps) {
   const isEdit = !!accountId;
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [theme, setTheme] = useState<string>('blue');
+  
+  useEffect(() => {
+    const settings = getSettings();
+    setTheme(settings.theme || 'blue');
+  }, []);
+  
+  const themeConfig = THEMES[theme as keyof typeof THEMES] || THEMES.blue;
   
   const [formData, setFormData] = useState<Partial<Account>>({
     name: '',
@@ -95,15 +105,15 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
   return (
     <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('accounts')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('accounts')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold">{isEdit ? '编辑账户' : '添加账户'}</h1>
+          <h1 className="text-lg font-semibold text-white">{isEdit ? '编辑账户' : '添加账户'}</h1>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleSave}>
-          <Save size={20} className="text-sky-600" />
+        <Button variant="ghost" size="icon" className="text-white" onClick={handleSave}>
+          <Save size={20} />
         </Button>
       </header>
 
@@ -122,14 +132,16 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
                   onClick={() => setFormData(prev => ({ ...prev, type: type.type }))}
                   className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${
                     formData.type === type.type
-                      ? 'border-sky-500 bg-sky-50 text-sky-700'
+                      ? 'border-gray-200'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
+                  style={formData.type === type.type ? { borderColor: themeConfig.primary, backgroundColor: `${themeConfig.primary}15`, color: themeConfig.primary } : undefined}
                 >
                   <Icon 
                     name={type.icon} 
                     size={20} 
-                    className={formData.type === type.type ? 'text-sky-600' : 'text-gray-400'} 
+                    color={formData.type === type.type ? themeConfig.primary : undefined}
+                    className={formData.type === type.type ? '' : 'text-gray-400'} 
                   />
                   <span className="text-xs mt-1">{type.label}</span>
                 </button>
@@ -163,9 +175,10 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
                     onClick={() => setFormData(prev => ({ ...prev, icon: icon.name }))}
                     className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
                       formData.icon === icon.name
-                        ? 'bg-sky-500 text-white'
+                        ? 'text-white'
                         : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                     }`}
+                    style={formData.icon === icon.name ? { backgroundColor: themeConfig.primary } : undefined}
                     title={icon.label}
                   >
                     <Icon name={icon.name} size={18} />
@@ -299,7 +312,8 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
               <Switch
                 checked={formData.includeInTotal}
                 onCheckedChange={(checked) => setFormData(prev => ({ ...prev, includeInTotal: checked }))}
-                className="data-[state=checked]:bg-sky-500"
+                style={{ '--tw-bg-opacity': '1' } as React.CSSProperties}
+                className="data-[state=checked]:bg-theme"
               />
             </div>
             <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
@@ -332,7 +346,8 @@ export function AccountEditPage({ onPageChange, accountId }: AccountEditPageProp
       {/* 底部保存按钮 */}
       <div className="fixed bottom-6 left-4 right-4">
         <Button 
-          className="w-full bg-sky-500 hover:bg-sky-600 h-12"
+          className="w-full h-12 text-white"
+          style={{ backgroundColor: themeConfig.primary }}
           onClick={handleSave}
         >
           <Save size={18} className="mr-2" />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown, GripVertical, ListOrdered } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -51,6 +51,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   const [excelError, setExcelError] = useState<string>('');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [theme, setTheme] = useState<ThemeType>('blue');
+  const [isSortMode, setIsSortMode] = useState(false);
 
   const themeConfig = THEMES[theme] || THEMES.blue;
 
@@ -227,16 +228,29 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
   return (
     <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold">账户管理</h1>
+          <h1 className="text-lg font-semibold text-white">账户管理</h1>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setImportDialogOpen(true)}>
-          <Upload size={20} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`text-white rounded-full px-3 py-1 text-xs font-medium ${
+              isSortMode ? 'bg-white/30' : 'bg-white/15'
+            }`}
+            onClick={() => setIsSortMode(!isSortMode)}
+          >
+            <ListOrdered size={16} className="mr-1" />
+            {isSortMode ? '完成' : '排序'}
+          </Button>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => setImportDialogOpen(true)}>
+            <Upload size={20} />
+          </Button>
+        </div>
       </header>
 
       {/* 占位元素，防止内容被固定标题栏遮挡 */}
@@ -248,7 +262,8 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
             <CardContent className="p-8 text-center">
               <p className="text-gray-500 mb-4">还没有账户</p>
               <Button 
-                className="bg-sky-500 hover:bg-sky-600"
+                className="text-white"
+                style={{ backgroundColor: themeConfig.primary }}
                 onClick={() => onPageChange('account-edit')}
               >
                 <Plus size={18} className="mr-1" />
@@ -320,19 +335,16 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+<div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
                             account.type === 'credit' || account.type === 'debt'
                               ? 'bg-red-50'
-                              : 'bg-sky-50'
+                              : ''
                           }`}>
-                            <Icon
-                              name={account.icon}
-                              size={18}
-                              className={account.type === 'credit' || account.type === 'debt'
-                                ? 'text-red-500'
-                                : 'text-sky-500'
-                              }
-                            />
+                          <Icon
+                            name={account.icon}
+                            size={18}
+                            color={account.type === 'credit' || account.type === 'debt' ? '#ef4444' : themeConfig.primary}
+                          />
                           </div>
                           <div>
                             <div className="font-medium text-sm">{account.name}</div>
@@ -341,73 +353,95 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            disabled={group.accounts.indexOf(account) === 0}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReorder(account.id, 'up');
-                            }}
-                          >
-                            <ArrowUp size={15} className={
-                              group.accounts.indexOf(account) === 0 ? 'text-gray-200' : 'text-gray-400'
-                            } />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            disabled={group.accounts.indexOf(account) === group.accounts.length - 1}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReorder(account.id, 'down');
-                            }}
-                          >
-                            <ArrowDown size={15} className={
-                              group.accounts.indexOf(account) === group.accounts.length - 1
-                                ? 'text-gray-200' : 'text-gray-400'
-                            } />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onPageChange('account-edit', { accountId: account.id });
-                            }}
-                          >
-                            <Edit3 size={16} className="text-gray-400" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(account);
-                            }}
-                          >
-                            <Trash2 size={16} className="text-red-400" />
-                          </Button>
+<div className="flex items-center gap-1">
+                          {isSortMode ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={group.accounts.indexOf(account) === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorder(account.id, 'up');
+                                }}
+                              >
+                                <ArrowUp size={15} className={
+                                  group.accounts.indexOf(account) === 0 ? 'text-gray-200' : 'text-gray-400'
+                                } />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={group.accounts.indexOf(account) === group.accounts.length - 1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorder(account.id, 'down');
+                                }}
+                              >
+                                <ArrowDown size={15} className={
+                                  group.accounts.indexOf(account) === group.accounts.length - 1
+                                    ? 'text-gray-200'
+                                    : 'text-gray-400'
+                                } />
+                              </Button>
+                              <GripVertical size={16} className="text-gray-300 mx-1" />
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onPageChange('account-edit', { accountId: account.id });
+                                }}
+                              >
+                                <Edit3 size={16} className="text-gray-400" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(account);
+                                }}
+                              >
+                                <Trash2 size={16} className="text-red-400" />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
                       
                       {/* 设置项 */}
                       <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-50">
                         <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-2">
-                            <Switch 
+                          <div
+                            className="flex items-center gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Switch
                               checked={account.includeInTotal}
                               onCheckedChange={() => toggleIncludeInTotal(account)}
-                              className="data-[state=checked]:bg-sky-500"
+                              style={
+                                account.includeInTotal
+                                  ? ({
+                                      '--switch-checked-bg': themeConfig.primary,
+                                    } as React.CSSProperties)
+                                  : undefined
+                              }
+                              className="data-[state=checked]:bg-[var(--switch-checked-bg)]"
                             />
                             <span className="text-xs text-gray-500">计入总资产</span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div
+                            className="flex items-center gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <Button
                               variant="ghost"
                               size="sm"
@@ -417,7 +451,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                               {account.isHidden ? (
                                 <EyeOff size={14} className="text-gray-400 mr-1" />
                               ) : (
-                                <Eye size={14} className="text-sky-500 mr-1" />
+                                <Eye size={14} style={{ color: themeConfig.primary }} className="mr-1" />
                               )}
                               <span className="text-xs">
                                 {account.isHidden ? '已隐藏' : '显示'}
@@ -440,7 +474,8 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
       {/* 添加按钮 */}
       <div className="fixed bottom-6 left-4 right-4">
         <Button 
-          className="w-full bg-sky-500 hover:bg-sky-600 h-12"
+          className="w-full h-12 text-white"
+          style={{ backgroundColor: themeConfig.primary }}
           onClick={() => onPageChange('account-edit')}
         >
           <Plus size={20} className="mr-2" />

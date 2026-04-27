@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3, Eye, EyeOff, Edit3 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ import {
   getSettings,
   getAllAttributionTagOptions,
   getAllYearlyTagOptions,
+  getAccountSnapshotsByMonth,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -35,6 +36,7 @@ import {
   getLastRecordedMonth,
 } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -229,6 +231,388 @@ function MonthPicker({
   );
 }
 
+interface YearlyDashboardProps {
+  year: number;
+  netWorth: number;
+  lastNetWorth: number;
+  hideBalance: boolean;
+  themeConfig: {
+    primary: string;
+    gradientFrom: string;
+    gradientTo: string;
+  };
+  onEditAttribution: () => void;
+  onMonthClick: (month: number, nw: number, changePercent: number) => void;
+}
+
+function fmtShort(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}亿`;
+  if (abs >= 10_000)      return `${(n / 10_000).toFixed(1)}w`;
+  if (abs >= 1_000)       return `${(n / 1_000).toFixed(1)}k`;
+  return String(Math.round(n));
+}
+
+function YearlyDashboard({
+  year,
+  netWorth,
+  lastNetWorth,
+  hideBalance,
+  themeConfig,
+  onEditAttribution,
+  onMonthClick,
+}: YearlyDashboardProps) {
+  const monthSnapshots = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const hasRecord = getAccountSnapshotsByMonth(year, m).length > 0;
+    if (!hasRecord) {
+      return { month: m, hasRecord: false, nw: 0, changePercent: 0 };
+    }
+
+    const accs = getAccountsForMonth(year, m).filter(a => !a.isHidden);
+    const nw   = calculateNetWorth(accs, year, m);
+
+    const prevM = m === 1 ? 12 : m - 1;
+    const prevY = m === 1 ? year - 1 : year;
+    const prevAccs = getAccountsForMonth(prevY, prevM).filter(a => !a.isHidden);
+    const prevNw   = calculateNetWorth(prevAccs, prevY, prevM);
+
+    const changePercent = prevNw !== 0 ? ((nw - prevNw) / Math.abs(prevNw)) * 100 : 0;
+    return { month: m, hasRecord: true, nw, changePercent };
+  });
+
+  const lastRecordedMonth = getLastRecordedMonth(year) || 0;
+  const recordedSlots     = monthSnapshots.filter(s => s.hasRecord);
+
+  const peakNw = recordedSlots.length
+    ? Math.max(...recordedSlots.map(s => s.nw))
+    : netWorth;
+  const avgNw  = recordedSlots.length
+    ? Math.round(recordedSlots.reduce((sum, s) => sum + s.nw, 0) / recordedSlots.length)
+    : netWorth;
+
+  const yoyChange = netWorth - lastNetWorth;
+  const yoyPct    = lastNetWorth !== 0 ? (yoyChange / Math.abs(lastNetWorth)) * 100 : 0;
+
+  const monthlyAttrs = getMonthlyAttributionsByYear(year);
+
+  type TagStat = { label: string; emoji: string; totalChange: number };
+  const tagMap: Record<string, TagStat> = {};
+
+  monthlyAttrs.forEach(attr => {
+    attr.tags.forEach(tag => {
+      if (!tagMap[tag]) {
+        tagMap[tag] = {
+          label:       getAttributionTagLabel(tag as any),
+          emoji:       getAttributionTagEmoji(tag as any),
+          totalChange: 0,
+        };
+      }
+      tagMap[tag].totalChange += attr.change;
+    });
+  });
+
+  const totalAbsChange = Object.values(tagMap).reduce(
+    (s, t) => s + Math.abs(t.totalChange), 0
+  );
+
+  const attrTop5 = Object.entries(tagMap)
+    .sort((a, b) => b[1].totalChange - a[1].totalChange)
+    .slice(0, 5)
+    .map(([tag, stats]) => ({
+      tag,
+      ...stats,
+      percent: totalAbsChange > 0 ? (stats.totalChange / totalAbsChange) * 100 : 0,
+    }));
+
+  const allAccounts = getAllAccounts().filter(a => !a.isHidden);
+
+  const accRanking = allAccounts
+    .map(acc => {
+      const startBal = getAccountBalanceForMonth(acc.id, year - 1, 12);
+      const endBal   = lastRecordedMonth
+        ? getAccountBalanceForMonth(acc.id, year, lastRecordedMonth)
+        : startBal;
+
+      let peakBal = Math.abs(endBal);
+      for (let m = 1; m <= 12; m++) {
+        const rec = getMonthlyRecord(acc.id, year, m);
+        if (rec) peakBal = Math.max(peakBal, Math.abs(rec.balance));
+      }
+
+      return {
+        accountId:   acc.id,
+        accountName: acc.name,
+        accountIcon: acc.icon,
+        accountType: acc.type,
+        change:      endBal - startBal,
+        peakBal,
+      };
+    })
+    .filter(a => a.change !== 0 || a.peakBal > 0)
+    .sort((a, b) => b.change - a.change);
+
+  const fmt = (n: number) => formatAmountNoSymbol(n);
+
+  return (
+    <div className="space-y-3">
+      <div
+        className="rounded-2xl p-5 text-white shadow-lg"
+        style={{
+          background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`,
+        }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white/75 text-xs font-medium">年度净资产</span>
+
+          <span className="bg-white/20 rounded-full px-3 py-1 text-xs font-medium backdrop-blur-sm">
+            {hideBalance ? '******' : (
+              <>
+                较上年 {yoyChange >= 0 ? '+' : ''}¥{fmt(yoyChange)}
+                <span className="opacity-80 ml-1">
+                  ({yoyChange >= 0 ? '+' : ''}{yoyPct.toFixed(1)}%)
+                </span>
+              </>
+            )}
+          </span>
+        </div>
+
+        <div className="text-3xl font-bold tracking-tight mb-4">
+          {hideBalance ? '¥ ******' : `¥${fmt(netWorth)}`}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
+            <div className="text-[11px] text-white/70 mb-1">年度峰值</div>
+            <div className="text-base font-semibold">
+              {hideBalance ? '******' : `¥${fmt(peakNw)}`}
+            </div>
+          </div>
+          <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
+            <div className="text-[11px] text-white/70 mb-1">年度平均</div>
+            <div className="text-base font-semibold">
+              {hideBalance ? '******' : `¥${fmt(avgNw)}`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-sm font-medium text-gray-800">12 个月资产快照</span>
+          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={{ backgroundColor: themeConfig.primary, opacity: 0.65 }}
+            />
+            已记录
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-400 mb-3">未记录月份不参与计算，绝不回填</p>
+
+        <div className="grid grid-cols-4 gap-2">
+          {monthSnapshots.map(({ month: m, hasRecord, nw, changePercent }) => {
+            if (!hasRecord) {
+              return (
+                <div
+                  key={m}
+                  className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-2.5 text-center"
+                >
+                  <div className="text-[11px] font-medium text-gray-400 mb-1">{m}月</div>
+                  <div className="text-[10px] text-gray-300">未记录</div>
+                </div>
+              );
+            }
+
+            const isCurrent  = m === lastRecordedMonth;
+            const isPositive = changePercent >= 0;
+
+            return (
+<div
+                  key={m}
+                  className="rounded-xl p-2.5 text-center cursor-pointer active:scale-95 transition-transform select-none"
+                  style={{
+                    backgroundColor: isCurrent
+                      ? `${themeConfig.primary}18`
+                      : '#f0fdf4',
+                    border: isCurrent
+                      ? `1.5px solid ${themeConfig.primary}55`
+                      : '1.5px solid transparent',
+                  }}
+                  onClick={() => onMonthClick(m, nw, changePercent)}
+                >
+                <div
+                  className="text-[11px] font-semibold mb-1"
+                  style={{ color: isCurrent ? themeConfig.primary : '#15803d' }}
+                >
+                  {m}月{isCurrent ? ' ·' : ''}
+                </div>
+
+                <div className="text-xs font-semibold text-gray-800">
+                  {hideBalance ? '***' : `¥${fmtShort(nw)}`}
+                </div>
+
+                <div
+                  className="text-[10px] mt-0.5"
+                  style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
+                >
+                  {isPositive ? '+' : ''}{changePercent.toFixed(1)}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 颜色说明 — 放在 grid 外部，独立占满宽度 */}
+        <div className="flex items-center justify-between mt-3 px-0.5">
+          <span className="text-[10px] text-gray-400">跌幅大</span>
+          <div className="flex items-center gap-0.5 flex-1 mx-3">
+            {['#dc2626','#f87171','#fca5a5','#d1fae5','#86efac','#22c55e','#15803d'].map((c, i) => (
+              <div
+                key={i}
+                className="h-2.5 flex-1 rounded-full"
+                style={{ backgroundColor: c, opacity: i === 3 ? 0.25 : 1 }}
+              />
+            ))}
+          </div>
+          <span className="text-[10px] text-gray-400">涨幅大</span>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-gray-800">
+            年度归因{attrTop5.length > 0 ? ` TOP ${attrTop5.length}` : ''}
+          </span>
+          <button
+            onClick={onEditAttribution}
+            className="text-[11px] px-3 py-1 rounded-full border transition-colors hover:bg-gray-50"
+            style={{
+              color:       themeConfig.primary,
+              borderColor: `${themeConfig.primary}40`,
+            }}
+          >
+            {attrTop5.length > 0 ? '编辑归因' : '填写归因'}
+          </button>
+        </div>
+
+        {attrTop5.length > 0 ? (
+          <div className="space-y-3.5">
+            {attrTop5.map(({ tag, label, emoji, totalChange, percent }) => {
+              const isNeg    = totalChange < 0;
+              const barColor = isNeg ? '#ef4444' : themeConfig.primary;
+              return (
+                <div key={tag} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-sm flex-shrink-0">
+                    {emoji}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-sm text-gray-700 truncate">{label}</span>
+                      <span
+                        className="text-xs font-semibold ml-2 flex-shrink-0"
+                        style={{ color: barColor }}
+                      >
+                        {isNeg ? '' : '+'}{percent.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width:           `${Math.min(Math.abs(percent), 100)}%`,
+                          backgroundColor: barColor,
+                          transition:      'width 0.4s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <span
+                    className="text-xs font-medium flex-shrink-0 w-[72px] text-right"
+                    style={{ color: isNeg ? '#ef4444' : '#16a34a' }}
+                  >
+                    {hideBalance
+                      ? '***'
+                      : `${isNeg ? '-' : '+'}¥${fmt(Math.abs(totalChange))}`
+                    }
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 text-center py-2">
+            先记录月度归因，年度汇总会自动生成
+          </p>
+        )}
+      </div>
+
+      {accRanking.length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <div className="text-sm font-medium text-gray-800 mb-1">年度账户变动排行</div>
+          <p className="text-[11px] text-gray-400 mb-3">
+            变化额 = 年末余额 − 上年末；峰值取全年最高记录
+          </p>
+
+          <div className="divide-y divide-gray-50">
+            {accRanking.slice(0, 8).map(
+              ({ accountId, accountName, accountIcon, accountType, change, peakBal }) => {
+                const isLiability = accountType === 'credit' || accountType === 'debt';
+                const isPos       = change >= 0;
+
+                return (
+                  <div
+                    key={accountId}
+                    className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+                  >
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{
+                        backgroundColor: isLiability
+                          ? '#fef2f2'
+                          : `${themeConfig.primary}15`,
+                      }}
+                    >
+                      <Icon
+                        name={accountIcon}
+                        size={16}
+                        color={isLiability ? '#ef4444' : themeConfig.primary}
+                      />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {accountName}
+                      </div>
+                      <div className="text-[11px] text-gray-400">
+                        峰值 {hideBalance ? '***' : `¥${fmt(peakBal)}`}
+                      </div>
+                    </div>
+
+                    <div
+                      className="text-sm font-semibold flex-shrink-0"
+                      style={{ color: isPos ? '#16a34a' : '#dc2626' }}
+                    >
+                      {hideBalance
+                        ? '***'
+                        : `${isPos ? '+' : '-'}¥${fmt(Math.abs(change))}`
+                      }
+                    </div>
+                  </div>
+                );
+              }
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="h-6" />
+    </div>
+  );
+}
+
 export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, params }: RecordPageProps) {
   const now = new Date();
   const [recordMode, setRecordMode] = useState<RecordMode>(params?.mode || 'monthly');
@@ -272,6 +656,13 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const [yearlySelectedTags, setYearlySelectedTags] = useState<YearlyAttributionTag[]>([]);
   const [yearlyAttributionNote, setYearlyAttributionNote] = useState('');
   const [yearlyKeyMonths, setYearlyKeyMonths] = useState<string[]>([]);
+
+  // 月度归因弹窗
+  const [monthAttrDialog, setMonthAttrDialog] = useState<{
+    month: number;
+    nw: number;
+    changePercent: number;
+  } | null>(null);
 
   const themeConfig = THEMES[theme];
 
@@ -704,25 +1095,25 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
 
   return (
-    <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
-      {/* 标题栏 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+    <div className="pb-24 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
+      {/* 标题栏 - fixed 定位，与其他页面保持一致，不受父级 overflow 影响 */}
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
 
           <div className="relative">
             <button
-              className="flex items-center gap-1 text-lg font-semibold hover:bg-gray-50 px-2 py-1 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-white bg-white/20 hover:bg-white/30 rounded-full px-3 py-1.5 transition-colors font-bold"
               onClick={() => setShowModeDropdown(!showModeDropdown)}
             >
               {recordMode === 'monthly' ? '月度记账' : '年度记账'}
-              <ChevronDown size={18} className={`text-gray-400 transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
+              <ChevronDown size={16} className={`transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
             </button>
 
             {showModeDropdown && (
-              <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-200">
+              <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-200">
                 <button
                   className={`w-full px-4 py-2.5 text-left text-sm transition-colors ${recordMode === 'monthly' ? 'text-white' : 'hover:bg-gray-50'}`}
                   style={{ backgroundColor: recordMode === 'monthly' ? themeConfig.primary : undefined }}
@@ -748,99 +1139,104 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
-            size="icon"
+            size="sm"
+            className="text-white bg-white/20 hover:bg-white/30 rounded-full"
             onClick={toggleHideBalance}
-            className="text-gray-500"
           >
-            {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
+            {hideBalance ? <EyeOff size={16} /> : <Eye size={16} />}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            style={{ color: themeConfig.primary }}
+            className="text-white bg-white/20 hover:bg-white/30 rounded-full"
             onClick={() => onPageChange('record-logs', { year, month, mode: recordMode })}
           >
-            <History size={18} className="mr-1" />
-            记录
+            <History size={16} />
+            <span className="ml-1">记录</span>
           </Button>
         </div>
       </header>
 
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
+      <div className="h-14"></div>
+
       <div className="p-3 space-y-3">
-        {/* 月份/年份选择器 */}
+        {/* 月份/年份选择器 - 紧凑版 */}
         <Card className="bg-white shadow-sm">
-          <CardContent className="p-3">
+          <CardContent className="p-2">
             <div className="flex items-center justify-between">
               <Button variant="ghost" size="icon" onClick={goToPrev} className="hover:bg-gray-100 h-8 w-8">
-                <ChevronLeft size={20} />
+                <ChevronLeft size={18} />
               </Button>
 
               {recordMode === 'monthly' ? (
                 <button
-                  className="text-center hover:bg-gray-50 px-4 py-1.5 rounded-xl transition-all"
+                  className="flex items-center gap-1.5 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-all"
                   onClick={() => setShowMonthPicker(true)}
                 >
-                  <div className="text-lg font-bold text-gray-900">{formatMonth(year, month)}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">点击切换月份</div>
+                  <span className="text-lg font-bold text-gray-900">{formatMonth(year, month)}</span>
+                  <ChevronDown size={14} className="text-gray-400" />
                 </button>
               ) : (
                 <button
-                  className="text-center px-4 py-1.5 rounded-xl hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                   onClick={() => setShowYearPicker(true)}
                 >
-                  <div className="text-lg font-bold text-gray-900">{year}年</div>
-                  <div className="text-xs text-gray-400 mt-0.5">点击切换年份</div>
+                  <span className="text-lg font-bold text-gray-900">{year}年</span>
+                  <ChevronDown size={14} className="text-gray-400" />
                 </button>
               )}
 
               <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100 h-8 w-8">
-                <ChevronRight size={20} />
+                <ChevronRight size={18} />
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* 净资产汇总 */}
-        <Card
-          className="text-white shadow-lg"
-          style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
-        >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-white/80 text-xs font-medium">
-                {recordMode === 'monthly' ? '本月净资产' : '年度净资产'}
-              </span>
-              <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
-                change >= 0 ? 'text-white' : 'text-red-100'
-              }`}>
-                较{recordMode === 'monthly' ? '上月' : '上年'} {hideBalance ? '******' : (
-                  <>
-                    {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
-                    <span className="ml-0.5 opacity-80">
-                      ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
-                    </span>
-                  </>
-                )}
-              </span>
-            </div>
-
-            <div className="text-2xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
-
-            <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
-              <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
-                <div className="text-xs text-white/70 mb-0.5">总资产</div>
-                <div className="font-semibold text-base">¥{formatHiddenAmount(totalAssets, hideBalance)}</div>
+{/* 净资产汇总 - 月度模式显示 */}
+        {recordMode === 'monthly' && (
+          <Card
+            className="text-white shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white/80 text-xs font-medium">
+                  本月净资产
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
+                  change >= 0 ? 'text-white' : 'text-red-100'
+                }`}>
+                  较上月 {hideBalance ? '******' : (
+                    <>
+                      {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                      <span className="ml-0.5 opacity-80">
+                        ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                      </span>
+                    </>
+                  )}
+                </span>
               </div>
-              <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
-                <div className="text-xs text-white/70 mb-0.5">负资产</div>
-                <div className="font-semibold text-base">¥{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+
+              <div className="text-2xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
+
+              <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
+                <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                  <div className="text-xs text-white/70 mb-0.5">总资产</div>
+                  <div className="font-semibold text-base">¥{formatHiddenAmount(totalAssets, hideBalance)}</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                  <div className="text-xs text-white/70 mb-0.5">负资产</div>
+                  <div className="font-semibold text-base">¥{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 悬浮预览按钮 - 固定在底部导航栏上方 */}
         {recordMode === 'monthly' && (
@@ -870,21 +1266,6 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </div>
         )}
 
-        {/* 年度归因按钮（月度模式下隐藏，年度模式下显示在固定位置） */}
-        {recordMode === 'yearly' && (
-          <div className="px-1">
-            <Button
-              variant="outline"
-              className="w-full h-12 font-semibold text-base border-2 bg-white hover:bg-gray-50"
-              style={{ borderColor: themeConfig.primary, color: themeConfig.primary }}
-              onClick={triggerYearlyAttribution}
-            >
-              <BarChart3 size={20} className="mr-2" />
-              年度归因
-            </Button>
-          </div>
-        )}
-
         {/* 快捷操作 */}
         {recordMode === 'monthly' && (
           <div className="flex gap-2">
@@ -907,142 +1288,161 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </div>
         )}
 
-        {/* 账户余额列表 */}
-        <div className="space-y-3">
-          <div className="flex justify-between items-center px-1">
-            <h2 className="text-sm font-medium text-gray-500">
-              {recordMode === 'monthly' ? '账户余额' : '年度账户余额'}
-            </h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 text-sm"
-              style={{ color: themeConfig.primary }}
-              onClick={() => onPageChange('accounts')}
-            >
-              管理账户
-            </Button>
-          </div>
+{/* 年度/月度账户列表 */}
+        {recordMode === 'yearly' ? (
+          <YearlyDashboard
+            year={year}
+            netWorth={netWorth}
+            lastNetWorth={lastNetWorth}
+            hideBalance={hideBalance}
+            themeConfig={themeConfig}
+            onEditAttribution={triggerYearlyAttribution}
+            onMonthClick={(m, nw, changePercent) =>
+              setMonthAttrDialog({ month: m, nw, changePercent })
+            }
+          />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex justify-between items-center px-1">
+              <h2 className="text-sm font-medium text-gray-500">账户余额</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-sm"
+                style={{ color: themeConfig.primary }}
+                onClick={() => onPageChange('accounts')}
+              >
+                管理账户
+              </Button>
+            </div>
 
-          {accounts.length === 0 ? (
-            <Card className="bg-white">
-              <CardContent className="p-8 text-center">
-                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-                  <Icon name="wallet" size={28} className="text-gray-400" />
-                </div>
-                <p className="text-gray-500 font-medium mb-4">还没有账户</p>
-                <Button
-                  className="text-white px-6"
-                  style={{ backgroundColor: themeConfig.primary }}
-                  onClick={() => onPageChange('account-edit')}
-                >
-                  添加账户
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="bg-white shadow-sm overflow-hidden">
-              <div className="divide-y divide-gray-100">
-                {accounts.map((account, index) => {
-                  const isCredit = account.type === 'credit';
-                  const isDebt = account.type === 'debt';
-                  const balance = balances[account.id] || 0;
-                  const isEditing = editingAccount === account.id;
+            {accounts.length === 0 ? (
+              <Card className="bg-white">
+                <CardContent className="p-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                    <Icon name="wallet" size={28} className="text-gray-400" />
+                  </div>
+                  <p className="text-gray-500 font-medium mb-4">还没有账户</p>
+                  <Button
+                    className="text-white px-6"
+                    style={{ backgroundColor: themeConfig.primary }}
+                    onClick={() => onPageChange('account-edit')}
+                  >
+                    添加账户
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="bg-white shadow-sm overflow-hidden">
+                <div className="divide-y divide-gray-100">
+                  {accounts.map((account, index) => {
+                    const isCredit   = account.type === 'credit';
+                    const isDebt     = account.type === 'debt';
+                    const balance    = balances[account.id] || 0;
+                    const isEditing  = editingAccount === account.id;
 
-                  return (
-                    <div
-                      key={account.id}
-                      className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
-                      style={{ animationDelay: `${index * 50}ms` }}
-                      onClick={() => onPageChange('account-detail', { accountId: account.id })}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                              isCredit || isDebt ? 'bg-red-50' : ''
-                            }`}
-                            style={{ backgroundColor: isCredit || isDebt ? undefined : `${themeConfig.primary}15` }}
-                          >
-                            <Icon
-                              name={account.icon}
-                              size={18}
-                              className={isCredit || isDebt ? 'text-red-500' : ''}
-                              color={isCredit || isDebt ? undefined : themeConfig.primary}
-                            />
-                          </div>
-                          <div>
-                            <div className="font-medium text-sm text-gray-900">{account.name}</div>
-                            <div className="text-xs text-gray-400 flex items-center gap-1">
-                              {getAccountTypeLabel(account.type)}
-                              {isCredit && balance > 0 && (
-                                <span className="text-red-500">· 欠款</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {isEditing ? (
-                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">¥</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                className="w-32 h-10 pl-7 text-sm font-medium"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') saveEdit();
-                                  if (e.key === 'Escape') cancelEdit();
-                                }}
+                    return (
+                      <div
+                        key={account.id}
+                        className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                        onClick={() => onPageChange('account-detail', { accountId: account.id })}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                                isCredit || isDebt ? 'bg-red-50' : ''
+                              }`}
+                              style={{
+                                backgroundColor: isCredit || isDebt
+                                  ? undefined
+                                  : `${themeConfig.primary}15`,
+                              }}
+                            >
+                              <Icon
+                                name={account.icon}
+                                size={18}
+                                className={isCredit || isDebt ? 'text-red-500' : ''}
+                                color={isCredit || isDebt ? undefined : themeConfig.primary}
                               />
                             </div>
-                            <Button
-                              size="sm"
-                              className="h-10 px-4 text-white text-sm"
-                              style={{ backgroundColor: themeConfig.primary }}
-                              onClick={saveEdit}
-                            >
-                              保存
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={(e) => startEdit(account, e)}
-                              className={`text-right px-3 py-2 rounded-xl hover:bg-gray-100 transition-all ${
-                                isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') :
-                                isDebt ? 'text-red-500' : 'text-gray-900'
-                              }`}
-                            >
-                              <div className="text-base font-medium">
-                                ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
+                            <div>
+                              <div className="font-medium text-sm text-gray-900">{account.name}</div>
+                              <div className="text-xs text-gray-400 flex items-center gap-1">
+                                {getAccountTypeLabel(account.type)}
+                                {isCredit && balance > 0 && (
+                                  <span className="text-red-500">· 欠款</span>
+                                )}
                               </div>
-                              <div className="text-xs text-gray-400">点击编辑</div>
-                            </button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-gray-400 hover:text-gray-600"
-                              onClick={(e) => startEdit(account, e)}
-                            >
-                              <Edit3 size={16} />
-                            </Button>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-        </div>
 
-        {/* 底部占位，防止内容被固定按钮遮挡 */}
-        {recordMode === 'monthly' && <div className="h-20"></div>}
+                          {isEditing ? (
+                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">¥</span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={editValue}
+                                  onChange={e => setEditValue(e.target.value)}
+                                  className="w-32 h-10 pl-7 text-sm font-medium"
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') saveEdit();
+                                    if (e.key === 'Escape') cancelEdit();
+                                  }}
+                                />
+                              </div>
+                              <Button
+                                size="sm"
+                                className="h-10 px-4 text-white text-sm"
+                                style={{ backgroundColor: themeConfig.primary }}
+                                onClick={saveEdit}
+                              >
+                                保存
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e) => startEdit(account, e)}
+                                className={`text-right px-3 py-2 rounded-xl hover:bg-gray-100 transition-all ${
+                                  isCredit
+                                    ? balance > 0 ? 'text-red-500' : 'text-green-600'
+                                    : isDebt ? 'text-red-500' : 'text-gray-900'
+                                }`}
+                              >
+                                <div className="text-base font-medium">
+                                  ¥{formatHiddenAmount(
+                                    isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance,
+                                    hideBalance
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-400">点击编辑</div>
+                              </button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-gray-400 hover:text-gray-600"
+                                onClick={(e) => startEdit(account, e)}
+                              >
+                                <Edit3 size={16} />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+
+{recordMode === 'monthly' && <div className="h-20"></div>}
       </div>
 
       {/* 月份选择器弹窗 */}
@@ -1625,6 +2025,78 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           animation: alert-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
       `}</style>
+
+      {/* 月度快照归因弹窗 — 使用完整 MonthlyAttributionDetail 组件 */}
+      {monthAttrDialog && (() => {
+        const mAttr = getMonthlyAttribution(year, monthAttrDialog.month);
+        const isPos = monthAttrDialog.changePercent >= 0;
+
+        // 有归因记录 → 展示完整归因详情
+        if (mAttr) {
+          return (
+            <MonthlyAttributionDetail
+              year={year}
+              month={monthAttrDialog.month}
+              hideBalance={hideBalance}
+              theme={theme}
+              onClose={() => setMonthAttrDialog(null)}
+              onEdit={() => {
+                const targetMonth = monthAttrDialog.month;
+                setMonthAttrDialog(null);
+                // 跳转回月度记账模式并自动打开归因编辑
+                onPageChange('record', {
+                  year,
+                  month: targetMonth,
+                  mode: 'monthly' as RecordMode,
+                  openAttributionEdit: true,
+                });
+              }}
+            />
+          );
+        }
+
+        // 无归因记录 → 展示简单快照 + 引导填写
+        return (
+          <Dialog open={true} onOpenChange={() => setMonthAttrDialog(null)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{year}年{monthAttrDialog.month}月 · 资产快照</DialogTitle>
+                <DialogDescription>
+                  净资产{' '}
+                  <span className="font-semibold text-gray-800">
+                    {hideBalance ? '¥ ******' : `¥${formatAmountNoSymbol(monthAttrDialog.nw)}`}
+                  </span>
+                  <span className={`ml-2 font-semibold ${isPos ? 'text-green-600' : 'text-red-500'}`}>
+                    {isPos ? '+' : ''}{monthAttrDialog.changePercent.toFixed(1)}%
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-6 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto text-2xl">
+                  📝
+                </div>
+                <p className="text-sm text-gray-400">该月暂无归因记录</p>
+                <Button
+                  className="w-full text-white"
+                  style={{ backgroundColor: themeConfig.primary }}
+                  onClick={() => {
+                    const targetMonth = monthAttrDialog.month;
+                    setMonthAttrDialog(null);
+                    onPageChange('record', {
+                      year,
+                      month: targetMonth,
+                      mode: 'monthly' as RecordMode,
+                      openAttributionEdit: true,
+                    });
+                  }}
+                >
+                  前往该月填写归因
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

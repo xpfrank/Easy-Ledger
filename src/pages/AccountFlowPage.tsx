@@ -202,7 +202,7 @@ export function AccountFlowPage({ onPageChange, accountId }: AccountFlowPageProp
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
           <Filter size={16} className="text-gray-400 flex-shrink-0" />
-          {(['all', 'increase', 'decrease', 'transfer_in', 'transfer_out'] as FlowFilter[]).map((f) => (
+          {(['all', 'increase', 'decrease'] as FlowFilter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}

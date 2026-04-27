@@ -63,10 +63,40 @@ export interface AppState {
 // 主题类型
 export type ThemeType = 'blue' | 'green' | 'orange' | 'dark' | 'purple';
 
+// 时间范围
+export type TimeRange = '6' | '12' | 'all';
+
+// 年度目标
+export interface YearlyGoal {
+  year: number;
+  targetAmount: number;
+  createdAt?: number;
+}
+
+// 健康评分
+export interface HealthScore {
+  score: number;
+  level: 'A' | 'B+' | 'B' | 'C' | 'D';
+  configScore: {
+    score: number;
+    level: 'A' | 'B+' | 'B' | 'C' | 'D';
+    cashRatio: number;
+    investmentRatio: number;
+    debtRatio: number;
+  };
+  volatilityScore: {
+    score: number;
+    level: 'A' | 'B+' | 'B' | 'C' | 'D';
+    standardDeviation: number;
+  };
+  attributionCompleteness: number;
+}
+
 // 应用设置
 export interface AppSettings {
   hideBalance: boolean;
   theme: ThemeType;
+  yearlyGoal?: YearlyGoal;
 }
 
 // 月度账户配置：记录某月某账户的"存在状态"

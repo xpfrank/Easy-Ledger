@@ -11,20 +11,23 @@ import { RecordLogsPage } from '@/pages/RecordLogsPage';
 import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { getSettings, updateSettings, migrateToMonthlyAccountConfigs } from '@/lib/storage';
+import { THEMES } from '@/types';
 import './App.css';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<PageRoute>('home');
   const [pageParams, setPageParams] = useState<any>(null);
-  // 全局余额隐藏状态 - 在 App 层级管理，确保跨页面同步
   const [hideBalance, setHideBalanceState] = useState(false);
+  const [theme, setTheme] = useState<string>('blue');
 
-  // 初始化从本地存储读取余额隐藏状态
   useEffect(() => {
     const settings = getSettings();
     setHideBalanceState(settings.hideBalance);
+    setTheme(settings.theme || 'blue');
     migrateToMonthlyAccountConfigs();
   }, []);
+
+  const themeConfig = THEMES[theme as keyof typeof THEMES] || THEMES.blue;
 
   // 全局余额隐藏状态切换函数
   const toggleHideBalance = useCallback(() => {
@@ -220,7 +223,7 @@ function App() {
       {/* 底部导航栏 */}
       {showBottomNav && (
         <div className="max-w-md mx-auto">
-          <BottomNav currentPage={currentPage} onPageChange={handlePageChangeWithHistory} />
+          <BottomNav currentPage={currentPage} onPageChange={handlePageChangeWithHistory} themeConfig={themeConfig} />
         </div>
       )}
 
