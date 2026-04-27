@@ -174,6 +174,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
   const [showExportSuccess, setShowExportSuccess] = useState(false);
   const [exportedData, setExportedData] = useState('');
+  const [exportedFormat, setExportedFormat] = useState<'json' | 'csv'>('json');
   const [copied, setCopied] = useState(false);
   const exportTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -252,6 +253,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     if (isCapacitorAndroid()) {
       // 显示数据复制对话框作为备选方案
       setExportedData(data);
+      setExportedFormat(exportFormat);
       setShowExportSuccess(true);
       setShowExportDialog(false);
     } else {
@@ -356,6 +358,12 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
   const handleDownloadTemplate = () => {
     const template = exportExcelTemplate();
+    if (isCapacitorAndroid()) {
+      setExportedData(template);
+      setExportedFormat('csv');
+      setShowExportSuccess(true);
+      return;
+    }
     const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -949,7 +957,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                     <div>
                       <input
                         type="file"
-                        accept=".json"
+                        accept=".json,application/json,text/plain"
                         onChange={handleImport}
                         className="w-full"
                       />
@@ -983,7 +991,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                     {/* 文件选择 - 仅支持 CSV */}
                     <input
                       type="file"
-                      accept=".csv"
+                      accept=".csv,text/csv,text/plain,application/csv"
                       onChange={handleExcelFileChange}
                       className="w-full text-sm"
                     />
@@ -1099,7 +1107,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               <div>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,text/csv,text/plain,application/csv"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
@@ -1166,7 +1174,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               <div>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,text/csv,text/plain,application/csv"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
@@ -1353,7 +1361,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           <DialogHeader>
             <DialogTitle>数据导出成功</DialogTitle>
             <DialogDescription>
-              请复制下方 JSON 数据并保存到文件
+              请复制下方 {exportedFormat === 'csv' ? 'CSV' : 'JSON'} 数据并保存到文件
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -1384,7 +1392,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </Button>
             </div>
             <p className="text-xs text-gray-500 mt-3">
-              提示：点击"复制"按钮后，可将数据粘贴到文件管理器或备忘录中保存为 .json 文件
+              提示：点击"复制"按钮后，可将数据粘贴到文件管理器或备忘录中保存为 .{exportedFormat} 文件
             </p>
           </div>
           <DialogFooter>
