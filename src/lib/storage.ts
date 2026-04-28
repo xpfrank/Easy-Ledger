@@ -1518,7 +1518,8 @@ export function saveMonthlyAttribution(
   change: number,
   changePercent: number,
   tags: AttributionTag[],
-  note?: string
+  note?: string,
+  tagAmounts?: Record<string, number>
 ): void {
   const data = loadData();
 
@@ -1532,6 +1533,7 @@ export function saveMonthlyAttribution(
     changePercent,
     fluctuationLevel: calculateFluctuationLevel(changePercent),
     tags,
+    tagAmounts,
     note,
     timestamp: Date.now(),
   };
