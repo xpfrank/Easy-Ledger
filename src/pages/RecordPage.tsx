@@ -308,7 +308,10 @@ function YearlyDashboard({
           totalChange: 0,
         };
       }
-      tagMap[tag].totalChange += attr.change;
+      // 优先使用 tagAmounts 中该标签的精确分配金额；
+      // 若无自定义分配，则将总变动按标签数均分，避免多标签重复累计
+      const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+      tagMap[tag].totalChange += tagAmount;
     });
   });
 
@@ -650,6 +653,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   } | null>(null);
   const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
   const [attributionNote, setAttributionNote] = useState('');
+  const [tagAmounts, setTagAmounts] = useState<Record<string, string>>({});
+  // 记录用户已手动确认（失焦）的标签，锁定后不参与自动均分
+  const [lockedTags, setLockedTags] = useState<Set<string>>(new Set());
 
   // 年度归因弹窗状态
   const [showYearlyAttributionDialog, setShowYearlyAttributionDialog] = useState(false);
@@ -862,9 +868,20 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     if (existingAttribution) {
       setSelectedTags(existingAttribution.tags);
       setAttributionNote(existingAttribution.note || '');
+      // 加载已有金额分配
+      if (existingAttribution.tagAmounts) {
+        const loaded: Record<string, string> = {};
+        Object.entries(existingAttribution.tagAmounts).forEach(([tag, amount]) => {
+          loaded[tag] = String(amount);
+        });
+        setTagAmounts(loaded);
+      } else {
+        setTagAmounts({});
+      }
     } else {
       setSelectedTags([]);
       setAttributionNote('');
+      setTagAmounts({});
     }
 
     setPreviewData({
@@ -886,18 +903,39 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       return;
     }
 
+    // 转换金额为数字
+    const finalTagAmounts: Record<string, number> = {};
+    let allocatedTotal = 0;
+    selectedTags.forEach(tag => {
+      const val = parseFloat(tagAmounts[tag] || '0');
+      const amount = isNaN(val) ? 0 : val;
+      finalTagAmounts[tag] = amount;
+      allocatedTotal += amount;
+    });
+
+    // 如果未分配或总额不对，自动均分
+    if (selectedTags.length > 0 && (allocatedTotal === 0 || Math.abs(allocatedTotal - Math.abs(previewData.change)) > 0.01)) {
+      const equalAmount = Math.abs(previewData.change) / selectedTags.length;
+      selectedTags.forEach(tag => {
+        finalTagAmounts[tag] = equalAmount;
+      });
+    }
+
     saveMonthlyAttribution(
       year,
       month,
       previewData.change,
       previewData.changePercent,
       selectedTags,
-      attributionNote || undefined
+      attributionNote || undefined,
+      selectedTags.length > 0 ? finalTagAmounts : undefined
     );
 
     setShowPreviewDialog(false);
     setSelectedTags([]);
     setAttributionNote('');
+    setTagAmounts({});
+    setLockedTags(new Set());
     setHasChanges(false);
   };
 
@@ -906,6 +944,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     setShowPreviewDialog(false);
     setSelectedTags([]);
     setAttributionNote('');
+    setLockedTags(new Set());
     setHasChanges(false);
   };
 
@@ -949,7 +988,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           };
         }
         tagStats[tag].count++;
-        tagStats[tag].totalChange += attr.change;
+        // 优先精确分配金额，否则按标签数均分，防止重复计入
+        const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+        tagStats[tag].totalChange += tagAmount;
         if (!tagStats[tag].months.includes(attr.month)) {
           tagStats[tag].months.push(attr.month);
         }
@@ -963,9 +1004,10 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
 
     const topTags = sortedTags.map(([tag]) => tag as YearlyAttributionTag);
 
-    // 生成汇总说明 - 使用月度归因的中文名称
+    // 生成汇总说明 - 使用月度归因的中文名称，正确体现金额正负
     const summaryParts = sortedTags.map(([, stats]) => {
-      return `${stats.emoji}${stats.label}(${stats.count}次，累计¥${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
+      const sign = stats.totalChange >= 0 ? '+' : '-';
+      return `${stats.emoji}${stats.label}(${stats.count}次，累计${sign}¥${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
     });
     const summaryText = `本年度月度归因汇总：${summaryParts.join('、')}`;
 
@@ -1014,7 +1056,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
             emoji: getAttributionTagEmoji(tag) 
           };
         }
-        tagStats[tag].totalChange += attr.change;
+        // 精确分配或均分，防止多标签重复累计
+        const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+        tagStats[tag].totalChange += tagAmount;
         tagStats[tag].count += 1;
       });
     });
@@ -1511,9 +1555,11 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           setShowPreviewDialog(false);
           setSelectedTags([]);
           setAttributionNote('');
+          setTagAmounts({});
+          setLockedTags(new Set());
         }
       }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
           <DialogHeader>
             <DialogTitle className="text-xl">{formatMonth(year, month)} 记账预览</DialogTitle>
           </DialogHeader>
@@ -1642,38 +1688,168 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 </div>
               )}
 
-              {/* 原因选择 - 分类折叠面板 */}
-              <div>
-                <div className="text-sm font-medium text-gray-700 mb-3">
-                  {previewData.fluctuationLevel === 'abnormal' ? (
-                    <span className="text-red-600">* 请选择归因原因（必选）</span>
-                  ) : '选择归因原因（可选）'}
-                </div>
-
-                {/* 已选标签快捷栏 */}
-                {selectedTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3 p-2 bg-gray-50 rounded-xl">
-                    {selectedTags.map(tagId => {
-                      const tag = getAllAttributionTagOptions().find(t => t.id === tagId);
-                      if (!tag) return null;
-                      return (
-                        <span
-                          key={tagId}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm"
-                        >
-                          <span>{tag.emoji}</span>
-                          <span className="text-gray-700">{tag.label}</span>
-                          <button
-                            onClick={() => setSelectedTags(prev => prev.filter(t => t !== tagId))}
-                            className="ml-0.5 w-4 h-4 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
-                          >
-                            ×
-                          </button>
-                        </span>
-                      );
-                    })}
+                {/* 原因选择 - 分类折叠面板 */}
+                <div>
+                  <div className="text-sm font-medium text-gray-700 mb-3">
+                    {previewData.fluctuationLevel === 'abnormal' ? (
+                      <span className="text-red-600">* 请选择归因原因（必选）</span>
+                    ) : '选择归因原因（可选）'}
                   </div>
-                )}
+
+                  {/* 已选标签快捷栏 */}
+                  {selectedTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3 p-2 bg-gray-50 rounded-xl">
+                      {selectedTags.map(tagId => {
+                        const tag = getAllAttributionTagOptions().find(t => t.id === tagId);
+                        if (!tag) return null;
+                        return (
+                          <span
+                            key={tagId}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm"
+                          >
+                            <span>{tag.emoji}</span>
+                            <span className="text-gray-700">{tag.label}</span>
+                            <button
+                              onClick={() => setSelectedTags(prev => prev.filter(t => t !== tagId))}
+                              className="ml-0.5 w-4 h-4 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* 金额分配 */}
+                  {selectedTags.length > 1 && previewData && (
+                    <div className="bg-gray-50 rounded-xl p-3 mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700">金额分配</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">
+                            总变动: {previewData.change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(Math.abs(previewData.change))}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const equal = Math.abs(previewData.change) / selectedTags.length;
+                              const next: Record<string, string> = {};
+                              selectedTags.forEach(tag => { next[tag] = String(equal.toFixed(2)); });
+                              setTagAmounts(next);
+                              // 均分时清空所有锁，让用户重新从平均基础上调整
+                              setLockedTags(new Set());
+                            }}
+                            className="text-xs px-2 py-0.5 rounded-md bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
+                          >
+                            均分
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {selectedTags.map(tagId => {
+                          const tag = getAllAttributionTagOptions().find(t => t.id === tagId);
+                          if (!tag) return null;
+                          const inputVal = tagAmounts[tagId] || '';
+                          const isLocked = lockedTags.has(tagId);
+                          return (
+                            <div key={tagId} className="flex items-center gap-2">
+                              <span className="text-xs flex-shrink-0 w-20 truncate">{tag.emoji} {tag.label}</span>
+                              <div className="relative flex-1">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">¥</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={inputVal}
+                                  onChange={e => {
+                                    // onChange 只更新当前字段，不做联动
+                                    setTagAmounts(prev => ({ ...prev, [tagId]: e.target.value }));
+                                  }}
+                                  onFocus={() => {
+                                    // 获得焦点时解锁，允许用户重新调整
+                                    setLockedTags(prev => {
+                                      const next = new Set(prev);
+                                      next.delete(tagId);
+                                      return next;
+                                    });
+                                  }}
+                                  onBlur={e => {
+                                    const newVal = e.target.value;
+                                    const total = Math.abs(previewData!.change);
+                                    const currentNum = parseFloat(newVal);
+                                    if (isNaN(currentNum) || selectedTags.length < 2) return;
+
+                                    // 1. 将当前标签标记为已锁定
+                                    setLockedTags(prev => new Set([...prev, tagId]));
+
+                                    // 2. 找出除自身外 未锁定 的标签（这些才参与自动均分）
+                                    const unlockedOthers = selectedTags.filter(
+                                      t => t !== tagId && !lockedTags.has(t)
+                                    );
+
+                                    // 3. 计算所有已锁定标签（不含自身）已占用的金额
+                                    const lockedOtherTotal = selectedTags
+                                      .filter(t => t !== tagId && lockedTags.has(t))
+                                      .reduce((sum, t) => {
+                                        const v = parseFloat(tagAmounts[t] || '0');
+                                        return sum + (isNaN(v) ? 0 : v);
+                                      }, 0);
+
+                                    // 4. 剩余金额 = 总额 - 当前 - 已锁定他人
+                                    const remaining = total - currentNum - lockedOtherTotal;
+
+                                    // 5. 若无未锁定标签或已平衡，不做联动
+                                    if (unlockedOthers.length === 0 || Math.abs(remaining) < 0.01) return;
+
+                                    // 6. 将剩余均分给未锁定标签
+                                    const perTag = remaining / unlockedOthers.length;
+                                    const next: Record<string, string> = { ...tagAmounts, [tagId]: newVal };
+                                    unlockedOthers.forEach(t => {
+                                      next[t] = String(perTag.toFixed(2));
+                                    });
+                                    setTagAmounts(next);
+                                  }}
+                                  placeholder="0.00"
+                                  className={`w-full h-8 pl-5 pr-2 text-xs border rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-400 transition-colors ${
+                                    isLocked
+                                      ? 'border-sky-300 bg-sky-50 text-sky-700'
+                                      : 'border-gray-200'
+                                  }`}
+                                />
+                              </div>
+                              {/* 锁定状态指示 */}
+                              <span
+                                className={`text-[10px] flex-shrink-0 w-6 text-center transition-opacity ${isLocked ? 'opacity-100' : 'opacity-0'}`}
+                                title="已锁定，不参与自动均分"
+                              >
+                                🔒
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* 剩余提示 */}
+                      {(() => {
+                        const total = Math.abs(previewData.change);
+                        const allocated = selectedTags.reduce((sum, tag) => {
+                          const v = parseFloat(tagAmounts[tag] || '0');
+                          return sum + (isNaN(v) ? 0 : v);
+                        }, 0);
+                        const remaining = total - allocated;
+                        if (Math.abs(remaining) > 0.01) {
+                          return (
+                            <div className={`text-xs mt-1.5 ${remaining > 0 ? 'text-amber-600' : 'text-red-500'}`}>
+                              {remaining > 0
+                                ? `⚠ 还剩 ¥${formatAmountNoSymbol(remaining)} 未分配`
+                                : `⚠ 超出 ¥${formatAmountNoSymbol(Math.abs(remaining))}`}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="text-xs text-green-600 mt-1.5">✓ 已全部分配</div>
+                        );
+                      })()}
+                    </div>
+                  )}
 
                 {/* 分类折叠面板 */}
                 <div className="space-y-2">
@@ -1746,6 +1922,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                           ? prev.filter(t => t !== tag.id)
                                           : [...prev, tag.id as AttributionTag]
                                       );
+                                      // 取消选中时同步解锁，下次重新选中该标签应从空白开始
+                                      if (isSelected) {
+                                        setLockedTags(prev => {
+                                          const next = new Set(prev);
+                                          next.delete(tag.id);
+                                          return next;
+                                        });
+                                      }
                                     }}
                                     className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
                                       isSelected
@@ -1779,6 +1963,26 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <textarea
                   value={attributionNote}
                   onChange={(e) => setAttributionNote(e.target.value)}
+                  onFocus={(e) => {
+                    // 使用 visualViewport 感知键盘弹出，滚动弹窗至备注区域可见
+                    const el = e.currentTarget;
+                    const scroll = () => {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    };
+                    if (window.visualViewport) {
+                      // 等待键盘动画完成后再滚动（iOS ≈ 300ms，Android ≈ 200ms）
+                      const vv = window.visualViewport;
+                      const onResize = () => {
+                        scroll();
+                        vv.removeEventListener('resize', onResize);
+                      };
+                      vv.addEventListener('resize', onResize);
+                      // 兜底：若 visualViewport 不触发 resize，300ms 后直接滚动
+                      setTimeout(scroll, 350);
+                    } else {
+                      setTimeout(scroll, 350);
+                    }
+                  }}
                   placeholder="添加备注说明，如工资到账、投资收益等..."
                   className="w-full p-4 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-opacity-50 focus:border-transparent transition-all"
                   rows={3}
@@ -1855,7 +2059,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
 
       {/* 年度归因对话框 */}
       <Dialog open={showYearlyAttributionDialog} onOpenChange={setShowYearlyAttributionDialog}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
           <DialogHeader>
             <DialogTitle className="text-xl">{year}年年度归因</DialogTitle>
           </DialogHeader>

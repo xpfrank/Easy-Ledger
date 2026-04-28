@@ -592,7 +592,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
               <div>
                 <div className="font-medium text-sm text-gray-800">应用版本</div>
-                <div className="text-xs text-gray-400 mt-0.5">当前版本 1.0.2</div>
+                <div className="text-xs text-gray-400 mt-0.5">当前版本 2.0.1</div>
               </div>
             </div>
           </Card>
@@ -1317,11 +1317,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             {/* 核心功能 */}
             <CollapsibleSection icon="🎯" iconBg="#dbeafe" title="核心功能" defaultOpen>
               <div className="space-y-2">
-                <FeatureItem emoji="💳" title="资产管理" desc="统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户" />
+                <FeatureItem emoji="💳" title="资产管理" desc="统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户，支持自定义排序" />
                 <FeatureItem emoji="📝" title="月度记账" desc="按月录入账户余额，实时追踪个人净资产变化趋势" />
                 <FeatureItem emoji="📈" title="资产趋势" desc="可视化折线图展示净资产变化，支持月度/年度双视图" />
-                <FeatureItem emoji="🏷️" title="月度归因" desc="记录每月资产变动原因（工资、奖金、投资等），支持自定义标签" />
+                <FeatureItem emoji="🏷️" title="月度归因" desc="记录每月资产变动原因（工资、奖金、投资等），支持自定义标签与金额拆分" />
                 <FeatureItem emoji="📋" title="记账日志" desc="自动记录每一次余额修改，操作全程可追溯" />
+                <FeatureItem emoji="🎯" title="年度目标" desc="设置年度净资产增长目标，实时查看达成进度与完成率" />
+                <FeatureItem emoji="❤️" title="资产健康度" desc="多维度评估资产配置合理性，包含现金比例、投资占比、债务风险等评分" />
               </div>
             </CollapsibleSection>
 
@@ -1411,7 +1413,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             {/* 底部品牌 */}
             <div className="text-center pt-3 border-t border-gray-100">
               <div className="text-[13px] font-semibold text-gray-700 mb-0.5">Easy Ledger</div>
-              <div className="text-xs text-gray-400">当前版本 1.0.2 · 出品人 Frank</div>
+              <div className="text-xs text-gray-400">当前版本 2.0.1 · 出品人 Frank</div>
             </div>
           </div>
         </DialogContent>
