@@ -73,7 +73,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
         <DialogHeader>
           <DialogTitle>{year}年{month}月 月度归因</DialogTitle>
         </DialogHeader>
@@ -224,15 +224,46 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
               })}
             </div>
             
-            {/* 影响金额和备注保持原样 */}
+            {/* 影响金额：有自定义分配时展示明细，否则显示总额 */}
             <div className="mt-3 pt-3 border-t border-gray-100">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500">影响金额：</span>
-                <span className={attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}>
-                  {attribution.change >= 0 ? '+' : ''}
-                  ¥{hideBalance ? '******' : formatAmountNoSymbol(attribution.change)}
-                </span>
-              </div>
+              {attribution.tagAmounts && Object.keys(attribution.tagAmounts).length > 0 ? (
+                <div>
+                  <div className="text-xs text-gray-500 mb-2">归因金额分配明细</div>
+                  <div className="space-y-1.5">
+                    {attribution.tags.map(tag => {
+                      const tagOption = findAttributionTagOption(tag);
+                      const amount = attribution.tagAmounts![tag] ?? 0;
+                      const isNeg = amount < 0;
+                      return (
+                        <div key={tag} className="flex items-center justify-between">
+                          <span className="text-sm text-gray-600">
+                            {tagOption?.emoji || getAttributionTagEmoji(tag as any)}{' '}
+                            {tagOption?.label || getAttributionTagLabel(tag as any)}
+                          </span>
+                          <span className={`text-sm font-medium ${isNeg ? 'text-red-500' : 'text-green-600'}`}>
+                            {isNeg ? '' : '+'}{hideBalance ? '¥***' : `¥${formatAmountNoSymbol(Math.abs(amount))}`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-100">
+                      <span className="text-xs text-gray-400">合计</span>
+                      <span className={`text-sm font-semibold ${attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {attribution.change >= 0 ? '+' : ''}
+                        {hideBalance ? '¥***' : `¥${formatAmountNoSymbol(attribution.change)}`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">影响金额：</span>
+                  <span className={attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}>
+                    {attribution.change >= 0 ? '+' : ''}
+                    ¥{hideBalance ? '******' : formatAmountNoSymbol(attribution.change)}
+                  </span>
+                </div>
+              )}
               {attribution.note && (
                 <div className="mt-2">
                   <span className="text-gray-500">详细备注：</span>

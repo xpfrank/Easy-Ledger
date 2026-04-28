@@ -48,7 +48,9 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
       if (!tagStats[tag]) {
         tagStats[tag] = { totalChange: 0, months: [], label: getAttributionTagLabel(tag), emoji: getAttributionTagEmoji(tag) };
       }
-      tagStats[tag].totalChange += attr.change;
+      // 优先使用用户自定义分配金额；无分配时按标签数均分，防止多标签重复累计
+      const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+      tagStats[tag].totalChange += tagAmount;
       if (!tagStats[tag].months.includes(`${attr.month}月`)) {
         tagStats[tag].months.push(`${attr.month}月`);
       }
@@ -65,7 +67,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
         <DialogHeader>
           <DialogTitle>{year}年 年度归因</DialogTitle>
         </DialogHeader>
