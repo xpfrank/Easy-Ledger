@@ -143,7 +143,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [tagAddError, setTagAddError] = useState('');
 
-  const COMMON_EMOJIS = ['💰', '📈', '🔄', '📝', '🎁', '🧧', '🛒', '⚡', '📌', '💵', '💸', '🤝', '🏠', '🚗', '✈️', '🍔', '👶', '💊', '📚', '🎮'];
+  const COMMON_EMOJIS = ['💰', '📈', '🔄', '📝', '🎁', '🧧', '🛒', '⚡', '📌', '💵', '💸', '🤝', '🏠', '🚗', '✈️', '🍔', '👶', '💊', '📚', '🎮', '💳', '🏦', '🪙', '📉', '🏆', '🎖️', '☕', '🍱', '🚇', '⛽', '🏢', '🔑', '🏥', '🎓', '🏋️', '🎬', '🎵', '🧾', '🛋️', '🔖'];
 
   const handleAddTag = () => {
     if (!newTagLabel.trim()) { setTagAddError('请输入标签名称'); return; }
@@ -637,13 +637,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           归因标签管理弹窗
       ════════════════════════════════════════════════════════ */}
       <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
+        <DialogContent className="max-w-sm w-[calc(100vw-32px)] max-h-[88vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-4 pt-4 pb-2 flex-shrink-0 border-b border-gray-100">
             <DialogTitle>归因标签管理</DialogTitle>
             <DialogDescription>预设标签不可删除，可添加自定义标签用于月度/年度归因记录</DialogDescription>
           </DialogHeader>
 
-          <div className="py-3 space-y-4">
+          <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 space-y-4">
             {/* 预设标签 */}
             <div>
               <div className="text-xs font-medium text-gray-400 mb-2">系统预设</div>
@@ -719,7 +719,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                     </button>
                   </div>
                   {showEmojiPicker && (
-                    <div className="grid grid-cols-8 gap-1.5 p-2 bg-white rounded-lg border border-gray-100">
+                    <div className="grid grid-cols-8 gap-1.5 p-2 bg-white rounded-lg border border-gray-100 max-h-44 overflow-y-auto">
                       {COMMON_EMOJIS.map(emoji => (
                         <button
                           key={emoji}
