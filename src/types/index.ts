@@ -248,6 +248,7 @@ export interface MonthlyAttribution {
   changePercent: number;
   fluctuationLevel: FluctuationLevel;
   tags: AttributionTag[];
+  tagAmounts?: Record<string, number>;  // 各标签分配金额
   note?: string;
   timestamp: number;
 }
