@@ -146,26 +146,44 @@ function buildSankeyData(year: number, month: number, themeColor: string): Sanke
 
 export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }: BalanceSankeyPageProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const zoomWrapperRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
+  const transformRef = useRef({ scale: 1, x: 0, y: 0 });
+  const touchStateRef = useRef<{
+    isPinching: boolean;
+    lastDist: number;
+    lastX: number;
+    lastY: number;
+  } | null>(null);
+  const lastRenderScaleRef = useRef(1);
   const [theme, setTheme] = useState<string>('blue');
   const [refreshKey, setRefreshKey] = useState(0);
   const [currencySymbol, setCurrencySymbol] = useState('¥');
   const sankeyDataRef = useRef<SankeyData | null>(null);
+  const [displayStats, setDisplayStats] = useState({
+    totalAssets: 0,
+    totalLiabilities: 0,
+    netWorth: 0,
+  });
 
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
-  const themeConfig = THEMES[theme as keyof typeof THEMES] ?? THEMES.blue;
+  const validTheme = THEMES[theme as keyof typeof THEMES]
+    ? theme
+    : 'blue';
+  const themeConfig = THEMES[validTheme as keyof typeof THEMES];
 
   useEffect(() => {
     const settings = getSettings();
-    setTheme(settings.theme ?? 'blue');
+    const themeKey = settings.theme ?? 'blue';
+    setTheme(themeKey);
     const baseCode = settings.baseCurrency || 'CNY';
     setCurrencySymbol(getCurrencyConfig(baseCode).symbol);
   }, []);
 
   // ── Build & render chart ─────────────────────────────────────
-  const renderChart = useCallback(() => {
+  const renderChart = useCallback((zoomScale = 1) => {
     if (!chartContainerRef.current) return;
 
     let data: SankeyData;
@@ -176,6 +194,11 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
       return;
     }
     sankeyDataRef.current = data;
+    setDisplayStats({
+      totalAssets: data.totalAssets,
+      totalLiabilities: data.totalLiabilities,
+      netWorth: data.netWorth,
+    });
     const { nodes, links, netWorth, totalAssets, totalLiabilities } = data;
 
     if (!chartInstance.current || chartInstance.current.isDisposed()) {
@@ -186,6 +209,12 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
     }
 
     const chart = chartInstance.current;
+
+    const s = Math.max(0.5, zoomScale);
+    const fs0 = Math.max(10, Math.round(12 / s));
+    const fs1 = Math.max(9, Math.round(11 / s));
+    const fs2 = Math.max(7, Math.round(10 / s));
+    const fs2Amount = Math.max(6, Math.round(9 / s));
 
     const option: echarts.EChartsOption = {
       backgroundColor: 'transparent',
@@ -238,12 +267,12 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
           orient: 'horizontal',
           nodeAlign: 'right',
           nodeWidth: 16,
-          nodeGap: 14,
+          nodeGap: 20,
           layoutIterations: 64,
-          left: '2%',
-          right: '22%',
-          top: 20,
-          bottom: 20,
+          left: '1%',
+          right: '18%',
+          top: 16,
+          bottom: 16,
           draggable: true,
           emphasis: { focus: 'adjacency' },
           blur: {
@@ -258,7 +287,7 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
                 position: 'left',
                 distance: 8,
                 color: '#ffffff',
-                fontSize: 12,
+                fontSize: fs0,
                 fontWeight: 'bold',
                 formatter: () => hideBalance ? '净资产' : `净资产\n${currencySymbol}${fmtAmt(netWorth)}`,
               },
@@ -278,7 +307,7 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
                 shadowColor: 'rgba(0,0,0,0.06)',
                 shadowOffsetY: 2,
                 fontWeight: 'bold',
-                fontSize: 11,
+                fontSize: fs1,
               },
               itemStyle: { borderWidth: 0 },
             },
@@ -287,7 +316,7 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
               label: {
                 position: 'right',
                 distance: 6,
-                fontSize: 10,
+                fontSize: fs2,
                 color: '#6b7280',
               },
               itemStyle: { borderWidth: 0 },
@@ -296,7 +325,7 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
 
           label: {
             show: true,
-            fontSize: 11,
+            fontSize: fs1,
             color: '#374151',
             formatter: (params: any) => {
               const displayName = (params.name as string).split('__')[0];
@@ -305,8 +334,8 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
               return `{n|${displayName}}\n{a|${currencySymbol}${fmtAmt(val)}}`;
             },
             rich: {
-              n: { fontSize: 11, fontWeight: 'bold', color: '#1f2937', lineHeight: 17 },
-              a: { fontSize: 10, color: '#6b7280', lineHeight: 14 },
+              n: { fontSize: fs1, fontWeight: 'bold', color: '#1f2937', lineHeight: Math.round(fs1 * 1.5) },
+              a: { fontSize: fs2Amount, color: '#6b7280', lineHeight: Math.round(fs2Amount * 1.5) },
             },
           },
 
@@ -315,6 +344,8 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
             opacity: 0.28,
             curveness: 0.5,
           },
+
+          labelLayout: { hideOverlap: true },
 
           data: nodes,
           links,
@@ -332,7 +363,84 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
         onPageChange('account-detail', { accountId: parts[1] });
       }
     });
-  }, [year, month, hideBalance, themeConfig.primary, onPageChange]);
+  }, [year, month, hideBalance, themeConfig.primary, onPageChange, currencySymbol]);
+
+  const applyTransform = useCallback(() => {
+    if (!zoomWrapperRef.current) return;
+    const { scale, x, y } = transformRef.current;
+    zoomWrapperRef.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      touchStateRef.current = {
+        isPinching: true,
+        lastDist: Math.hypot(dx, dy),
+        lastX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        lastY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+    } else if (e.touches.length === 1) {
+      touchStateRef.current = {
+        isPinching: false,
+        lastDist: 0,
+        lastX: e.touches[0].clientX,
+        lastY: e.touches[0].clientY,
+      };
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStateRef.current) return;
+    const t = transformRef.current;
+
+    if (e.touches.length === 2 && touchStateRef.current.isPinching) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const ratio = dist / (touchStateRef.current.lastDist || dist);
+      const newScale = Math.min(5, Math.max(0.4, t.scale * ratio));
+
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+      transformRef.current = {
+        scale: newScale,
+        x: t.x + (cx - touchStateRef.current.lastX),
+        y: t.y + (cy - touchStateRef.current.lastY),
+      };
+      touchStateRef.current.lastDist = dist;
+      touchStateRef.current.lastX = cx;
+      touchStateRef.current.lastY = cy;
+      applyTransform();
+    } else if (e.touches.length === 1 && !touchStateRef.current.isPinching) {
+      const dx = e.touches[0].clientX - touchStateRef.current.lastX;
+      const dy = e.touches[0].clientY - touchStateRef.current.lastY;
+      transformRef.current = { ...t, x: t.x + dx, y: t.y + dy };
+      touchStateRef.current.lastX = e.touches[0].clientX;
+      touchStateRef.current.lastY = e.touches[0].clientY;
+      applyTransform();
+    }
+  }, [applyTransform]);
+
+  const handleTouchEnd = useCallback(() => {
+    touchStateRef.current = null;
+    const newScale = transformRef.current.scale;
+    if (Math.abs(newScale - lastRenderScaleRef.current) > 0.25) {
+      lastRenderScaleRef.current = newScale;
+      renderChart(newScale);
+    }
+  }, [renderChart]);
+
+  const handleDoubleTap = useCallback(() => {
+    transformRef.current = { scale: 1, x: 0, y: 0 };
+    applyTransform();
+    lastRenderScaleRef.current = 1;
+    renderChart(1);
+  }, [applyTransform, renderChart]);
 
   useEffect(() => {
     renderChart();
@@ -345,10 +453,16 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
     };
   }, [renderChart, refreshKey]);
 
-  const sd = sankeyDataRef.current;
-  const totalAssets = sd?.totalAssets ?? 0;
-  const totalLiabilities = sd?.totalLiabilities ?? 0;
-  const netWorth = sd?.netWorth ?? 0;
+  const zoomWrapperStyle: React.CSSProperties = {
+    width: '100%',
+    height: '100%',
+    transformOrigin: 'center center',
+    willChange: 'transform',
+    cursor: 'grab',
+    touchAction: 'none',
+  };
+
+  const { totalAssets, totalLiabilities, netWorth } = displayStats;
 
   // Legend: types present in data, including custom types
   const legendTypes = (Object.entries(TYPE_CONFIG) as [AccountType, typeof TYPE_CONFIG[AccountType]][])
@@ -366,7 +480,13 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
     }
   }
 
-  const chartHeight = Math.max(360, (typeof window !== 'undefined' ? window.innerHeight : 700) - 56 - 36 - 40 - 32);
+  const chartHeight = (() => {
+    const accs = getAccountsForMonth(year, month).filter(a => !a.isHidden && a.includeInTotal !== false);
+    const uniqueTypes = new Set(accs.map(a => a.customTypeLabel || a.type)).size;
+    const baseHeight = Math.max(360, (typeof window !== 'undefined' ? window.innerHeight : 700) - 56 - 36 - 40 - 32);
+    const extraHeight = Math.max(0, (uniqueTypes - 6) * 32);
+    return baseHeight + extraHeight;
+  })();
 
   return (
     <div className="min-h-screen flex flex-col overflow-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
@@ -408,9 +528,18 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
       {/* Chart */}
       <div className="flex-1 relative overflow-hidden bg-white">
         <div className="absolute top-2 left-0 right-0 flex justify-center z-10 pointer-events-none">
-          <span className="text-xs text-gray-400 bg-white/80 px-2 py-0.5 rounded-full">双指缩放 · 拖拽移动 · 点击查看详情</span>
+          <span className="text-xs text-gray-400 bg-white/80 px-2 py-0.5 rounded-full">双指缩放 · 拖拽移动 · 双击复位 · 点击查看详情</span>
         </div>
-        <div ref={chartContainerRef} style={{ width: '100%', height: chartHeight }} />
+        <div
+          ref={zoomWrapperRef}
+          style={zoomWrapperStyle}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onDoubleClick={handleDoubleTap}
+        >
+          <div ref={chartContainerRef} style={{ width: '100%', height: chartHeight }} />
+        </div>
       </div>
 
       {/* Legend */}
