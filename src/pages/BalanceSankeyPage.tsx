@@ -245,8 +245,6 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
           top: 20,
           bottom: 20,
           draggable: true,
-          roam: true,
-          scaleLimit: { min: 0.3, max: 3 },
           emphasis: { focus: 'adjacency' },
           blur: {
             lineStyle: { opacity: 0.06 },
