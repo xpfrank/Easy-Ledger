@@ -1,7 +1,8 @@
 import { TrendingUp, Target } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { YearlyGoal } from '@/types';
-import { formatAmountNoSymbol } from '@/lib/storage';
+import { formatAmountNoSymbol, getBaseCurrency } from '@/lib/storage';
+import { getCurrencyConfig } from '@/types';
 import { calculateGoalProgress } from '@/lib/health-calculator';
 
 interface YearlyGoalCardProps {
@@ -15,12 +16,14 @@ interface YearlyGoalCardProps {
   currentNetWorth: number;
   primaryColor: string;
   hideBalance: boolean;
+  baseCurrencySymbol?: string;
   onClick?: () => void;
   onSetGoal?: () => void;
 }
 
-export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryColor, hideBalance, onClick, onSetGoal }: YearlyGoalCardProps) {
+export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryColor, hideBalance, baseCurrencySymbol, onClick, onSetGoal }: YearlyGoalCardProps) {
 const progressData = goalProgress || (goal ? calculateGoalProgress(currentNetWorth, goal) : null);
+const displaySymbol = baseCurrencySymbol || getCurrencyConfig(getBaseCurrency()).symbol;
   if (!goal || !progressData) {
     return (
       <Card className="bg-white cursor-pointer hover:shadow-md transition-shadow" onClick={onSetGoal || onClick}>
@@ -58,7 +61,7 @@ const progressData = goalProgress || (goal ? calculateGoalProgress(currentNetWor
             </span>
           </div>
           <span className="text-xs text-gray-400">
-            目标：¥{hideBalance ? '****' : `${(goal.targetAmount / 10000).toFixed(0)}万`}
+            目标：{displaySymbol}{hideBalance ? '****' : `${(goal.targetAmount / 10000).toFixed(0)}万`}
           </span>
         </div>
 
@@ -68,7 +71,7 @@ const progressData = goalProgress || (goal ? calculateGoalProgress(currentNetWor
             {hideBalance ? '**%' : `${progress.toFixed(1)}%`}
           </span>
           <span className="text-xs text-gray-500">
-            还差 ¥{hideBalance ? '****' : formatAmountNoSymbol(remaining)}
+            还差 {displaySymbol}{hideBalance ? '****' : formatAmountNoSymbol(remaining)}
           </span>
         </div>
 

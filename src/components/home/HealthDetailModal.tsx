@@ -4,6 +4,7 @@ import type { HealthScore } from '@/types';
 interface HealthDetailModalProps {
   healthScore: HealthScore;
   primaryColor: string;
+  baseCurrencySymbol?: string;
   onClose: () => void;
 }
 
@@ -16,6 +17,7 @@ function getLevelColor(level: string) {
 export function HealthDetailModal({
   healthScore,
   primaryColor,
+  baseCurrencySymbol,
   onClose,
 }: HealthDetailModalProps) {
   const configColor = getLevelColor(healthScore.configScore.level);

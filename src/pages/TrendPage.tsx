@@ -6,7 +6,7 @@ import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag, YearlyAttri
 import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllAttributionTagOptions, getAllYearlyTagOptions, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { THEMES } from '@/types';
+import { THEMES, getCurrencyConfig } from '@/types';
 import {
   XAxis,
   YAxis,
@@ -82,12 +82,13 @@ interface MonthRowProps {
   month: TrendPoint;
   themeColor: string;
   formatBalance: (n: number) => string;
+  currencySymbol: string;
   onView: () => void;
   onAddAttribution: () => void;
   showDivider: boolean;
 }
 
-function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, showDivider }: MonthRowProps) {
+function MonthRow({ month, themeColor, formatBalance, currencySymbol, onView, onAddAttribution, showDivider }: MonthRowProps) {
   const changeVal = month.change ?? 0;
   const isUp = changeVal >= 0;
   const hasAttribution = month.attribution?.tags?.length;
@@ -100,7 +101,7 @@ function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, 
             {month.year}年{month.month.toString().padStart(2, '0')}月
           </span>
           <span className="text-base font-bold" style={{ color: themeColor }}>
-            ¥{formatBalance(month.netWorth)}
+            {currencySymbol}{formatBalance(month.netWorth)}
           </span>
         </div>
 
@@ -123,7 +124,7 @@ function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, 
                 ))}
                 {changeVal !== 0 && (
                   <span className={`text-xs font-semibold ${isUp ? 'text-green-600' : 'text-red-500'}`}>
-                    {isUp ? '+' : ''}¥{formatBalance(Math.abs(changeVal))}
+                    {isUp ? '+' : ''}{currencySymbol}{formatBalance(Math.abs(changeVal))}
                   </span>
                 )}
               </>
@@ -298,6 +299,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const chartRef = useRef<HTMLDivElement>(null);
 
   const themeConfig = THEMES[theme] || THEMES.blue;
+  const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
+  const currencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
 
   // 格式化金额，支持隐藏显示，金额超过 10 万时以"万"为单位
   const formatBalance = (amount: number): string => {
@@ -896,7 +899,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           width={40}
                         />
                         <Tooltip
-                          formatter={(value: number) => [`¥${formatBalance(value)}`, '净资产']}
+                          formatter={(value: number) => [`${currencySymbol}${formatBalance(value)}`, '净资产']}
                           labelFormatter={(label, payload) => {
                             if (payload && payload[0] && payload[0].payload) {
                               return payload[0].payload.fullLabel || label;
@@ -912,7 +915,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                               <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
                                 <div className="font-medium text-gray-900 mb-1">{data.fullLabel}</div>
                                 <div className="text-gray-500">
-                                  净资产: <span className="text-gray-900 font-semibold">¥{formatBalance(data.netWorth)}</span>
+                                  净资产: <span className="text-gray-900 font-semibold">{currencySymbol}{formatBalance(data.netWorth)}</span>
                                 </div>
                                 {isQuarterly && data._originalMonths.length > 0 && (
                                   <div className="pt-2 border-t border-gray-100 mt-2">
@@ -920,7 +923,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                     {data._originalMonths.map((m: any, idx: number) => (
                                       <div key={idx} className="flex justify-between py-0.5 text-gray-600">
                                         <span>{m.year}年{m.month.toString().padStart(2, '0')}月</span>
-                                        <span className="font-medium">¥{formatBalance(m.netWorth)}</span>
+                                        <span className="font-medium">{currencySymbol}{formatBalance(m.netWorth)}</span>
                                       </div>
                                     ))}
                                   </div>
@@ -1151,14 +1154,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               >
                 <div className="text-white/80 text-xs mb-1">净资产</div>
                 <div className="text-3xl font-bold tracking-tight">
-                  ¥{formatBalance(selectedData.netWorth)}
+                  {currencySymbol}{formatBalance(selectedData.netWorth)}
                 </div>
                 {'change' in selectedData && (selectedData as any).change !== 0 && (
                   <div className={`text-sm font-medium mt-1.5 ${
                     (selectedData as any).change >= 0 ? 'text-white' : 'text-red-200'
                   }`}>
                     {(selectedData as any).change >= 0 ? '+' : ''}
-                    ¥{formatBalance(Math.abs((selectedData as any).change))}
+                    {currencySymbol}{formatBalance(Math.abs((selectedData as any).change))}
                     <span className="text-white/70 text-xs ml-1.5">
                       ({hideBalance ? '******' : `${(selectedData as any).changePercent >= 0 ? '+' : ''}${(selectedData as any).changePercent.toFixed(1)}%`})
                     </span>
@@ -1280,7 +1283,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               >
                 <div className="text-white/80 text-xs mb-1">季度末净资产</div>
                 <div className="text-3xl font-bold tracking-tight">
-                  ¥{formatBalance(selectedData.netWorth)}
+                  {currencySymbol}{formatBalance(selectedData.netWorth)}
                 </div>
               </div>
 
@@ -1300,6 +1303,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         month={month}
                         themeColor={themeConfig.primary}
                         formatBalance={formatBalance}
+                        currencySymbol={currencySymbol}
                         showDivider={idx < arr.length - 1}
                         onView={() => {
                           onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
@@ -1337,7 +1341,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               >
                 <div className="text-white/80 text-xs mb-1">季度末净资产</div>
                 <div className="text-3xl font-bold tracking-tight">
-                  ¥{formatBalance(
+                  {currencySymbol}{formatBalance(
                     expandedAggregate.months[expandedAggregate.months.length - 1]?.netWorth || 0
                   )}
                 </div>
@@ -1359,6 +1363,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         month={month}
                         themeColor={themeConfig.primary}
                         formatBalance={formatBalance}
+                        currencySymbol={currencySymbol}
                         showDivider={idx < arr.length - 1}
                         onView={() => {
                           onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });

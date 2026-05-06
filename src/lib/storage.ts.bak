@@ -1,12 +1,10 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption, YearlyGoal, CustomAccountType, ExchangeRateSnapshot, } from '@/types';
-
-import { getCurrencyConfig, DEFAULT_EXCHANGE_RATES } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption, YearlyGoal, CustomAccountType } from '@/types';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
 const RECORD_LOGS_EXPANDED_KEY = 'simple-ledger-record-logs-expanded';
 const CUSTOM_TAGS_KEY = 'custom_attribution_tags';
-const CURRENT_VERSION = '2.0';
+const CURRENT_VERSION = '1.4';
 
 const defaultState: AppState = {
   accounts: [],
@@ -19,9 +17,7 @@ const defaultState: AppState = {
   settings: {
     hideBalance: false,
     theme: 'blue',
-    baseCurrency: 'CNY',
   },
-  exchangeRateHistory: [],
   version: CURRENT_VERSION,
 };
 
@@ -38,10 +34,13 @@ export function getCurrentYearMonth(): { year: number; month: number } {
 }
 
 export function formatAmount(amount: number): string {
-  const base = getBaseCurrency();
-  return formatCurrency(amount, base);
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
-
 
 export function formatAmountNoSymbol(amount: number): string {
   return new Intl.NumberFormat('zh-CN', {
@@ -49,117 +48,6 @@ export function formatAmountNoSymbol(amount: number): string {
     maximumFractionDigits: 2,
   }).format(amount);
 }
-
-/**
- * 按币种格式化金额（带符号）
- */
-export function formatCurrency(amount: number, currencyCode: string = 'CNY'): string {
-  const config = getCurrencyConfig(currencyCode);
-  const formatted = new Intl.NumberFormat('zh-CN', {
-    minimumFractionDigits: config.decimals,
-    maximumFractionDigits: config.decimals,
-  }).format(Math.abs(amount));
-  const sign = amount < 0 ? '-' : '';
-  return `${sign}${config.symbol}${formatted}`;
-}
-
-/**
- * 按币种格式化金额（无符号，用于表格等）
- */
-export function formatCurrencyNoSymbol(amount: number, currencyCode: string = 'CNY'): string {
-  const config = getCurrencyConfig(currencyCode);
-  return new Intl.NumberFormat('zh-CN', {
-    minimumFractionDigits: config.decimals,
-    maximumFractionDigits: config.decimals,
-  }).format(amount);
-}
-
-/**
- * 获取基准币种
- */
-export function getBaseCurrency(): string {
-  const settings = getSettings();
-  return settings.baseCurrency || 'CNY';
-}
-
-/**
- * 获取指定币种在指定月份的汇率（相对于 CNY）
- * 优先级：① 月度快照 → ② 用户自定义 → ③ 内置默认
- */
-export function getExchangeRate(code: string, year?: number, month?: number): number {
-  if (!code || code === 'CNY') return 1;
-  const data = loadData();
-  // ① 查月度快照
-  if (year !== undefined && month !== undefined) {
-    const snapshot = (data.exchangeRateHistory || []).find(
-      s => s.code === code && s.year === year && s.month === month
-    );
-    if (snapshot) return snapshot.rate;
-  }
-  // ② 查用户自定义
-  const custom = data.settings.exchangeRates?.[code];
-  if (custom) return custom.rate;
-  // ③ 内置默认
-  return DEFAULT_EXCHANGE_RATES[code] ?? 1;
-}
-
-/**
- * 将任意币种金额折算为基准货币
- * 统一以 CNY 为中间货币：result = amount × rate(from) / rate(base)
- */
-export function convertToBaseCurrency(
-  amount: number,
-  currencyCode: string = 'CNY',
-  year?: number,
-  month?: number,
-): number {
-  const base = getBaseCurrency();
-  if (currencyCode === base) return amount;
-  const fromRate = getExchangeRate(currencyCode, year, month);
-  const baseRate = getExchangeRate(base, year, month);
-  return (amount * fromRate) / baseRate;
-}
-
-/** 用户手动设置某币种汇率，同时在当月打历史快照 */
-export function setExchangeRate(code: string, rate: number): void {
-  const data = loadData();
-  if (!data.settings.exchangeRates) data.settings.exchangeRates = {};
-  data.settings.exchangeRates[code] = { rate, updatedAt: Date.now() };
-  saveData(data);
-  // 自动在当月打快照
-  const { year, month } = getCurrentYearMonth();
-  snapshotCurrentRates(year, month);
-}
-
-/** 恢复某币种为内置默认汇率 */
-export function resetExchangeRate(code: string): void {
-  const data = loadData();
-  if (data.settings.exchangeRates) {
-    delete data.settings.exchangeRates[code];
-    saveData(data);
-  }
-}
-
-/**
- * 将当前所有自定义汇率快照到指定月份（幂等）
- * 已有该月快照的币种跳过，不覆盖
- */
-export function snapshotCurrentRates(year: number, month: number): void {
-  const data = loadData();
-  const customRates = data.settings.exchangeRates || {};
-  if (!data.exchangeRateHistory) data.exchangeRateHistory = [];
-  for (const [code, info] of Object.entries(customRates)) {
-    const exists = data.exchangeRateHistory.some(
-      s => s.code === code && s.year === year && s.month === month
-    );
-    if (!exists) {
-      data.exchangeRateHistory.push({ code, year, month, rate: info.rate });
-    }
-  }
-  saveData(data);
-}
-
-
 
 export function formatMonth(year: number, month: number): string {
   return `${year}年${month.toString().padStart(2, '0')}月`;
@@ -200,7 +88,6 @@ export function loadData(): AppState {
         yearlyAttributions: parsed.yearlyAttributions || [],
         monthlyAccountConfigs: parsed.monthlyAccountConfigs || [],
         customAccountTypes: parsed.customAccountTypes || [],
-        exchangeRateHistory: parsed.exchangeRateHistory || [],
         version: CURRENT_VERSION,
       };
     }
@@ -331,27 +218,6 @@ export function exportData(): string {
   return JSON.stringify(data, null, 2);
 }
 
-/**
- * 一键全量备份：导出所有数据（账户、记录、归因、自定义分类、自定义标签、设置）
- */
-export function fullExport(): string {
-  const data = loadData();
-  return JSON.stringify({
-    accounts: data.accounts,
-    records: data.records,
-    logs: data.logs,
-    monthlyAttributions: data.attributions,
-    yearlyAttributions: data.yearlyAttributions,
-    monthlyAccountConfigs: data.monthlyAccountConfigs || [],
-    customAccountTypes: data.customAccountTypes || [],
-    customAttributionTags: getCustomAttributionTags(),
-    settings: data.settings,
-    exchangeRateHistory: data.exchangeRateHistory || [],
-  version: CURRENT_VERSION,
-    exportedAt: new Date().toISOString(),
-  }, null, 2);
-}
-
 export function exportDataByRange(startYear: number, startMonth: number, endYear: number, endMonth: number): string {
   const data = loadData();
   
@@ -394,11 +260,7 @@ export function exportDataByRange(startYear: number, startMonth: number, endYear
     monthlyAttributions: filteredAttributions,
     yearlyAttributions: filteredYearlyAttributions,
     monthlyAccountConfigs: filteredMonthlyConfigs,
-    customAccountTypes: data.customAccountTypes || [],
-    customAttributionTags: getCustomAttributionTags(),
-    settings: data.settings,
-    exchangeRateHistory: data.exchangeRateHistory || [],
-  version: CURRENT_VERSION,
+    version: CURRENT_VERSION,
   }, null, 2);
 }
 
@@ -410,10 +272,8 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
     }
 
     const currentData = loadData();
-    const isFullBackup = !!data.exportedAt; // 全量备份包含 exportedAt 字段
 
-    // 全量备份或无目标年月时：完整恢复
-    if (isFullBackup || targetYear === undefined || targetMonth === undefined) {
+    if (targetYear === undefined || targetMonth === undefined) {
       const recordMap = new Map<string, MonthlyRecord>();
       const buildKey = (r: MonthlyRecord) => `${r.accountId}-${r.year}-${r.month}`;
       
@@ -436,24 +296,6 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         }
       });
       
-      // 合并自定义账户分类
-      const existingCustomTypes = currentData.customAccountTypes || [];
-      const importedCustomTypes = data.customAccountTypes || [];
-      const customTypeMap = new Map<string, CustomAccountType>();
-      existingCustomTypes.forEach((ct: CustomAccountType) => customTypeMap.set(ct.id, ct));
-      importedCustomTypes.forEach((ct: CustomAccountType) => customTypeMap.set(ct.id, ct));
-
-      // 合并自定义归因标签
-      if (data.customAttributionTags && Array.isArray(data.customAttributionTags)) {
-        const existingTags = getCustomAttributionTags();
-        const existingTagIds = new Set(existingTags.map(t => t.id));
-        for (const tag of data.customAttributionTags) {
-          if (!existingTagIds.has(tag.id)) {
-            localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify([...getCustomAttributionTags(), tag]));
-          }
-        }
-      }
-
       saveData({
         accounts: Array.from(accountMap.values()),
         records: Array.from(recordMap.values()),
@@ -462,9 +304,7 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         yearlyAttributions: data.yearlyAttributions || [],
         settings: { ...defaultState.settings, ...data.settings },
         monthlyAccountConfigs: data.monthlyAccountConfigs || [],
-        customAccountTypes: Array.from(customTypeMap.values()),
-        exchangeRateHistory: data.exchangeRateHistory || [],
-  version: CURRENT_VERSION,
+        version: CURRENT_VERSION,
       } as AppState);
       return true;
     }
@@ -539,59 +379,6 @@ export function importData(jsonString: string, targetYear?: number, targetMonth?
         currentData.accounts.push(importedAccount);
       }
     });
-
-    // 按范围导入：年度归因
-    if (data.yearlyAttributions && Array.isArray(data.yearlyAttributions)) {
-      for (const ya of data.yearlyAttributions) {
-        const existingIdx = currentData.yearlyAttributions.findIndex(a => a.year === ya.year);
-        if (existingIdx >= 0) {
-          if (mergeMode === 'merge') {
-            currentData.yearlyAttributions[existingIdx] = ya;
-          }
-        } else {
-          currentData.yearlyAttributions.push(ya);
-        }
-      }
-    }
-
-    // 按范围导入：自定义账户类型（合并）
-    if (data.customAccountTypes && Array.isArray(data.customAccountTypes)) {
-      const existingTypeMap = new Map<string, CustomAccountType>();
-      (currentData.customAccountTypes || []).forEach(ct => existingTypeMap.set(ct.id, ct));
-      for (const ct of data.customAccountTypes) {
-        existingTypeMap.set(ct.id, ct);
-      }
-      currentData.customAccountTypes = Array.from(existingTypeMap.values());
-    }
-
-    // 按范围导入：自定义归因标签（仅添加新标签）
-    if (data.customAttributionTags && Array.isArray(data.customAttributionTags)) {
-      const existingTags = getCustomAttributionTags();
-      const existingTagIds = new Set(existingTags.map(t => t.id));
-      for (const tag of data.customAttributionTags) {
-        if (!existingTagIds.has(tag.id)) {
-          localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify([...getCustomAttributionTags(), tag]));
-        }
-      }
-    }
-
-    // 按范围导入：设置（合并，不覆盖已有设置）
-    if (data.settings) {
-      currentData.settings = { ...currentData.settings, ...data.settings };
-    }
-
-    // 按范围导入：汇率历史
-    if (data.exchangeRateHistory && Array.isArray(data.exchangeRateHistory)) {
-      if (!currentData.exchangeRateHistory) currentData.exchangeRateHistory = [];
-      for (const snapshot of data.exchangeRateHistory) {
-        const exists = currentData.exchangeRateHistory.some(
-          s => s.code === snapshot.code && s.year === snapshot.year && s.month === snapshot.month
-        );
-        if (!exists) {
-          currentData.exchangeRateHistory.push(snapshot);
-        }
-      }
-    }
 
     saveData(currentData);
     return true;
@@ -769,20 +556,6 @@ export function getAllAccounts(): Account[] {
   );
 }
 
-// 获取同组账户（与 UI 分组逻辑一致）
-function getSameGroupAccounts(data: { accounts: Account[] }, target: Account): Account[] {
-  if (target.customTypeLabel) {
-    // 自定义类型：按 customTypeLabel 分组
-    return [...data.accounts]
-      .filter(a => a.customTypeLabel === target.customTypeLabel)
-      .sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
-  }
-  // 标准类型：按 type 分组，排除自定义类型账户
-  return [...data.accounts]
-    .filter(a => a.type === target.type && !a.customTypeLabel)
-    .sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
-}
-
 export function reorderAccountInGroup(
   accountId: string,
   direction: 'up' | 'down'
@@ -791,7 +564,9 @@ export function reorderAccountInGroup(
   const target = data.accounts.find(a => a.id === accountId);
   if (!target) return;
 
-  const sameGroup = getSameGroupAccounts(data, target);
+  const sameGroup = [...data.accounts]
+    .filter(a => a.type === target.type)
+    .sort((a, b) => (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999));
 
   const idx = sameGroup.findIndex(a => a.id === accountId);
   const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -805,35 +580,6 @@ export function reorderAccountInGroup(
   const a = data.accounts.find(a => a.id === sameGroup[idx].id)!;
   const b = data.accounts.find(a => a.id === sameGroup[swapIdx].id)!;
   [a.sortOrder, b.sortOrder] = [b.sortOrder, a.sortOrder];
-
-  saveData(data);
-}
-
-/**
- * 拖拽排序：将 accountId 从当前位置移到 toIndex 位置
- */
-export function dragReorderAccountInGroup(
-  accountId: string,
-  toIndex: number
-): void {
-  const data = loadData();
-  const target = data.accounts.find(a => a.id === accountId);
-  if (!target) return;
-
-  const sameGroup = getSameGroupAccounts(data, target);
-  const fromIndex = sameGroup.findIndex(a => a.id === accountId);
-  if (fromIndex === -1 || fromIndex === toIndex) return;
-  if (toIndex < 0 || toIndex >= sameGroup.length) return;
-
-  // 从原位置移除，插入到目标位置
-  const [moved] = sameGroup.splice(fromIndex, 1);
-  sameGroup.splice(toIndex, 0, moved);
-
-  // 重新分配 sortOrder
-  sameGroup.forEach((acc, i) => {
-    const real = data.accounts.find(a => a.id === acc.id);
-    if (real) real.sortOrder = i;
-  });
 
   saveData(data);
 }
@@ -980,9 +726,9 @@ export function calculateMonthNetWorth(year: number, month: number): number {
     if (account.includeInTotal === false) continue;
     
     if (account.type === 'credit' || account.type === 'debt') {
-      totalLiabilities += Math.abs(convertToBaseCurrency(record.balance, account.currency || 'CNY', year, month));
+      totalLiabilities += Math.abs(record.balance);
     } else {
-      totalAssets += convertToBaseCurrency(record.balance, account.currency || 'CNY', year, month);
+      totalAssets += record.balance;
     }
   }
   
@@ -1003,7 +749,7 @@ export function calculateMonthTotalAssets(year: number, month: number): number {
     if (account.includeInTotal === false) continue;
     
     if (account.type !== 'credit' && account.type !== 'debt') {
-      totalAssets += convertToBaseCurrency(record.balance, account.currency || 'CNY', year, month);
+      totalAssets += record.balance;
     }
   }
   
@@ -1024,7 +770,7 @@ export function calculateMonthTotalLiabilities(year: number, month: number): num
     if (account.includeInTotal === false) continue;
     
     if (account.type === 'credit' || account.type === 'debt') {
-      totalLiabilities += Math.abs(convertToBaseCurrency(record.balance, account.currency || 'CNY', year, month));
+      totalLiabilities += Math.abs(record.balance);
     }
   }
   
@@ -1037,7 +783,6 @@ export interface ExcelImportRow {
   accountId?: string;
   accountName: string;
   accountType?: string;
-  customTypeLabel?: string;
   accountIcon?: string;
   isHidden?: boolean;
   balance: number;
@@ -1092,7 +837,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
 
     if (isNewFormat && isNaN(parseInt(parts[0]))) continue;
 
-    let year: number, month: number, accountId: string | undefined, accountName: string, accountType: string | undefined, customTypeLabel: string | undefined, accountIcon: string | undefined, isHidden: boolean | undefined, balance: number, attributionTag: string | undefined, note: string | undefined;
+    let year: number, month: number, accountId: string | undefined, accountName: string, accountType: string | undefined, accountIcon: string | undefined, isHidden: boolean | undefined, balance: number, attributionTag: string | undefined, note: string | undefined;
 
     if (isNewFormat) {
       year = parseInt(parts[0]);
@@ -1100,32 +845,11 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
       accountId = parts[2] || undefined;
       accountName = parts[3];
       accountType = VALID_ACCOUNT_TYPES.includes(parts[4]) ? parts[4] : undefined;
-      // 根据列数判断格式：>=12列为含币种新格式，>=11列为含自定义分类格式，否则为旧格式
-      if (parts.length >= 12) {
-        // 新格式: 年份,月份,账户ID,账户名称,账户类型,自定义分类,账户图标,是否隐藏,币种,余额,归因标签,备注
-        customTypeLabel = parts[5] || undefined;
-        accountIcon = parts[6] || undefined;
-        isHidden = (parts[7] || '') === '1' ? true : (parts[7] || '') === '0' ? false : undefined;
-        // parts[8] = currency (跳过，从账户自身读取)
-        balance = parseFloat((parts[9] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
-        attributionTag = parts[10] || undefined;
-        note = parts[11] || undefined;
-      } else if (parts.length >= 11) {
-        // 旧格式: 年份,月份,账户ID,账户名称,账户类型,自定义分类,账户图标,是否隐藏,余额,归因标签,备注
-        customTypeLabel = parts[5] || undefined;
-        accountIcon = parts[6] || undefined;
-        isHidden = (parts[7] || '') === '1' ? true : (parts[7] || '') === '0' ? false : undefined;
-        balance = parseFloat((parts[8] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
-        attributionTag = parts[9] || undefined;
-        note = parts[10] || undefined;
-      } else {
-        // 旧格式: 年份,月份,账户ID,账户名称,账户类型,账户图标,是否隐藏,余额,归因标签,备注
-        accountIcon = parts[5] || undefined;
-        isHidden = (parts[6] || '') === '1' ? true : (parts[6] || '') === '0' ? false : undefined;
-        balance = parseFloat((parts[7] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
-        attributionTag = parts[8] || undefined;
-        note = parts[9] || undefined;
-      }
+      accountIcon = parts[5] || undefined;
+      isHidden = parts[6] === '1' ? true : parts[6] === '0' ? false : undefined;
+      balance = parseFloat(parts[7].replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
+      attributionTag = parts[8] || undefined;
+      note = parts[9] || undefined;
     } else {
       const monthRaw = parts[0].replace(/^#.*/, '');
       const normalizedMonth = normalizeMonthFormat(monthRaw);
@@ -1144,7 +868,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
       continue;
     }
 
-    result.push({ year, month, accountId, accountName, accountType, customTypeLabel, accountIcon, isHidden, balance, attributionTag, note } as ExcelImportRow);
+    result.push({ year, month, accountId, accountName, accountType, accountIcon, isHidden, balance, attributionTag, note } as ExcelImportRow);
   }
 
   return result;
@@ -1233,7 +957,6 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
             balance: 0,
             includeInTotal: true,
             isHidden: isHidden,
-            customTypeLabel: row.customTypeLabel || undefined,
           };
           data.accounts.push(newAccount);
           createdAccounts.push(row.accountName);
@@ -1462,7 +1185,7 @@ export function exportExcelTemplate(): string {
 export function exportToCSV(startYear?: number, startMonth?: number, endYear?: number, endMonth?: number): string {
   const data = loadData();
   const BOM = '\uFEFF';
-  const header = '年份,月份,账户ID,账户名称,账户类型,自定义分类,账户图标,是否隐藏,币种,余额,归因标签(可选),备注(可选)';
+  const header = '年份,月份,账户ID,账户名称,账户类型,账户图标,是否隐藏,余额,归因标签(可选),备注(可选)';
 
   const yearSet = new Set<number>();
   const monthSet = new Set<number>();
@@ -1501,9 +1224,7 @@ export function exportToCSV(startYear?: number, startMonth?: number, endYear?: n
           const tag = attribution?.tags?.[0] ? getAttributionTagLabel(attribution.tags[0] as AttributionTag) : '';
           const note = attribution?.note || '';
           const escapedName = account.name.includes(',') ? `"${account.name}"` : account.name;
-          const customLabel = account.customTypeLabel || '';
-          const currency = account.currency || 'CNY';
-          rows.push(`${year},${month},${account.id},${escapedName},${account.type},${customLabel},${account.icon},${account.isHidden ? 1 : 0},${currency},${record.balance.toFixed(2)},${tag},${note}`);
+          rows.push(`${year},${month},${account.id},${escapedName},${account.type},${account.icon},${account.isHidden ? 1 : 0},${record.balance.toFixed(2)},${tag},${note}`);
         }
       }
     }
@@ -1515,7 +1236,7 @@ export function exportToCSV(startYear?: number, startMonth?: number, endYear?: n
 export function exportMonthlyAttributionCSV(startYear?: number, startMonth?: number, endYear?: number, endMonth?: number): string {
   const data = loadData();
   const BOM = '\uFEFF';
-  const header = '年份,月份,归因标签,标签金额拆分,变动金额,变动百分比,备注,货币';
+  const header = '年份,月份,归因标签,变动金额,变动百分比,备注';
 
   const filteredAttributions = data.attributions.filter(a => {
     const attrKey = a.year * 100 + a.month;
@@ -1536,16 +1257,8 @@ export function exportMonthlyAttributionCSV(startYear?: number, startMonth?: num
       const label = getAttributionTagLabel(t as AttributionTag);
       return `${emoji}${label}`;
     }).join('|');
-    const tagAmountsStr = attr.tagAmounts
-      ? Object.entries(attr.tagAmounts).map(([k, v]) => {
-          const emoji = getAttributionTagEmoji(k as AttributionTag);
-          const label = getAttributionTagLabel(k as AttributionTag);
-          return `${emoji}${label}:${v}`;
-        }).join('|')
-      : '';
     const note = (attr.note || '').replace(/,/g, ';').replace(/\|/g, '｜');
-    const currency = attr.currency || '';
-    rows.push(`${attr.year},${attr.month},${tags},${tagAmountsStr},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${note},${currency}`);
+    rows.push(`${attr.year},${attr.month},${tags},${attr.change.toFixed(2)},${attr.changePercent.toFixed(2)},${note}`);
   }
 
   return BOM + rows.join('\n');
@@ -1634,25 +1347,9 @@ export function importMonthlyAttributionCSV(
       const year = parseInt(parts[0]);
       const month = parseInt(parts[1]);
       const tagsStr = parts[2] || '';
-      // 兼容新旧格式：新格式第3列是标签金额拆分，第4列是变动金额，第7列是货币；旧格式第3列是变动金额
-      let tagAmountsStr = '';
-      let change: number;
-      let changePercent: number;
-      let note: string;
-      let currency = '';
-      if (parts.length >= 7) {
-        // 新格式: 年份,月份,归因标签,标签金额拆分,变动金额,变动百分比,备注,货币
-        tagAmountsStr = parts[3] || '';
-        change = parseFloat(parts[4]) || 0;
-        changePercent = parseFloat(parts[5]) || 0;
-        note = parts[6] || '';
-        currency = parts[7] || '';
-      } else {
-        // 旧格式: 年份,月份,归因标签,变动金额,变动百分比,备注
-        change = parseFloat(parts[3]) || 0;
-        changePercent = parseFloat(parts[4]) || 0;
-        note = parts[5] || '';
-      }
+      const change = parseFloat(parts[3]) || 0;
+      const changePercent = parseFloat(parts[4]) || 0;
+      const note = parts[5] || '';
 
       if (!year || !month) {
         skippedCount++;
@@ -1672,22 +1369,6 @@ export function importMonthlyAttributionCSV(
         continue;
       }
 
-      // 解析标签金额拆分（支持中文标签名和英文ID两种格式）
-      let tagAmounts: Record<string, number> | undefined;
-      if (tagAmountsStr) {
-        tagAmounts = {};
-        for (const pair of tagAmountsStr.split('|')) {
-          const lastColonIdx = pair.lastIndexOf(':');
-          if (lastColonIdx === -1) continue;
-          const key = pair.substring(0, lastColonIdx).trim();
-          const val = pair.substring(lastColonIdx + 1);
-          // 尝试将中文标签名解析为英文ID
-          const parsedTag = parseAttributionTagFromLabel(key);
-          const tagKey = parsedTag || key;
-          tagAmounts[tagKey] = parseFloat(val) || 0;
-        }
-      }
-
       const attribution: MonthlyAttribution = {
         id: existingIndex >= 0 && mergeMode === 'merge' ? data.attributions[existingIndex].id : generateId(),
         year,
@@ -1696,8 +1377,6 @@ export function importMonthlyAttributionCSV(
         changePercent,
         fluctuationLevel: calculateFluctuationLevel(changePercent),
         tags,
-        tagAmounts,
-        currency: currency || 'CNY',
         note,
         timestamp: Date.now(),
       };
@@ -1863,8 +1542,7 @@ export function saveMonthlyAttribution(
   changePercent: number,
   tags: AttributionTag[],
   note?: string,
-  tagAmounts?: Record<string, number>,
-  currency?: string,
+  tagAmounts?: Record<string, number>
 ): void {
   const data = loadData();
 
@@ -1879,7 +1557,6 @@ export function saveMonthlyAttribution(
     fluctuationLevel: calculateFluctuationLevel(changePercent),
     tags,
     tagAmounts,
-    currency: currency || getBaseCurrency(),
     note,
     timestamp: Date.now(),
   };
@@ -2146,7 +1823,6 @@ export function getAccountSnapshotsByMonth(year: number, month: number): Account
       accountType: account.type,
       balance: record.balance,
       change: record.balance - lastBalance,
-      currency: account.currency || 'CNY',
     } as AccountSnapshot);
   }
 
@@ -2503,12 +2179,94 @@ export interface FullBackup {
   exportedAt: string;
   accounts: Account[];
   records: MonthlyRecord[];
-  logs: RecordLog[];
   attributions: MonthlyAttribution[];
   yearlyAttributions: YearlyAttribution[];
-  monthlyAccountConfigs: MonthlyAccountConfig[];
-  customAccountTypes: CustomAccountType[];
-  customAttributionTags: TagOption[];
   settings: AppSettings;
-  exchangeRateHistory: ExchangeRateSnapshot[];
+}
+
+export function exportFullBackupJSON(): string {
+  const data = loadData();
+  const backup: FullBackup = {
+    version: CURRENT_VERSION,
+    exportedAt: new Date().toISOString(),
+    accounts: data.accounts,
+    records: data.records,
+    attributions: data.attributions,
+    yearlyAttributions: data.yearlyAttributions,
+    settings: data.settings,
+  };
+  return JSON.stringify(backup, null, 2);
+}
+
+export function importFullBackupJSON(
+  jsonContent: string,
+  mergeMode: 'overwrite' | 'merge' = 'overwrite'
+): { success: boolean; message: string; importedAccounts: number; importedRecords: number } {
+  try {
+    const backup = JSON.parse(jsonContent) as FullBackup;
+    
+    if (!backup.accounts || !backup.records) {
+      return { success: false, message: '备份文件格式无效', importedAccounts: 0, importedRecords: 0 };
+    }
+
+    const data = loadData();
+
+    if (mergeMode === 'overwrite') {
+      data.accounts = backup.accounts;
+      data.records = backup.records;
+      data.attributions = backup.attributions || [];
+      data.yearlyAttributions = backup.yearlyAttributions || [];
+      if (backup.settings) {
+        data.settings = backup.settings;
+      }
+    } else {
+      const existingAccountNames = new Set(data.accounts.map(a => a.name));
+      for (const account of backup.accounts) {
+        if (!existingAccountNames.has(account.name)) {
+          data.accounts.push(account);
+        }
+      }
+
+      const existingRecordKeys = new Set(
+        data.records.map(r => `${r.accountId}-${r.year}-${r.month}`)
+      );
+      for (const record of backup.records) {
+        const key = `${record.accountId}-${record.year}-${record.month}`;
+        if (!existingRecordKeys.has(key)) {
+          data.records.push(record);
+        }
+      }
+
+      const existingAttrKeys = new Set(
+        data.attributions.map(a => `${a.year}-${a.month}`)
+      );
+      for (const attr of backup.attributions || []) {
+        const key = `${attr.year}-${attr.month}`;
+        if (!existingAttrKeys.has(key)) {
+          data.attributions.push(attr);
+        }
+      }
+
+      const existingYearlyKeys = new Set(
+        data.yearlyAttributions.map(a => a.year)
+      );
+      for (const attr of backup.yearlyAttributions || []) {
+        if (!existingYearlyKeys.has(attr.year)) {
+          data.yearlyAttributions.push(attr);
+        }
+      }
+    }
+
+    saveData(data);
+
+    return {
+      success: true,
+      message: `成功导入 ${backup.accounts.length} 个账户和 ${backup.records.length} 条记录`,
+      importedAccounts: backup.accounts.length,
+      importedRecords: backup.records.length,
+    };
+  } catch (error) {
+    console.error('Failed to import full backup:', error);
+    return { success: false, message: '导入失败：文件格式错误', importedAccounts: 0, importedRecords: 0 };
+  }
 }

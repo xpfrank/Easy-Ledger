@@ -1,5 +1,5 @@
 import type { Account, MonthlyRecord, AccountType, MonthlyNetWorth, AccountGroup, YearlyNetWorth } from '@/types';
-import { getAllAccounts, loadData, getAccountBalanceForMonth } from './storage';
+import { getAllAccounts, loadData, getAccountBalanceForMonth, convertToBaseCurrency } from './storage';
 
 // 账户类型配置
 export const ACCOUNT_TYPES: { type: AccountType; label: string; icon: string }[] = [
@@ -37,16 +37,17 @@ export function calculateTotalAssets(accounts: Account[], year: number, month: n
     if (account.isHidden || account.includeInTotal === false) continue;
     
     const balance = getAccountBalanceForMonth(account.id, year, month);
+    const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
 
     // 信用卡特殊处理
     if (account.type === 'credit') {
-      if (balance < 0) {
-        total += Math.abs(balance);
+      if (converted < 0) {
+        total += Math.abs(converted);
       }
     } else if (account.type === 'debt') {
       continue;
     } else {
-      total += balance;
+      total += converted;
     }
   }
 
@@ -64,12 +65,13 @@ export function calculateTotalLiabilities(accounts: Account[], year: number, mon
     if (account.isHidden || account.includeInTotal === false) continue;
     
     const balance = getAccountBalanceForMonth(account.id, year, month);
+    const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
 
-    if (account.type === 'credit' && balance > 0) {
-      total += balance;
+    if (account.type === 'credit' && converted > 0) {
+      total += converted;
     }
     if (account.type === 'debt') {
-      total += Math.abs(balance);
+      total += Math.abs(converted);
     }
   }
 
@@ -173,15 +175,16 @@ export function calculateVisibleTotalAssets(accounts: Account[], year: number, m
     if (account.includeInTotal === false) continue;
     
     const balance = getAccountBalanceForMonth(account.id, year, month);
+    const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
 
     if (account.type === 'credit') {
-      if (balance < 0) {
-        total += Math.abs(balance);
+      if (converted < 0) {
+        total += Math.abs(converted);
       }
     } else if (account.type === 'debt') {
       continue;
     } else {
-      total += balance;
+      total += converted;
     }
   }
 
@@ -197,12 +200,13 @@ export function calculateVisibleTotalLiabilities(accounts: Account[], year: numb
     if (account.includeInTotal === false) continue;
     
     const balance = getAccountBalanceForMonth(account.id, year, month);
+    const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
 
-    if (account.type === 'credit' && balance > 0) {
-      total += balance;
+    if (account.type === 'credit' && converted > 0) {
+      total += converted;
     }
     if (account.type === 'debt') {
-      total += Math.abs(balance);
+      total += Math.abs(converted);
     }
   }
 
@@ -331,7 +335,8 @@ export function calculateLoanOut(accounts: Account[], year: number, month: numbe
   for (const account of accounts) {
     if (account.type === 'loan') {
       const balance = getAccountBalanceForMonth(account.id, year, month);
-      total += balance;
+      const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
+      total += converted;
     }
   }
 
@@ -346,7 +351,8 @@ export function calculateDebtIn(accounts: Account[], year: number, month: number
   for (const account of accounts) {
     if (account.type === 'debt') {
       const balance = getAccountBalanceForMonth(account.id, year, month);
-      total += Math.abs(balance);
+      const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
+      total += Math.abs(converted);
     }
   }
 
@@ -367,20 +373,44 @@ export function getAccountGroupsForMonth(year: number, month: number): AccountGr
 
   const groups: AccountGroup[] = [];
 
+  // Standard type groups (exclude accounts with customTypeLabel)
   for (const typeConfig of ACCOUNT_TYPES) {
-    const typeAccounts = accounts.filter(a => a.type === typeConfig.type);
+    const typeAccounts = accounts.filter(a => a.type === typeConfig.type && !a.customTypeLabel);
     if (typeAccounts.length === 0) continue;
 
-    // 信用卡分类下的总余额 = 所有子账户余额之和（欠款为正，溢缴款为负，直接代数相加）
     let totalBalance = 0;
     for (const account of typeAccounts) {
       const balance = getAccountBalanceForMonth(account.id, year, month);
-      totalBalance += balance;
+      const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
+      totalBalance += converted;
     }
 
     groups.push({
       type: typeConfig.type,
       label: typeConfig.label,
+      accounts: typeAccounts,
+      totalBalance,
+    });
+  }
+
+  // Custom type groups
+  const customTypeMap = new Map<string, Account[]>();
+  for (const acc of accounts) {
+    if (acc.customTypeLabel) {
+      if (!customTypeMap.has(acc.customTypeLabel)) customTypeMap.set(acc.customTypeLabel, []);
+      customTypeMap.get(acc.customTypeLabel)!.push(acc);
+    }
+  }
+  for (const [label, typeAccounts] of customTypeMap) {
+    let totalBalance = 0;
+    for (const account of typeAccounts) {
+      const balance = getAccountBalanceForMonth(account.id, year, month);
+      const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
+      totalBalance += converted;
+    }
+    groups.push({
+      type: `custom_${label}`,
+      label,
       accounts: typeAccounts,
       totalBalance,
     });

@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench } from 'lucide-react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench, RefreshCw, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType, CustomAttributionTag } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
 import { ATTRIBUTION_CATEGORIES } from '@/types';
-import { exportDataByRange, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions } from '@/lib/storage';
+import { exportDataByRange, fullExport, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions,
+  setExchangeRate, resetExchangeRate, formatDateTime } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { THEMES } from '@/types';
+import { THEMES, CURRENCIES, getCurrencyConfig, DEFAULT_EXCHANGE_RATES } from '@/types';
+import { saveFileToDevice } from '@/lib/platform';
 
 interface SettingsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -57,7 +59,7 @@ const CollapsibleSection = ({
       <div
         className="overflow-hidden transition-all duration-300 ease-in-out"
         style={{
-          maxHeight: open ? '600px' : '0px',
+          maxHeight: open ? '9999px' : '0px',
           padding: open ? '0 16px 16px' : '0 16px',
           opacity: open ? 1 : 0,
         }}
@@ -107,8 +109,12 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [showThemeDialog, setShowThemeDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showTagDialog, setShowTagDialog] = useState(false);
+  const [showRateDialog, setShowRateDialog] = useState(false);
+  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
+  const [showCurrencyDialog, setShowCurrencyDialog] = useState(false);
   const [importError, setImportError] = useState('');
   const [theme, setTheme] = useState<ThemeType>('blue');
+  const [baseCurrency, setBaseCurrency] = useState<string>('CNY');
 
   // Excel 导入相关状态
   const [importMode, setImportMode] = useState<'json' | 'excel'>('json');
@@ -169,6 +175,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     setCustomTags(getCustomAttributionTags());
     const settings = getSettings();
     setTheme(settings.theme || 'blue');
+    setBaseCurrency(settings.baseCurrency || 'CNY');
   }, []);
 
   const handleThemeChange = (newTheme: ThemeType) => {
@@ -184,11 +191,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   const [copied, setCopied] = useState(false);
   const exportTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 检测是否在 Capacitor Android 环境中
-  const isCapacitorAndroid = () => {
-    return typeof (window as any).Capacitor !== 'undefined' && 
-           (window as any).Capacitor.getPlatform() === 'android';
-  };
+
 
   const handleExport = async () => {
     const isCSV = exportFormat === 'csv';
@@ -226,47 +229,31 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     }
 
     const fileName = `${fileNameBase}.${ext}`;
+    const result = await saveFileToDevice(data, fileName, mimeType);
     
-    // 尝试使用 Web Share API（在 Android Chrome 中可用）
-    if (navigator.share && navigator.canShare && isCapacitorAndroid()) {
-      try {
-        const blob = new Blob([data], { type: mimeType });
-        const file = new File([blob], fileName, { type: mimeType });
-        
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: '记账数据导出',
-            text: `记账数据 (${exportStartYear}年${exportStartMonth}月 - ${exportEndYear}年${exportEndMonth}月)`
-          });
-          setShowExportDialog(false);
-          return;
-        }
-      } catch (error) {
-        // 用户取消分享或分享失败，继续尝试其他方式
-        console.log('Share API failed:', error);
-      }
-    }
-    
-    // 标准浏览器下载方式
-    const blob = new Blob([data], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    
-    // 对于 Android WebView，尝试使用 intent 方式
-    if (isCapacitorAndroid()) {
-      // 显示数据复制对话框作为备选方案
+    if (result.success) {
+      setShowExportDialog(false);
+      alert(result.message);
+    } else {
+      // 降级：显示复制对话框
       setExportedData(data);
       setExportedFormat(exportFormat);
       setShowExportSuccess(true);
       setShowExportDialog(false);
+    }
+  };
+
+  const handleFullBackup = async () => {
+    const data = fullExport();
+    const now = new Date();
+    const fileName = `EasyLedger_全量备份_${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2,'0')}${now.getDate().toString().padStart(2,'0')}.json`;
+    const result = await saveFileToDevice(data, fileName, 'application/json');
+    if (result.success) {
+      alert(`✅ ${result.message}`);
     } else {
-      // 标准浏览器
-      a.click();
-      URL.revokeObjectURL(url);
-      setShowExportDialog(false);
+      setExportedData(data);
+      setExportedFormat('json');
+      setShowExportSuccess(true);
     }
   };
 
@@ -294,12 +281,31 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const content = e.target?.result as string;
-        if (importData(content, importTargetYear, importTargetMonth, importJsonMergeMode)) {
-          setShowImportDialog(false);
-          alert('数据导入成功');
-          window.location.reload();
+        // 检测是否为全量备份
+        let isFullBackup = false;
+        try {
+          const parsed = JSON.parse(content);
+          isFullBackup = !!parsed.exportedAt;
+        } catch {}
+        
+        if (isFullBackup) {
+          // 全量备份：直接恢复，不需要选年月
+          if (importData(content)) {
+            setShowImportDialog(false);
+            alert('✅ 全量备份恢复成功');
+            window.location.reload();
+          } else {
+            setImportError('数据导入失败，请检查文件格式是否正确');
+          }
         } else {
-          setImportError('数据导入失败，请检查文件格式是否正确');
+          // 普通导入：按目标年月导入
+          if (importData(content, importTargetYear, importTargetMonth, importJsonMergeMode)) {
+            setShowImportDialog(false);
+            alert('数据导入成功');
+            window.location.reload();
+          } else {
+            setImportError('数据导入失败，请检查文件格式是否正确');
+          }
         }
       };
       reader.onerror = () => {
@@ -314,9 +320,10 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     setExcelError('');
 
     if (file) {
-      // 检查文件扩展名
+      // 检查文件扩展名（兼容移动端：也接受 .txt 和无扩展名的文本文件）
       const fileName = file.name.toLowerCase();
-      if (!fileName.endsWith('.csv')) {
+      const isCSV = fileName.endsWith('.csv') || fileName.endsWith('.txt') || file.type === 'text/csv' || file.type === 'application/csv' || file.type === 'text/plain';
+      if (!isCSV) {
         setExcelError('仅支持 .csv 格式文件，请将 Excel 文件另存为 CSV 格式');
         return;
       }
@@ -362,21 +369,14 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
     }
   };
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
     const template = exportExcelTemplate();
-    if (isCapacitorAndroid()) {
+    const result = await saveFileToDevice(template, '资产导入模板.csv', 'text/csv;charset=utf-8;');
+    if (!result.success) {
       setExportedData(template);
       setExportedFormat('csv');
       setShowExportSuccess(true);
-      return;
     }
-    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '资产导入模板.csv';
-    link.click();
-    URL.revokeObjectURL(url);
   };
 
   const handleCloseImportDialog = (open: boolean) => {
@@ -471,6 +471,44 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
             </button>
 
+            {/* 主货币 */}
+            <button
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              onClick={() => setShowCurrencyDialog(true)}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: `${themeConfig.primary}15` }}
+                >
+                  <span className="text-lg font-bold" style={{ color: themeConfig.primary }}>{getCurrencyConfig(baseCurrency).symbol}</span>
+                </div>
+                <div className="text-left">
+                  <div className="font-medium text-sm text-gray-800">主货币</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{baseCurrency} · {getCurrencyConfig(baseCurrency).name}</div>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-gray-300" />
+            </button>
+
+            {/* 汇率管理入口 */}
+            <button
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              onClick={() => setShowRateDialog(true)}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: `${themeConfig.primary}15` }}>
+                  <RefreshCw size={18} style={{ color: themeConfig.primary }} />
+                </div>
+                <div className="text-left">
+                  <div className="font-medium text-sm text-gray-800">汇率管理</div>
+                  <div className="text-xs text-gray-400 mt-0.5">手动设置各币种兑换率</div>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-gray-300" />
+            </button>
+
             {/* 归因标签管理 */}
             <button
               className="w-full p-4 hover:bg-gray-50 transition-colors text-left"
@@ -525,14 +563,8 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               icon={<Download size={18} />}
               iconBg="" iconColor=""
               title="导出数据"
-              subtitle="按时间范围导出 JSON / CSV"
+              subtitle="按范围导出或全量备份"
               onClick={() => setShowExportDialog(true)}
-              rightNode={
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-400">JSON · CSV</span>
-                  <ChevronRight size={16} className="text-gray-300" />
-                </div>
-              }
             />
             <SettingRow
               icon={<Upload size={18} />}
@@ -890,11 +922,20 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               取消
             </Button>
             <Button 
+              variant="outline"
+              onClick={() => {
+                setShowExportDialog(false);
+                handleFullBackup();
+              }}
+            >
+              全量备份
+            </Button>
+            <Button 
               className="text-white"
               style={{ backgroundColor: themeConfig.primary }}
               onClick={handleExport}
             >
-              导出
+              按范围导出
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -969,7 +1010,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               {importMode === 'json' && (
                 <>
                   <DialogDescription className="text-sm">
-                    选择目标时间和导入方式，然后选择 JSON 文件导入
+                    支持全量备份文件（自动识别）和按时间段导出的 JSON 文件
                   </DialogDescription>
                   <div className="py-4 space-y-4">
                     <div>
@@ -1053,7 +1094,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                     {/* 文件选择 - 仅支持 CSV */}
                     <input
                       type="file"
-                      accept=".csv,text/csv,text/plain,application/csv"
+                      accept=".csv,text/csv,text/plain,application/csv,application/vnd.ms-excel,text/*"
                       onChange={handleExcelFileChange}
                       className="w-full text-sm"
                     />
@@ -1169,7 +1210,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               <div>
                 <input
                   type="file"
-                  accept=".csv,text/csv,text/plain,application/csv"
+                  accept=".csv,text/csv,text/plain,application/csv,application/vnd.ms-excel,text/*"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
@@ -1236,7 +1277,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               <div>
                 <input
                   type="file"
-                  accept=".csv,text/csv,text/plain,application/csv"
+                  accept=".csv,text/csv,text/plain,application/csv,application/vnd.ms-excel,text/*"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
@@ -1324,6 +1365,8 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
                 <FeatureItem emoji="📋" title="记账日志" desc="自动记录每一次余额修改，操作全程可追溯" />
                 <FeatureItem emoji="🎯" title="年度目标" desc="设置年度净资产增长目标，实时查看达成进度与完成率" />
                 <FeatureItem emoji="❤️" title="资产健康度" desc="多维度评估资产配置合理性，包含现金比例、投资占比、债务风险等评分" />
+                <FeatureItem emoji="🌊" title="余额桑基图" desc="可视化展示资产流向结构，支持缩放、拖拽、点击穿透查看详情" />
+                <FeatureItem emoji="💱" title="多币种记账" desc="支持15种主流货币，为每个账户独立设置币种，自动按汇率折算为主货币显示" />
               </div>
             </CollapsibleSection>
 
@@ -1369,13 +1412,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             {/* 数据导入导出 */}
             <CollapsibleSection icon="💾" iconBg="#ffedd5" title="数据导入与导出">
               <div className="grid grid-cols-2 gap-2">
-                <DataCard icon="📦" title="JSON 备份" desc="完整备份恢复，跨设备迁移" />
-                <DataCard icon="📑" title="CSV 导出" desc="分类导出数据，便于表格查看" />
-                <DataCard icon="📥" title="CSV 导入" desc="按类型单独导入余额/归因/年度" />
+                <DataCard icon="📦" title="全量备份" desc="一键备份所有数据，含设置、标签、汇率" />
+                <DataCard icon="📤" title="按范围导出" desc="按时间范围导出 JSON / CSV 格式" />
+                <DataCard icon="📥" title="导入数据" desc="支持全量恢复、按范围导入、CSV批量录入" />
                 <DataCard icon="🗑️" title="清空数据" desc="一键清除全部，操作前请备份" />
               </div>
               <p className="mt-3 text-xs text-gray-500 leading-relaxed">
-                <strong>CSV 模板字段：</strong>月份、账户名称、余额、归因标签（可选）、备注（可选）
+                <strong>导入支持：</strong>全量备份 JSON 自动识别恢复、按年月导入 JSON、CSV 批量导入余额/月度归因/年度归因
               </p>
             </CollapsibleSection>
 
@@ -1466,6 +1509,143 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 汇率管理弹窗 */}
+      {showRateDialog && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+          <div className="w-full max-w-lg bg-white rounded-t-2xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <span className="font-semibold">汇率管理</span>
+              <button onClick={() => setShowRateDialog(false)}><X size={18} /></button>
+            </div>
+            <div className="text-xs text-gray-400 px-4 py-2 bg-gray-50">
+              相对于 {getCurrencyConfig(baseCurrency).name}（{baseCurrency}）的汇率，修改从本月起生效。
+            </div>
+            <div className="overflow-y-auto flex-1 p-3 pb-28">
+              <div className="grid grid-cols-2 gap-2">
+                {CURRENCIES.filter(c => c.code !== baseCurrency).map(c => {
+                  const custom = getSettings().exchangeRates?.[c.code];
+                  const defaultRate = DEFAULT_EXCHANGE_RATES[c.code] ?? 1;
+                  const currentRate = custom?.rate ?? defaultRate;
+                  const updatedAt = custom?.updatedAt ? formatDateTime(custom.updatedAt) : '默认值';
+                  return (
+                    <div key={c.code} className="border border-gray-100 rounded-xl p-2.5 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-sm">{c.symbol}</span>
+                          <span className="text-[10px] text-gray-400">{c.code}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            resetExchangeRate(c.code);
+                            setRateInputs(prev => {
+                              const next = { ...prev };
+                              delete next[c.code];
+                              return next;
+                            });
+                          }}
+                          className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5"
+                        >
+                          恢复
+                        </button>
+                      </div>
+                      <input type="number" step="0.0001" min="0"
+                        value={rateInputs[c.code] ?? String(currentRate)}
+                        onChange={e => setRateInputs(prev => ({ ...prev, [c.code]: e.target.value }))}
+                        onBlur={() => {
+                          const val = parseFloat(rateInputs[c.code] ?? String(currentRate));
+                          if (!isNaN(val) && val > 0) {
+                            setExchangeRate(c.code, val);
+                          }
+                        }}
+                        className="w-full h-7 px-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-400"
+                      />
+                      <div className="text-[9px] text-gray-300">更新：{updatedAt}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="p-3 border-t flex gap-2">
+              <button
+                onClick={() => {
+                  CURRENCIES.filter(c => c.code !== baseCurrency).forEach(c => {
+                    resetExchangeRate(c.code);
+                  });
+                  setRateInputs({});
+                }}
+                className="flex-1 py-2.5 text-sm text-red-500 bg-red-50 rounded-xl hover:bg-red-100 transition-colors"
+              >
+                全部恢复默认
+              </button>
+              <button
+                onClick={() => {
+                  // 批量保存所有未 onBlur 保存的输入值
+                  Object.entries(rateInputs).forEach(([code, val]) => {
+                    const parsed = parseFloat(val);
+                    if (!isNaN(parsed) && parsed > 0) {
+                      setExchangeRate(code, parsed);
+                    }
+                  });
+                  setRateInputs({});
+                  setShowRateDialog(false);
+                }}
+                className="flex-1 py-2.5 text-sm text-white rounded-xl hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: themeConfig.primary }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 主货币选择弹窗 - 自定义底部弹窗 */}
+      {showCurrencyDialog && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowCurrencyDialog(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-md bg-white rounded-t-2xl max-h-[70vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
+              <span className="font-semibold text-base">选择主货币</span>
+              <button onClick={() => setShowCurrencyDialog(false)} className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center">
+                <X size={14} className="text-gray-500" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 pb-28">
+              <div className="grid grid-cols-3 gap-3">
+                {CURRENCIES.map((c) => {
+                  const sel = baseCurrency === c.code;
+                  return (
+                    <button
+                      key={c.code}
+                      onClick={() => {
+                        setBaseCurrency(c.code);
+                        updateSettings({ baseCurrency: c.code });
+                        setShowCurrencyDialog(false);
+                      }}
+                      className={`flex flex-col items-center justify-center py-3.5 px-2 rounded-xl border-2 transition-all active:scale-95 ${
+                        sel ? 'border-gray-200 bg-white' : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                      style={sel ? { borderColor: themeConfig.primary, backgroundColor: `${themeConfig.primary}15` } : {}}
+                    >
+                      <span className="text-2xl font-bold" style={sel ? { color: themeConfig.primary } : {}}>
+                        {c.symbol}
+                      </span>
+                      <span className="text-xs font-medium mt-1" style={sel ? { color: themeConfig.primary } : { color: '#374151' }}>
+                        {c.code}
+                      </span>
+                      <span className="text-[10px] text-gray-400 mt-0.5">{c.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

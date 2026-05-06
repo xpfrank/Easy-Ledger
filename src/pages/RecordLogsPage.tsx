@@ -21,7 +21,10 @@ import {
   getYearlyAttributionTagEmoji,
   getAccountsForMonth,
   getMonthlyRecord,
+  convertToBaseCurrency,
+  getBaseCurrency,
 } from '@/lib/storage';
+import { getCurrencyConfig } from '@/types';
 
 import { calculateNetWorth } from '@/lib/calculator';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
@@ -69,6 +72,8 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
   const [selectedAttributionYear, setSelectedAttributionYear] = useState<number | null>(null);
 
   const themeConfig = themesConfig[theme];
+  const baseCurrencyCode = getBaseCurrency();
+  const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
 
   useEffect(() => {
     const settings = getSettings();
@@ -200,10 +205,10 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
             className="text-sm font-bold"
             style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
           >
-            {isPositive ? '+' : ''}¥{formatHiddenAmount(attr.change, hideBalance)}
+            {isPositive ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(attr.change, hideBalance)}
           </div>
           <div className="text-xs text-gray-400 mt-0.5">
-            净资产 ¥{formatHiddenAmount(netWorth, hideBalance)}
+            净资产 {baseCurrencySymbol}{formatHiddenAmount(netWorth, hideBalance)}
           </div>
         </div>
       </div>
@@ -250,12 +255,12 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
         {/* 右侧：变化金额 + 百分比 */}
         <div className="text-right flex-shrink-0">
-          <div
-            className="text-sm font-bold"
-            style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
-          >
-            {isPositive ? '+' : '-'}¥{hideBalance ? '***' : `${absWan}万`}
-          </div>
+           <div
+             className="text-sm font-bold"
+             style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
+           >
+             {isPositive ? '+' : '-'}{baseCurrencySymbol}{hideBalance ? '***' : `${absWan}万`}
+           </div>
           <div
             className="text-xs font-medium mt-0.5 px-1.5 py-0.5 rounded-lg inline-block"
             style={{
@@ -403,18 +408,18 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                             </span>
                           ))}
                         </div>
-                        {/* 净资产 + 变化 + 百分比 */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-base font-bold text-gray-900">
-                              ¥{formatHiddenAmount(netWorth, hideBalance)}
-                            </div>
-                            <div
-                              className={`text-xs font-medium flex items-center gap-0.5 mt-0.5 ${isIncrease ? 'text-green-600' : 'text-red-600'}`}
-                            >
-                              <span>{isIncrease ? '▲' : '▼'}</span>
-                              <span>{isIncrease ? '+' : ''}¥{formatHiddenAmount(Math.abs(attr!.change), hideBalance)}</span>
-                            </div>
+                         {/* 净资产 + 变化 + 百分比 */}
+                         <div className="flex items-start justify-between gap-2">
+                           <div className="min-w-0">
+                             <div className="text-base font-bold text-gray-900">
+                               {baseCurrencySymbol}{formatHiddenAmount(netWorth, hideBalance)}
+                             </div>
+                             <div
+                               className={`text-xs font-medium flex items-center gap-0.5 mt-0.5 ${isIncrease ? 'text-green-600' : 'text-red-600'}`}
+                             >
+                               <span>{isIncrease ? '▲' : '▼'}</span>
+                               <span>{isIncrease ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(Math.abs(attr!.change), hideBalance)}</span>
+                             </div>
                             {attr!.note && (
                               <p className="text-xs text-gray-400 mt-1 break-words leading-relaxed">{attr!.note}</p>
                             )}
@@ -432,11 +437,11 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                       </>
                     ) : hasData ? (
                       /* 有数据但无归因 */
-                      <>
-                        <div className="text-xs text-gray-400 mb-1">未添加归因</div>
-                        <div className="text-base font-bold text-gray-300">
-                          ¥{formatHiddenAmount(netWorth, hideBalance)}
-                        </div>
+                       <>
+                         <div className="text-xs text-gray-400 mb-1">未添加归因</div>
+                         <div className="text-base font-bold text-gray-300">
+                           {baseCurrencySymbol}{formatHiddenAmount(netWorth, hideBalance)}
+                         </div>
                         <div className="w-6 h-px bg-gray-200 mt-1.5" />
                       </>
                     ) : (
@@ -523,41 +528,47 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                 
                 {isExpanded && (
                   <div className="divide-y divide-gray-50">
-                    {logs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
-                      const account = accounts.find(a => a.id === log.accountId);
-                      if (!account) return null;
-                      const change = log.newBalance - log.oldBalance;
-                      const isIncrease = change >= 0;
-                      
-                      return (
-                        <div key={log.id} className="p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div 
-                                className="w-8 h-8 rounded-xl flex items-center justify-center"
-                                style={{ backgroundColor: isIncrease ? `${themeConfig.primary}15` : '#fef2f2' }}
-                              >
-                                <Icon
-                                  name={isIncrease ? 'trending-up' : 'trending-down'}
-                                  size={16}
-                                  className={isIncrease ? 'text-green-500' : 'text-red-500'}
-                                />
-                              </div>
-                              <div>
-                                <div className="text-sm font-medium text-gray-800">{account.name}</div>
-                                <div className="text-xs text-gray-400">{getOperationTypeLabel(log.operationType)}</div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className={`text-sm font-semibold ${isIncrease ? 'text-green-600' : 'text-red-500'}`}>
-                                {hideBalance ? '****** → ******' : `¥${formatAmountNoSymbol(log.oldBalance)} → ¥${formatAmountNoSymbol(log.newBalance)}`}
-                              </div>
-                              <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                     {logs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
+                        const account = accounts.find(a => a.id === log.accountId);
+                        if (!account) return null;
+                        const change = log.newBalance - log.oldBalance;
+                        const isIncrease = change >= 0;
+                        
+                        // 转换余额为主货币，月度模式使用当前选中的 year 和 month
+                        const targetYear = typeof year === 'number' ? year : initialYear;
+                        const targetMonth = typeof month === 'number' ? month : initialMonth;
+                        const convertedOld = convertToBaseCurrency(log.oldBalance, account.currency || 'CNY', targetYear, targetMonth);
+                        const convertedNew = convertToBaseCurrency(log.newBalance, account.currency || 'CNY', targetYear, targetMonth);
+                       
+                       return (
+                         <div key={log.id} className="p-3">
+                           <div className="flex items-center justify-between">
+                             <div className="flex items-center gap-3">
+                               <div 
+                                 className="w-8 h-8 rounded-xl flex items-center justify-center"
+                                 style={{ backgroundColor: isIncrease ? `${themeConfig.primary}15` : '#fef2f2' }}
+                               >
+                                 <Icon
+                                   name={isIncrease ? 'trending-up' : 'trending-down'}
+                                   size={16}
+                                   className={isIncrease ? 'text-green-500' : 'text-red-500'}
+                                 />
+                               </div>
+                               <div>
+                                 <div className="text-sm font-medium text-gray-800">{account.name}</div>
+                                 <div className="text-xs text-gray-400">{getOperationTypeLabel(log.operationType)}</div>
+                               </div>
+                             </div>
+                             <div className="text-right">
+                               <div className={`text-sm font-semibold ${isIncrease ? 'text-green-600' : 'text-red-500'}`}>
+                                 {hideBalance ? '****** → ******' : `${baseCurrencySymbol}${formatAmountNoSymbol(convertedOld)} → ${baseCurrencySymbol}${formatAmountNoSymbol(convertedNew)}`}
+                               </div>
+                               <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
+                             </div>
+                           </div>
+                         </div>
+                       );
+                     })}
                   </div>
                 )}
               </div>
@@ -601,72 +612,74 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
                       <div className="text-xs text-gray-400">最后记录: {lastRecordDate}</div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-gray-900">
-                      ¥{formatHiddenAmount(monthNetWorth, hideBalance)}
-                    </div>
-                    <div className="text-xs text-gray-400">{monthLogs.length}条记录</div>
-                  </div>
+                 <div className="text-right">
+                   <div className="text-sm font-bold text-gray-900">
+                     {baseCurrencySymbol}{formatHiddenAmount(monthNetWorth, hideBalance)}
+                   </div>
+                   <div className="text-xs text-gray-400">{monthLogs.length}条记录</div>
+                 </div>
                 </div>
                 
                 {isExpanded && (
                   <div className="divide-y divide-gray-50">
                     <div className="p-3 bg-gray-50/50">
-                      <div className="text-xs font-medium text-gray-500 mb-2">月末账户余额</div>
-                      {monthAccounts.map(account => {
-                        const record = getMonthlyRecord(account.id, y, month);
-                        const balance = record ? record.balance : account.balance;
-                        const isCredit = account.type === 'credit';
-                        const isDebt = account.type === 'debt';
-                        
-                        if (selectedAccount !== 'all' && selectedAccount !== account.id) return null;
-                        
-                        return (
-                          <div key={account.id} className="flex items-center justify-between py-1.5">
-                            <div className="flex items-center gap-2">
-                              <Icon name={account.icon} size={14} className="text-gray-500" />
-                              <span className="text-sm text-gray-700">{account.name}</span>
-                            </div>
-                            <span className={`text-sm font-medium ${isCredit || isDebt ? 'text-red-500' : 'text-gray-900'}`}>
-                              ¥{formatHiddenAmount(balance, hideBalance)}
-                            </span>
-                          </div>
-                        );
-                      })}
+                       <div className="text-xs font-medium text-gray-500 mb-2">月末账户余额</div>
+                       {monthAccounts.map(account => {
+                         const record = getMonthlyRecord(account.id, y, month);
+                         const balance = record ? record.balance : account.balance;
+                         const convertedBalance = convertToBaseCurrency(balance, account.currency || 'CNY', y, month);
+                         const isCredit = account.type === 'credit';
+                         const isDebt = account.type === 'debt';
+                         
+                         if (selectedAccount !== 'all' && selectedAccount !== account.id) return null;
+                         
+                         return (
+                           <div key={account.id} className="flex items-center justify-between py-1.5">
+                             <div className="flex items-center gap-2">
+                               <Icon name={account.icon} size={14} className="text-gray-500" />
+                               <span className="text-sm text-gray-700">{account.name}</span>
+                             </div>
+                             <span className={`text-sm font-medium ${isCredit || isDebt ? 'text-red-500' : 'text-gray-900'}`}>
+                               {baseCurrencySymbol}{formatHiddenAmount(convertedBalance, hideBalance)}
+                             </span>
+                           </div>
+                         );
+                       })}
                     </div>
                     
                     <div className="p-3">
-                      <div className="text-xs font-medium text-gray-500 mb-2">变动记录</div>
-                      {monthLogs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
-                        const account = accounts.find(a => a.id === log.accountId);
-                        if (!account) return null;
-                        const change = log.newBalance - log.oldBalance;
-                        const isIncrease = change >= 0;
-                        
-                        return (
-                          <div key={log.id} className="flex items-center justify-between py-2">
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-6 h-6 rounded-lg flex items-center justify-center"
-                                style={{ backgroundColor: isIncrease ? `${themeConfig.primary}15` : '#fef2f2' }}
-                              >
-                                <Icon
-                                  name={isIncrease ? 'trending-up' : 'trending-down'}
-                                  size={12}
-                                  className={isIncrease ? 'text-green-500' : 'text-red-500'}
-                                />
-                              </div>
-                              <div>
-                                <div className="text-sm text-gray-800">{account.name}</div>
-                                <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
-                              </div>
-                            </div>
-                            <div className={`text-sm font-medium ${isIncrease ? 'text-green-600' : 'text-red-500'}`}>
-                              {isIncrease ? '+' : ''}¥{formatHiddenAmount(Math.abs(change), hideBalance)}
-                            </div>
-                          </div>
-                        );
-                      })}
+                     <div className="text-xs font-medium text-gray-500 mb-2">变动记录</div>
+                       {monthLogs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
+                         const account = accounts.find(a => a.id === log.accountId);
+                         if (!account) return null;
+                         const convertedChange = convertToBaseCurrency(log.newBalance, account.currency || 'CNY', y, month) - 
+                                               convertToBaseCurrency(log.oldBalance, account.currency || 'CNY', y, month);
+                         const isIncrease = convertedChange >= 0;
+                         
+                         return (
+                           <div key={log.id} className="flex items-center justify-between py-2">
+                             <div className="flex items-center gap-2">
+                               <div 
+                                 className="w-6 h-6 rounded-lg flex items-center justify-center"
+                                 style={{ backgroundColor: isIncrease ? `${themeConfig.primary}15` : '#fef2f2' }}
+                               >
+                                 <Icon
+                                   name={isIncrease ? 'trending-up' : 'trending-down'}
+                                   size={12}
+                                   className={isIncrease ? 'text-green-500' : 'text-red-500'}
+                                 />
+                               </div>
+                               <div>
+                                 <div className="text-sm text-gray-800">{account.name}</div>
+                                 <div className="text-xs text-gray-400">{formatDate(log.timestamp)}</div>
+                               </div>
+                             </div>
+                             <div className={`text-sm font-medium ${isIncrease ? 'text-green-600' : 'text-red-500'}`}>
+                               {isIncrease ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(Math.abs(convertedChange), hideBalance)}
+                             </div>
+                           </div>
+                         );
+                       })}
                     </div>
                   </div>
                 )}

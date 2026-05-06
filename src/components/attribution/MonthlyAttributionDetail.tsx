@@ -1,9 +1,9 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth } from '@/lib/calculator';
-import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
+import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getSettings, convertToBaseCurrency, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
-import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption } from '@/types';
+import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
 import { useState } from 'react';
 import { ChevronRight, Check } from 'lucide-react';
 
@@ -34,6 +34,8 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
     .slice(0, 3);
 
   const themeConfig = THEMES[theme];
+  const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
+  const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
 
   const getTagsByCategory = () => {
@@ -93,14 +95,14 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
               <div className="text-center">
                 <div className="text-xs text-white/70 mb-1">上月</div>
                 <div className="text-lg font-bold">
-                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNW)}`}
+                  {hideBalance ? '******' : `${baseCurrencySymbol}${formatAmountNoSymbol(lastNW)}`}
                 </div>
               </div>
               <div className="text-2xl text-white/50">→</div>
               <div className="text-center">
                 <div className="text-xs text-white/70 mb-1">本月</div>
                 <div className="text-lg font-bold">
-                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(currentNW)}`}
+                  {hideBalance ? '******' : `${baseCurrencySymbol}${formatAmountNoSymbol(currentNW)}`}
                 </div>
               </div>
             </div>
@@ -109,7 +111,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
               <span className="text-2xl font-bold">
                 {hideBalance ? '******' : (
                   <>
-                    {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                    {change >= 0 ? '+' : ''}{baseCurrencySymbol}{formatAmountNoSymbol(change)}
                     <span className="text-base ml-2 opacity-80">
                       ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
                     </span>
@@ -157,7 +159,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                     </div>
                     <span className={item.change >= 0 ? 'text-green-600' : 'text-red-500'}>
                       {item.change >= 0 ? '+' : ''}
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                      {baseCurrencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(convertToBaseCurrency(item.change, item.currency || 'CNY', year, month)))}
                     </span>
                   </div>
                 ))}
@@ -230,29 +232,32 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                 <div>
                   <div className="text-xs text-gray-500 mb-2">归因金额分配明细</div>
                   <div className="space-y-1.5">
-                    {attribution.tags.map(tag => {
-                      const tagOption = findAttributionTagOption(tag);
-                      const amount = attribution.tagAmounts![tag] ?? 0;
-                      const isNeg = amount < 0;
-                      return (
-                        <div key={tag} className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">
-                            {tagOption?.emoji || getAttributionTagEmoji(tag as any)}{' '}
-                            {tagOption?.label || getAttributionTagLabel(tag as any)}
-                          </span>
-                          <span className={`text-sm font-medium ${isNeg ? 'text-red-500' : 'text-green-600'}`}>
-                            {isNeg ? '' : '+'}{hideBalance ? '¥***' : `¥${formatAmountNoSymbol(Math.abs(amount))}`}
-                          </span>
-                        </div>
-                      );
-                    })}
-                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-100">
-                      <span className="text-xs text-gray-400">合计</span>
-                      <span className={`text-sm font-semibold ${attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                        {attribution.change >= 0 ? '+' : ''}
-                        {hideBalance ? '¥***' : `¥${formatAmountNoSymbol(attribution.change)}`}
-                      </span>
-                    </div>
+                     {attribution.tags.map(tag => {
+                       const tagOption = findAttributionTagOption(tag);
+                       const rawAmount = attribution.tagAmounts![tag] ?? 0;
+                       const amount = convertToBaseCurrency(rawAmount, attribution.currency || 'CNY', year, month);
+                       const isNeg = amount < 0;
+                       return (
+                         <div key={tag} className="flex items-center justify-between">
+                           <span className="text-sm text-gray-600">
+                             {tagOption?.emoji || getAttributionTagEmoji(tag as any)}{' '}
+                             {tagOption?.label || getAttributionTagLabel(tag as any)}
+                           </span>
+                           <span className={`text-sm font-medium ${isNeg ? 'text-red-500' : 'text-green-600'}`}>
+                             {isNeg ? '' : '+'}{hideBalance ? `${baseCurrencySymbol}***` : `${baseCurrencySymbol}${formatAmountNoSymbol(Math.abs(amount))}`}
+                           </span>
+                         </div>
+                       );
+                     })}
+                     <div className="flex items-center justify-between pt-1.5 border-t border-gray-100">
+                       <span className="text-xs text-gray-400">合计</span>
+                       <span className={`text-sm font-semibold ${attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                         {(() => {
+                           const displayChange = convertToBaseCurrency(attribution.change, attribution.currency || 'CNY', year, month);
+                           return `${displayChange >= 0 ? '+' : ''}${hideBalance ? `${baseCurrencySymbol}***` : `${baseCurrencySymbol}${formatAmountNoSymbol(Math.abs(displayChange))}`}`;
+                         })()}
+                       </span>
+                     </div>
                   </div>
                 </div>
               ) : (
@@ -260,7 +265,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                   <span className="text-gray-500">影响金额：</span>
                   <span className={attribution.change >= 0 ? 'text-green-600' : 'text-red-500'}>
                     {attribution.change >= 0 ? '+' : ''}
-                    ¥{hideBalance ? '******' : formatAmountNoSymbol(attribution.change)}
+                    {baseCurrencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(attribution.change)}
                   </span>
                 </div>
               )}
@@ -285,7 +290,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                       <span className="text-sm">{snapshot.accountName}</span>
                     </div>
                     <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : ''}>
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(snapshot.balance)}
+                      {baseCurrencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(convertToBaseCurrency(snapshot.balance, snapshot.currency || 'CNY', year, month))}
                     </span>
                   </div>
                 ))}

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
-import { THEMES } from '@/types';
+import { THEMES, getCurrencyConfig } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -23,6 +23,7 @@ import {
   getAttributionTagEmoji,
   getAccountsForMonth,
   getSettings,
+  convertToBaseCurrency,
   getAllAttributionTagOptions,
   getAllYearlyTagOptions,
   getAccountSnapshotsByMonth,
@@ -243,6 +244,7 @@ interface YearlyDashboardProps {
   };
   onEditAttribution: () => void;
   onMonthClick: (month: number, nw: number, changePercent: number) => void;
+  currencySymbol: string;
 }
 
 function fmtShort(n: number): string {
@@ -261,6 +263,7 @@ function YearlyDashboard({
   themeConfig,
   onEditAttribution,
   onMonthClick,
+  currencySymbol,
 }: YearlyDashboardProps) {
   const monthSnapshots = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
@@ -332,15 +335,21 @@ function YearlyDashboard({
 
   const accRanking = allAccounts
     .map(acc => {
-      const startBal = getAccountBalanceForMonth(acc.id, year - 1, 12);
-      const endBal   = lastRecordedMonth
+      const rawStartBal = getAccountBalanceForMonth(acc.id, year - 1, 12);
+      const rawEndBal   = lastRecordedMonth
         ? getAccountBalanceForMonth(acc.id, year, lastRecordedMonth)
-        : startBal;
+        : rawStartBal;
+
+      const startBal = convertToBaseCurrency(rawStartBal, acc.currency || 'CNY', year - 1, 12);
+      const endBal   = convertToBaseCurrency(rawEndBal, acc.currency || 'CNY', year, lastRecordedMonth || 12);
 
       let peakBal = Math.abs(endBal);
       for (let m = 1; m <= 12; m++) {
         const rec = getMonthlyRecord(acc.id, year, m);
-        if (rec) peakBal = Math.max(peakBal, Math.abs(rec.balance));
+        if (rec) {
+          const convertedBal = Math.abs(convertToBaseCurrency(rec.balance, acc.currency || 'CNY', year, m));
+          peakBal = Math.max(peakBal, convertedBal);
+        }
       }
 
       return {
@@ -371,7 +380,7 @@ function YearlyDashboard({
           <span className="bg-white/20 rounded-full px-3 py-1 text-xs font-medium backdrop-blur-sm">
             {hideBalance ? '******' : (
               <>
-                较上年 {yoyChange >= 0 ? '+' : ''}¥{fmt(yoyChange)}
+                较上年 {yoyChange >= 0 ? '+' : ''}{currencySymbol}{fmt(yoyChange)}
                 <span className="opacity-80 ml-1">
                   ({yoyChange >= 0 ? '+' : ''}{yoyPct.toFixed(1)}%)
                 </span>
@@ -381,20 +390,20 @@ function YearlyDashboard({
         </div>
 
         <div className="text-3xl font-bold tracking-tight mb-4">
-          {hideBalance ? '¥ ******' : `¥${fmt(netWorth)}`}
+          {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${fmt(netWorth)}`}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
             <div className="text-[11px] text-white/70 mb-1">年度峰值</div>
             <div className="text-base font-semibold">
-              {hideBalance ? '******' : `¥${fmt(peakNw)}`}
+              {hideBalance ? '******' : `${currencySymbol}${fmt(peakNw)}`}
             </div>
           </div>
           <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
             <div className="text-[11px] text-white/70 mb-1">年度平均</div>
             <div className="text-base font-semibold">
-              {hideBalance ? '******' : `¥${fmt(avgNw)}`}
+              {hideBalance ? '******' : `${currencySymbol}${fmt(avgNw)}`}
             </div>
           </div>
         </div>
@@ -452,7 +461,7 @@ function YearlyDashboard({
                 </div>
 
                 <div className="text-xs font-semibold text-gray-800">
-                  {hideBalance ? '***' : `¥${fmtShort(nw)}`}
+                  {hideBalance ? '***' : `${currencySymbol}${fmtShort(nw)}`}
                 </div>
 
                 <div
@@ -538,7 +547,7 @@ function YearlyDashboard({
                   >
                     {hideBalance
                       ? '***'
-                      : `${isNeg ? '-' : '+'}¥${fmt(Math.abs(totalChange))}`
+                      : `${isNeg ? '-' : '+'}${currencySymbol}${fmt(Math.abs(totalChange))}`
                     }
                   </span>
                 </div>
@@ -590,7 +599,7 @@ function YearlyDashboard({
                         {accountName}
                       </div>
                       <div className="text-[11px] text-gray-400">
-                        峰值 {hideBalance ? '***' : `¥${fmt(peakBal)}`}
+                        峰值 {hideBalance ? '***' : `${currencySymbol}${fmt(peakBal)}`}
                       </div>
                     </div>
 
@@ -600,7 +609,7 @@ function YearlyDashboard({
                     >
                       {hideBalance
                         ? '***'
-                        : `${isPos ? '+' : '-'}¥${fmt(Math.abs(change))}`
+                        : `${isPos ? '+' : '-'}${currencySymbol}${fmt(Math.abs(change))}`
                       }
                     </div>
                   </div>
@@ -627,10 +636,12 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const [totalAssets, setTotalAssets] = useState(0);
   const [totalLiabilities, setTotalLiabilities] = useState(0);
   const [theme, setTheme] = useState<ThemeType>('blue');
+  const [baseCurrency, setBaseCurrency] = useState<string>('CNY');
   
   useEffect(() => {
     const settings = getSettings();
     setTheme(settings.theme || 'blue');
+    setBaseCurrency(settings.baseCurrency || 'CNY');
   }, []);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -671,6 +682,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   } | null>(null);
 
   const themeConfig = THEMES[theme];
+  const currencySymbol = getCurrencyConfig(baseCurrency).symbol;
 
   // 处理外部传入的参数：自动打开归因编辑弹窗
   useEffect(() => {
@@ -868,11 +880,13 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     if (existingAttribution) {
       setSelectedTags(existingAttribution.tags);
       setAttributionNote(existingAttribution.note || '');
-      // 加载已有金额分配
+      // 加载已有金额分配，并转换到当前主货币
       if (existingAttribution.tagAmounts) {
         const loaded: Record<string, string> = {};
+        const savedCurrency = existingAttribution.currency || 'CNY';
         Object.entries(existingAttribution.tagAmounts).forEach(([tag, amount]) => {
-          loaded[tag] = String(amount);
+          const converted = convertToBaseCurrency(amount, savedCurrency, year, month);
+          loaded[tag] = String(converted);
         });
         setTagAmounts(loaded);
       } else {
@@ -928,7 +942,8 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       previewData.changePercent,
       selectedTags,
       attributionNote || undefined,
-      selectedTags.length > 0 ? finalTagAmounts : undefined
+      selectedTags.length > 0 ? finalTagAmounts : undefined,
+      baseCurrency
     );
 
     setShowPreviewDialog(false);
@@ -1007,7 +1022,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     // 生成汇总说明 - 使用月度归因的中文名称，正确体现金额正负
     const summaryParts = sortedTags.map(([, stats]) => {
       const sign = stats.totalChange >= 0 ? '+' : '-';
-      return `${stats.emoji}${stats.label}(${stats.count}次，累计${sign}¥${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
+      return `${stats.emoji}${stats.label}(${stats.count}次，累计${sign}${currencySymbol}${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
     });
     const summaryText = `本年度月度归因汇总：${summaryParts.join('、')}`;
 
@@ -1020,17 +1035,19 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     const lastMonth = getLastRecordedMonth(year) || 12;
 
     const accountChanges = allAccounts.map(account => {
-      // 年初余额（上年度12月）
+      // 年初余额（上年度12月）并折算
       const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
       const lastBalance = lastRecord ? lastRecord.balance : account.balance;
-      // 年末余额（今年最后有记录的月份）
+      const convertedLast = convertToBaseCurrency(lastBalance, account.currency || 'CNY', year - 1, 12);
+      // 年末余额（今年最后有记录的月份）并折算
       const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
       const currentBalance = currentRecord ? currentRecord.balance : account.balance;
+      const convertedCurrent = convertToBaseCurrency(currentBalance, account.currency || 'CNY', year, lastMonth);
       return {
         accountId: account.id,
         accountName: account.name,
         accountIcon: account.icon,
-        change: currentBalance - lastBalance,
+        change: convertedCurrent - convertedLast,
       };
     });
 
@@ -1257,7 +1274,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 }`}>
                   较上月 {hideBalance ? '******' : (
                     <>
-                      {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                      {change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(change)}
                       <span className="ml-0.5 opacity-80">
                         ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
                       </span>
@@ -1266,16 +1283,16 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 </span>
               </div>
 
-              <div className="text-2xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
+              <div className="text-2xl font-bold mb-3 tracking-tight">{currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}</div>
 
               <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
                 <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
                   <div className="text-xs text-white/70 mb-0.5">总资产</div>
-                  <div className="font-semibold text-base">¥{formatHiddenAmount(totalAssets, hideBalance)}</div>
+                  <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalAssets, hideBalance)}</div>
                 </div>
                 <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
                   <div className="text-xs text-white/70 mb-0.5">负资产</div>
-                  <div className="font-semibold text-base">¥{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+                  <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
                 </div>
               </div>
             </CardContent>
@@ -1344,6 +1361,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
             onMonthClick={(m, nw, changePercent) =>
               setMonthAttrDialog({ month: m, nw, changePercent })
             }
+            currencySymbol={currencySymbol}
           />
         ) : (
           <div className="space-y-3">
@@ -1383,6 +1401,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                     const isCredit   = account.type === 'credit';
                     const isDebt     = account.type === 'debt';
                     const balance    = balances[account.id] || 0;
+                    const convertedBalance = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
                     const isEditing  = editingAccount === account.id;
 
                     return (
@@ -1414,7 +1433,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                             <div>
                               <div className="font-medium text-sm text-gray-900">{account.name}</div>
                               <div className="text-xs text-gray-400 flex items-center gap-1">
-                                {getAccountTypeLabel(account.type)}
+                                {account.customTypeLabel || getAccountTypeLabel(account.type)}
                                 {isCredit && balance > 0 && (
                                   <span className="text-red-500">· 欠款</span>
                                 )}
@@ -1425,7 +1444,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                           {isEditing ? (
                             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                               <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">¥</span>
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">{currencySymbol}</span>
                                 <Input
                                   type="number"
                                   step="0.01"
@@ -1459,8 +1478,8 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                 }`}
                               >
                                 <div className="text-base font-medium">
-                                  ¥{formatHiddenAmount(
-                                    isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance,
+                                  {currencySymbol}{formatHiddenAmount(
+                                    isDebt ? Math.abs(convertedBalance) : isCredit ? Math.abs(convertedBalance) : convertedBalance,
                                     hideBalance
                                   )}
                                 </div>
@@ -1584,14 +1603,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                   <div className="text-center">
                     <div className="text-xs text-white/70 mb-1">上月</div>
                     <div className="text-lg font-bold">
-                      {hideBalance ? '******' : `¥${formatAmountNoSymbol(previewData.lastNetWorth)}`}
+                      {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(previewData.lastNetWorth)}`}
                     </div>
                   </div>
                   <div className="text-2xl text-white/50">→</div>
                   <div className="text-center">
                     <div className="text-xs text-white/70 mb-1">本月</div>
                     <div className="text-lg font-bold">
-                      {hideBalance ? '******' : `¥${formatAmountNoSymbol(previewData.currentNetWorth)}`}
+                      {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(previewData.currentNetWorth)}`}
                     </div>
                   </div>
                 </div>
@@ -1601,7 +1620,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                     {hideBalance ? '******' : (
                       <>
                         {previewData.change >= 0 ? '+' : ''}
-                        ¥{formatAmountNoSymbol(previewData.change)}
+                        {currencySymbol}{formatAmountNoSymbol(previewData.change)}
                         <span className="text-base ml-2 opacity-80">
                           ({previewData.change >= 0 ? '+' : ''}{previewData.changePercent.toFixed(1)}%)
                         </span>
@@ -1667,7 +1686,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                         <div className={`text-sm font-semibold ${
                           item.change >= 0 ? 'text-green-600' : 'text-red-500'
                         }`}>
-                          {item.change >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                          {item.change >= 0 ? '+' : ''}{currencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                         </div>
                       </div>
                     ))}
@@ -1728,7 +1747,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                         <span className="text-sm font-medium text-gray-700">金额分配</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500">
-                            总变动: {previewData.change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(Math.abs(previewData.change))}
+                            总变动: {previewData.change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(Math.abs(previewData.change))}
                           </span>
                           <button
                             onClick={() => {
@@ -1755,7 +1774,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                             <div key={tagId} className="flex items-center gap-2">
                               <span className="text-xs flex-shrink-0 w-20 truncate">{tag.emoji} {tag.label}</span>
                               <div className="relative flex-1">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">¥</span>
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">{currencySymbol}</span>
                                 <input
                                   type="number"
                                   step="0.01"
@@ -1839,8 +1858,8 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                           return (
                             <div className={`text-xs mt-1.5 ${remaining > 0 ? 'text-amber-600' : 'text-red-500'}`}>
                               {remaining > 0
-                                ? `⚠ 还剩 ¥${formatAmountNoSymbol(remaining)} 未分配`
-                                : `⚠ 超出 ¥${formatAmountNoSymbol(Math.abs(remaining))}`}
+                                ? `⚠ 还剩 ${currencySymbol}${formatAmountNoSymbol(remaining)} 未分配`
+                                : `⚠ 超出 ${currencySymbol}${formatAmountNoSymbol(Math.abs(remaining))}`}
                             </div>
                           );
                         }
@@ -2080,14 +2099,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <div className="text-center">
                   <div className="text-xs text-white/70 mb-1">年初</div>
                   <div className="text-lg font-bold">
-                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNetWorth)}`}
+                    {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(lastNetWorth)}`}
                   </div>
                 </div>
                 <div className="text-2xl text-white/50">→</div>
                 <div className="text-center">
                   <div className="text-xs text-white/70 mb-1">年末</div>
                   <div className="text-lg font-bold">
-                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(netWorth)}`}
+                    {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(netWorth)}`}
                   </div>
                 </div>
               </div>
@@ -2096,7 +2115,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <span className="text-2xl font-bold">
                   {hideBalance ? '******' : (
                     <>
-                      {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                      {change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(change)}
                       <span className="text-base ml-2 opacity-80">
                         ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
                       </span>
@@ -2170,7 +2189,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                         <div className={`text-sm font-semibold ${
                           item.change >= 0 ? 'text-green-600' : 'text-red-500'
                         }`}>
-                          {item.change >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                          {item.change >= 0 ? '+' : ''}{currencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                         </div>
                       </div>
                     ))}
@@ -2205,7 +2224,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                           <span className="text-xs text-gray-400">{stats.months.length}个月</span>
                         </div>
                         <span className={`text-sm font-medium ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {stats.totalChange >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
+                          {stats.totalChange >= 0 ? '+' : ''}{currencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
                         </span>
                       </div>
                     ))}
@@ -2452,7 +2471,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <DialogDescription>
                   净资产{' '}
                   <span className="font-semibold text-gray-800">
-                    {hideBalance ? '¥ ******' : `¥${formatAmountNoSymbol(monthAttrDialog.nw)}`}
+                    {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${formatAmountNoSymbol(monthAttrDialog.nw)}`}
                   </span>
                   <span className={`ml-2 font-semibold ${isPos ? 'text-green-600' : 'text-red-500'}`}>
                     {isPos ? '+' : ''}{monthAttrDialog.changePercent.toFixed(1)}%

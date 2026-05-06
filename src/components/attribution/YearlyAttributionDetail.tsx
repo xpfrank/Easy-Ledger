@@ -1,9 +1,9 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
-import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth } from '@/lib/storage';
+import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getSettings, convertToBaseCurrency, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
-import { type ThemeType, THEMES } from '@/types';
+import { type ThemeType, THEMES, getCurrencyConfig } from '@/types';
 
 interface Props {
   year: number;
@@ -24,6 +24,8 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
   const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
 
   const themeConfig = THEMES[theme];
+  const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
+  const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
 
   // 账户变动TOP3（年末较年初）- 按累计变动金额排序
   const accounts = getAllAccounts().filter(a => !a.isHidden);
@@ -32,11 +34,13 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
     const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
     const currentBalance = currentRecord ? currentRecord.balance : account.balance;
     const lastBalance = lastRecord ? lastRecord.balance : account.balance;
+    const currentConverted = convertToBaseCurrency(currentBalance, account.currency || 'CNY', year, lastMonth);
+    const lastConverted = convertToBaseCurrency(lastBalance, account.currency || 'CNY', year - 1, 12);
     return {
       accountId: account.id,
       accountName: account.name,
       accountIcon: account.icon,
-      change: currentBalance - lastBalance,
+      change: currentConverted - lastConverted,
     };
   }).filter(a => a.change !== 0).sort((a, b) => b.change - a.change).slice(0, 3);
 
@@ -50,7 +54,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
       }
       // 优先使用用户自定义分配金额；无分配时按标签数均分，防止多标签重复累计
       const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
-      tagStats[tag].totalChange += tagAmount;
+      tagStats[tag].totalChange += convertToBaseCurrency(tagAmount, attr.currency || 'CNY', attr.year, attr.month);
       if (!tagStats[tag].months.includes(`${attr.month}月`)) {
         tagStats[tag].months.push(`${attr.month}月`);
       }
@@ -87,14 +91,14 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
               <div className="text-center">
                 <div className="text-xs text-white/70 mb-1">年初</div>
                 <div className="text-lg font-bold">
-                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNW)}`}
+                  {hideBalance ? '******' : `${baseCurrencySymbol}${formatAmountNoSymbol(lastNW)}`}
                 </div>
               </div>
               <div className="text-2xl text-white/50">→</div>
               <div className="text-center">
                 <div className="text-xs text-white/70 mb-1">年末</div>
                 <div className="text-lg font-bold">
-                  {hideBalance ? '******' : `¥${formatAmountNoSymbol(currentNW)}`}
+                  {hideBalance ? '******' : `${baseCurrencySymbol}${formatAmountNoSymbol(currentNW)}`}
                 </div>
               </div>
             </div>
@@ -103,7 +107,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
               <span className="text-2xl font-bold">
                 {hideBalance ? '******' : (
                   <>
-                    {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                    {change >= 0 ? '+' : ''}{baseCurrencySymbol}{formatAmountNoSymbol(change)}
                     <span className="text-base ml-2 opacity-80">
                       ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
                     </span>
@@ -151,7 +155,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
                     </div>
                     <span className={item.change >= 0 ? 'text-green-600' : 'text-red-500'}>
                       {item.change >= 0 ? '+' : ''}
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                      {baseCurrencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                     </span>
                   </div>
                 ))}
@@ -175,7 +179,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
                     </div>
                     <span className={stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}>
                       {stats.totalChange >= 0 ? '+' : ''}
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
+                      {baseCurrencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
                     </span>
                   </div>
                 ))}
@@ -195,7 +199,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
                       <span className="text-sm">{snapshot.accountName}</span>
                     </div>
                     <span className={snapshot.accountType === 'credit' || snapshot.accountType === 'debt' ? 'text-red-500' : ''}>
-                      ¥{hideBalance ? '******' : formatAmountNoSymbol(snapshot.balance)}
+                      {baseCurrencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(convertToBaseCurrency(snapshot.balance, snapshot.currency || 'CNY', year, lastMonth))}
                     </span>
                   </div>
                 ))}

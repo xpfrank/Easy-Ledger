@@ -13,6 +13,7 @@ interface GoalDetailModalProps {
   currentNetWorth: number;
   hideBalance: boolean;
   primaryColor: string;
+  baseCurrencySymbol?: string;
   onClose: () => void;
   onEdit?: () => void;
 }
@@ -23,11 +24,13 @@ export function GoalDetailModal({
   currentNetWorth,
   hideBalance,
   primaryColor,
+  baseCurrencySymbol = '¥',
   onClose,
   onEdit,
 }: GoalDetailModalProps) {
   const remaining = goal.targetAmount - currentNetWorth;
   const { progress, estimatedMonthsToGoal, isOnTrack, monthlyGrowthRate } = goalProgress;
+  const sym = baseCurrencySymbol;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -58,19 +61,19 @@ export function GoalDetailModal({
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">当前净资产</span>
             <span className="font-medium text-gray-800">
-              ¥{hideBalance ? '******' : formatAmountNoSymbol(currentNetWorth)}
+              {sym}{hideBalance ? '******' : formatAmountNoSymbol(currentNetWorth)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">目标金额</span>
             <span className="font-medium text-gray-800">
-              ¥{hideBalance ? '******' : formatAmountNoSymbol(goal.targetAmount)}
+              {sym}{hideBalance ? '******' : formatAmountNoSymbol(goal.targetAmount)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">还需增长</span>
             <span className={`font-medium ${remaining > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
-              ¥{hideBalance ? '******' : formatAmountNoSymbol(remaining)}
+              {sym}{hideBalance ? '******' : formatAmountNoSymbol(remaining)}
             </span>
           </div>
         </div>
@@ -86,7 +89,7 @@ export function GoalDetailModal({
               style={{ color: primaryColor }}
             />
             <span className="text-xs leading-relaxed" style={{ color: primaryColor }}>
-              按当前月均增长 ¥{hideBalance ? '******' : `${(monthlyGrowthRate / 10000).toFixed(1)}万`}，
+              按当前月均增长 {sym}{hideBalance ? '******' : `${(monthlyGrowthRate / 10000).toFixed(1)}万`}，
               {isOnTrack
                 ? `预计提前 ${estimatedMonthsToGoal} 个月达成目标`
                 : `预计还需 ${estimatedMonthsToGoal} 个月达成目标`}

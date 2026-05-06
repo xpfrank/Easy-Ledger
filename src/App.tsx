@@ -10,6 +10,7 @@ import { RecordPage } from '@/pages/RecordPage';
 import { RecordLogsPage } from '@/pages/RecordLogsPage';
 import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { BalanceSankeyPage } from '@/pages/BalanceSankeyPage';
 import { getSettings, updateSettings, migrateToMonthlyAccountConfigs } from '@/lib/storage';
 import { THEMES } from '@/types';
 import './App.css';
@@ -170,13 +171,13 @@ function App() {
       case 'home':
         return <HomePage onPageChange={handlePageChange} params={pageParams} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
       case 'accounts':
-        return <AccountsPage onPageChange={handlePageChange} />;
+        return <AccountsPage onPageChange={handlePageChange} onBack={handleBack} />;
       case 'account-edit':
-        return <AccountEditPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+        return <AccountEditPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'account-detail':
-        return <AccountDetailPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+        return <AccountDetailPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'account-flow':
-        return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+        return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'record':
         return <RecordPage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} params={pageParams} />;
       case 'record-logs':
@@ -192,6 +193,8 @@ function App() {
         return <TrendPage onPageChange={handlePageChange} />;
       case 'settings':
         return <SettingsPage onPageChange={handlePageChange} />;
+      case 'balance-sankey':
+        return <BalanceSankeyPage onPageChange={handlePageChange} hideBalance={hideBalance} onBack={handleBack} />;
       default:
         return <HomePage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
     }

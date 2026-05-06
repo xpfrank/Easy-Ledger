@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 interface GoalEditModalProps {
   currentYear: number;
   primaryColor: string;
+  baseCurrencySymbol?: string;
   onClose: () => void;
   onSave: (targetAmount: number) => void;
 }
@@ -12,6 +13,7 @@ interface GoalEditModalProps {
 export function GoalEditModal({
   currentYear,
   primaryColor,
+  baseCurrencySymbol,
   onClose,
   onSave,
 }: GoalEditModalProps) {
