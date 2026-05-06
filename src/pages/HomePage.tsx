@@ -551,7 +551,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
         <GoalEditModal
           currentYear={currentYear}
           primaryColor={themeConfig.primary}
-          baseCurrencySymbol={currencySymbol}
           onClose={() => setShowGoalEdit(false)}
           onSave={handleSaveGoal}
         />
@@ -562,7 +561,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
         <HealthDetailModal
           healthScore={healthScore}
           primaryColor={themeConfig.primary}
-          baseCurrencySymbol={currencySymbol}
           onClose={() => setShowHealthDetail(false)}
         />
       )}
