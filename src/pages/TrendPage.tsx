@@ -2,12 +2,11 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, TrendingUp, TrendingDown, Calendar, ChevronDown, AlertTriangle, Filter } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag, YearlyAttributionTag } from '@/types';
+import type { PageRoute, ThemeType, MonthlyNetWorth, AttributionTag, YearlyAttributionTag, TimeRange } from '@/types';
 import { formatAmountNoSymbol, getSettings, getMonthlyAttribution, getYearlyAttribution, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllAttributionTagOptions, getAllYearlyTagOptions, getYearlyAttributionTagLabel, getYearlyAttributionTagEmoji } from '@/lib/storage';
 import { calculateNetWorth, calculateTotalAssets, calculateTotalLiabilities } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { THEMES } from '@/types';
+import { THEMES, getCurrencyConfig } from '@/types';
 import {
   XAxis,
   YAxis,
@@ -39,7 +38,6 @@ interface TrendPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
 }
 
-type TimeRange = '6' | '12' | 'all';
 type TrendType = 'monthly' | 'yearly';
 type FilterTag = 'all' | 'abnormal' | string;
 
@@ -84,12 +82,13 @@ interface MonthRowProps {
   month: TrendPoint;
   themeColor: string;
   formatBalance: (n: number) => string;
+  currencySymbol: string;
   onView: () => void;
   onAddAttribution: () => void;
   showDivider: boolean;
 }
 
-function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, showDivider }: MonthRowProps) {
+function MonthRow({ month, themeColor, formatBalance, currencySymbol, onView, onAddAttribution, showDivider }: MonthRowProps) {
   const changeVal = month.change ?? 0;
   const isUp = changeVal >= 0;
   const hasAttribution = month.attribution?.tags?.length;
@@ -102,7 +101,7 @@ function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, 
             {month.year}年{month.month.toString().padStart(2, '0')}月
           </span>
           <span className="text-base font-bold" style={{ color: themeColor }}>
-            ¥{formatBalance(month.netWorth)}
+            {currencySymbol}{formatBalance(month.netWorth)}
           </span>
         </div>
 
@@ -125,7 +124,7 @@ function MonthRow({ month, themeColor, formatBalance, onView, onAddAttribution, 
                 ))}
                 {changeVal !== 0 && (
                   <span className={`text-xs font-semibold ${isUp ? 'text-green-600' : 'text-red-500'}`}>
-                    {isUp ? '+' : ''}¥{formatBalance(Math.abs(changeVal))}
+                    {isUp ? '+' : ''}{currencySymbol}{formatBalance(Math.abs(changeVal))}
                   </span>
                 )}
               </>
@@ -300,6 +299,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const chartRef = useRef<HTMLDivElement>(null);
 
   const themeConfig = THEMES[theme] || THEMES.blue;
+  const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
+  const currencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
 
   // 格式化金额，支持隐藏显示，金额超过 10 万时以"万"为单位
   const formatBalance = (amount: number): string => {
@@ -552,7 +553,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       } 
       // 通用标签匹配：直接比对标签 ID（支持自定义标签）
       else {
-        shouldShow = point.attribution!.tags.includes(filterTag as AttributionTag);
+        shouldShow = (point.attribution!.tags as string[]).includes(filterTag);
       }
 
       return { ...point, isFiltered: !shouldShow };
@@ -692,14 +693,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const abnormalLegend = getAbnormalLegend();
 
   return (
-    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
+    <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold">资产趋势</h1>
+          <h1 className="text-lg font-semibold text-white">资产趋势</h1>
         </div>
       </header>
 
@@ -708,15 +709,15 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
 
       <div className="p-4 space-y-4">
         {/* 趋势类型切换 + 时间范围选择 */}
-        <div className="flex gap-2">
-          {/* 趋势类型下拉 */}
+        <div className="flex gap-2 items-stretch">
+          {/* 左侧下拉 - 调整高度和圆角与右侧对齐 */}
           <div className="relative">
             <button
-              className="flex items-center gap-1 px-4 py-2 bg-white rounded-lg border border-gray-200 text-sm font-medium"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-white rounded-xl border border-gray-100 text-sm font-medium text-gray-700 shadow-sm h-full"
               onClick={() => setShowTrendDropdown(!showTrendDropdown)}
             >
               {trendType === 'monthly' ? '月度趋势' : '年度趋势'}
-              <ChevronDown size={16} className="text-gray-400" />
+              <ChevronDown size={15} className="text-gray-400" />
             </button>
 
             {showTrendDropdown && (
@@ -745,37 +746,46 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
             )}
           </div>
 
-          {/* 时间范围选择（月度趋势）/ 年份区间选择（年度趋势） */}
-          {trendType === 'monthly' ? (
-            <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)} className="flex-1">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="6">近6月</TabsTrigger>
-                <TabsTrigger value="12">近1年</TabsTrigger>
-                <TabsTrigger value="all">全部</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          ) : (
-            <div className="flex items-center gap-2 px-2">
-              <span className="text-sm text-gray-600">年份区间:</span>
-              <input
-                type="number"
-                value={yearRange.start}
-                onChange={(e) => setYearRange({ ...yearRange, start: parseInt(e.target.value) || 2020 })}
-                className="w-20 px-2 py-1 border rounded text-sm"
-                min="2000"
-                max="2100"
-              />
-              <span>-</span>
-              <input
-                type="number"
-                value={yearRange.end}
-                onChange={(e) => setYearRange({ ...yearRange, end: parseInt(e.target.value) || 2025 })}
-                className="w-20 px-2 py-1 border rounded text-sm"
-                min="2000"
-                max="2100"
-              />
-            </div>
-          )}
+          {/* 右侧分段 - 包进白色卡片，与左侧风格统一 */}
+          <div className="flex-1 bg-white rounded-xl border border-gray-100 p-1 shadow-sm flex gap-1">
+            {(trendType === 'monthly' ? (
+              (['6', '12', 'all'] as TimeRange[]).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                  className={`flex-1 text-center py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                    timeRange === range ? 'text-white' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                  style={{
+                    backgroundColor: timeRange === range ? themeConfig.primary : 'transparent',
+                  }}
+                >
+                  {range === '6' ? '近6月' : range === '12' ? '近1年' : '全部'}
+                </button>
+              ))
+            ) : (
+              <div className="flex items-center gap-2 px-2 w-full">
+                <span className="text-sm text-gray-600 whitespace-nowrap">年份区间:</span>
+                <input
+                  type="number"
+                  value={yearRange.start}
+                  onChange={(e) => setYearRange({ ...yearRange, start: parseInt(e.target.value) || 2020 })}
+                  className="w-16 px-2 py-1 border rounded text-sm"
+                  min="2000"
+                  max="2100"
+                />
+                <span className="text-gray-400">-</span>
+                <input
+                  type="number"
+                  value={yearRange.end}
+                  onChange={(e) => setYearRange({ ...yearRange, end: parseInt(e.target.value) || 2025 })}
+                  className="w-16 px-2 py-1 border rounded text-sm"
+                  min="2000"
+                  max="2100"
+                />
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* 归因筛选 */}
@@ -889,7 +899,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                           width={40}
                         />
                         <Tooltip
-                          formatter={(value: number) => [`¥${formatBalance(value)}`, '净资产']}
+                          formatter={(value: number) => [`${currencySymbol}${formatBalance(value)}`, '净资产']}
                           labelFormatter={(label, payload) => {
                             if (payload && payload[0] && payload[0].payload) {
                               return payload[0].payload.fullLabel || label;
@@ -905,7 +915,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                               <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
                                 <div className="font-medium text-gray-900 mb-1">{data.fullLabel}</div>
                                 <div className="text-gray-500">
-                                  净资产: <span className="text-gray-900 font-semibold">¥{formatBalance(data.netWorth)}</span>
+                                  净资产: <span className="text-gray-900 font-semibold">{currencySymbol}{formatBalance(data.netWorth)}</span>
                                 </div>
                                 {isQuarterly && data._originalMonths.length > 0 && (
                                   <div className="pt-2 border-t border-gray-100 mt-2">
@@ -913,7 +923,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                                     {data._originalMonths.map((m: any, idx: number) => (
                                       <div key={idx} className="flex justify-between py-0.5 text-gray-600">
                                         <span>{m.year}年{m.month.toString().padStart(2, '0')}月</span>
-                                        <span className="font-medium">¥{formatBalance(m.netWorth)}</span>
+                                        <span className="font-medium">{currencySymbol}{formatBalance(m.netWorth)}</span>
                                       </div>
                                     ))}
                                   </div>
@@ -1144,14 +1154,14 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               >
                 <div className="text-white/80 text-xs mb-1">净资产</div>
                 <div className="text-3xl font-bold tracking-tight">
-                  ¥{formatBalance(selectedData.netWorth)}
+                  {currencySymbol}{formatBalance(selectedData.netWorth)}
                 </div>
                 {'change' in selectedData && (selectedData as any).change !== 0 && (
                   <div className={`text-sm font-medium mt-1.5 ${
                     (selectedData as any).change >= 0 ? 'text-white' : 'text-red-200'
                   }`}>
                     {(selectedData as any).change >= 0 ? '+' : ''}
-                    ¥{formatBalance(Math.abs((selectedData as any).change))}
+                    {currencySymbol}{formatBalance(Math.abs((selectedData as any).change))}
                     <span className="text-white/70 text-xs ml-1.5">
                       ({hideBalance ? '******' : `${(selectedData as any).changePercent >= 0 ? '+' : ''}${(selectedData as any).changePercent.toFixed(1)}%`})
                     </span>
@@ -1273,7 +1283,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               >
                 <div className="text-white/80 text-xs mb-1">季度末净资产</div>
                 <div className="text-3xl font-bold tracking-tight">
-                  ¥{formatBalance(selectedData.netWorth)}
+                  {currencySymbol}{formatBalance(selectedData.netWorth)}
                 </div>
               </div>
 
@@ -1293,6 +1303,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         month={month}
                         themeColor={themeConfig.primary}
                         formatBalance={formatBalance}
+                        currencySymbol={currencySymbol}
                         showDivider={idx < arr.length - 1}
                         onView={() => {
                           onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });
@@ -1330,7 +1341,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               >
                 <div className="text-white/80 text-xs mb-1">季度末净资产</div>
                 <div className="text-3xl font-bold tracking-tight">
-                  ¥{formatBalance(
+                  {currencySymbol}{formatBalance(
                     expandedAggregate.months[expandedAggregate.months.length - 1]?.netWorth || 0
                   )}
                 </div>
@@ -1352,6 +1363,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         month={month}
                         themeColor={themeConfig.primary}
                         formatBalance={formatBalance}
+                        currencySymbol={currencySymbol}
                         showDivider={idx < arr.length - 1}
                         onView={() => {
                           onPageChange('record-logs', { year: month.year, month: month.month, mode: 'monthly' });

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, BarChart3, Eye, EyeOff, Edit3 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute, RecordMode, ThemeType, AttributionTag, FluctuationLevel, YearlyAttributionTag } from '@/types';
-import { THEMES } from '@/types';
+import { THEMES, getCurrencyConfig } from '@/types';
 import {
   getAllAccounts,
   getMonthlyRecord,
@@ -23,8 +23,10 @@ import {
   getAttributionTagEmoji,
   getAccountsForMonth,
   getSettings,
+  convertToBaseCurrency,
   getAllAttributionTagOptions,
   getAllYearlyTagOptions,
+  getAccountSnapshotsByMonth,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -35,6 +37,7 @@ import {
   getLastRecordedMonth,
 } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -229,6 +232,399 @@ function MonthPicker({
   );
 }
 
+interface YearlyDashboardProps {
+  year: number;
+  netWorth: number;
+  lastNetWorth: number;
+  hideBalance: boolean;
+  themeConfig: {
+    primary: string;
+    gradientFrom: string;
+    gradientTo: string;
+  };
+  onEditAttribution: () => void;
+  onMonthClick: (month: number, nw: number, changePercent: number) => void;
+  currencySymbol: string;
+}
+
+function fmtShort(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}亿`;
+  if (abs >= 10_000)      return `${(n / 10_000).toFixed(1)}w`;
+  if (abs >= 1_000)       return `${(n / 1_000).toFixed(1)}k`;
+  return String(Math.round(n));
+}
+
+function YearlyDashboard({
+  year,
+  netWorth,
+  lastNetWorth,
+  hideBalance,
+  themeConfig,
+  onEditAttribution,
+  onMonthClick,
+  currencySymbol,
+}: YearlyDashboardProps) {
+  const monthSnapshots = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const hasRecord = getAccountSnapshotsByMonth(year, m).length > 0;
+    if (!hasRecord) {
+      return { month: m, hasRecord: false, nw: 0, changePercent: 0 };
+    }
+
+    const accs = getAccountsForMonth(year, m).filter(a => !a.isHidden);
+    const nw   = calculateNetWorth(accs, year, m);
+
+    const prevM = m === 1 ? 12 : m - 1;
+    const prevY = m === 1 ? year - 1 : year;
+    const prevAccs = getAccountsForMonth(prevY, prevM).filter(a => !a.isHidden);
+    const prevNw   = calculateNetWorth(prevAccs, prevY, prevM);
+
+    const changePercent = prevNw !== 0 ? ((nw - prevNw) / Math.abs(prevNw)) * 100 : 0;
+    return { month: m, hasRecord: true, nw, changePercent };
+  });
+
+  const lastRecordedMonth = getLastRecordedMonth(year) || 0;
+  const recordedSlots     = monthSnapshots.filter(s => s.hasRecord);
+
+  const peakNw = recordedSlots.length
+    ? Math.max(...recordedSlots.map(s => s.nw))
+    : netWorth;
+  const avgNw  = recordedSlots.length
+    ? Math.round(recordedSlots.reduce((sum, s) => sum + s.nw, 0) / recordedSlots.length)
+    : netWorth;
+
+  const yoyChange = netWorth - lastNetWorth;
+  const yoyPct    = lastNetWorth !== 0 ? (yoyChange / Math.abs(lastNetWorth)) * 100 : 0;
+
+  const monthlyAttrs = getMonthlyAttributionsByYear(year);
+
+  type TagStat = { label: string; emoji: string; totalChange: number };
+  const tagMap: Record<string, TagStat> = {};
+
+  monthlyAttrs.forEach(attr => {
+    attr.tags.forEach(tag => {
+      if (!tagMap[tag]) {
+        tagMap[tag] = {
+          label:       getAttributionTagLabel(tag as any),
+          emoji:       getAttributionTagEmoji(tag as any),
+          totalChange: 0,
+        };
+      }
+      // 优先使用 tagAmounts 中该标签的精确分配金额；
+      // 若无自定义分配，则将总变动按标签数均分，避免多标签重复累计
+      const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+      tagMap[tag].totalChange += tagAmount;
+    });
+  });
+
+  const totalAbsChange = Object.values(tagMap).reduce(
+    (s, t) => s + Math.abs(t.totalChange), 0
+  );
+
+  const attrTop5 = Object.entries(tagMap)
+    .sort((a, b) => b[1].totalChange - a[1].totalChange)
+    .slice(0, 5)
+    .map(([tag, stats]) => ({
+      tag,
+      ...stats,
+      percent: totalAbsChange > 0 ? (stats.totalChange / totalAbsChange) * 100 : 0,
+    }));
+
+  const allAccounts = getAllAccounts().filter(a => !a.isHidden);
+
+  const accRanking = allAccounts
+    .map(acc => {
+      const rawStartBal = getAccountBalanceForMonth(acc.id, year - 1, 12);
+      const rawEndBal   = lastRecordedMonth
+        ? getAccountBalanceForMonth(acc.id, year, lastRecordedMonth)
+        : rawStartBal;
+
+      const startBal = convertToBaseCurrency(rawStartBal, acc.currency || 'CNY', year - 1, 12);
+      const endBal   = convertToBaseCurrency(rawEndBal, acc.currency || 'CNY', year, lastRecordedMonth || 12);
+
+      let peakBal = Math.abs(endBal);
+      for (let m = 1; m <= 12; m++) {
+        const rec = getMonthlyRecord(acc.id, year, m);
+        if (rec) {
+          const convertedBal = Math.abs(convertToBaseCurrency(rec.balance, acc.currency || 'CNY', year, m));
+          peakBal = Math.max(peakBal, convertedBal);
+        }
+      }
+
+      return {
+        accountId:   acc.id,
+        accountName: acc.name,
+        accountIcon: acc.icon,
+        accountType: acc.type,
+        change:      endBal - startBal,
+        peakBal,
+      };
+    })
+    .filter(a => a.change !== 0 || a.peakBal > 0)
+    .sort((a, b) => b.change - a.change);
+
+  const fmt = (n: number) => formatAmountNoSymbol(n);
+
+  return (
+    <div className="space-y-3">
+      <div
+        className="rounded-2xl p-5 text-white shadow-lg"
+        style={{
+          background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`,
+        }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white/75 text-xs font-medium">年度净资产</span>
+
+          <span className="bg-white/20 rounded-full px-3 py-1 text-xs font-medium backdrop-blur-sm">
+            {hideBalance ? '******' : (
+              <>
+                较上年 {yoyChange >= 0 ? '+' : ''}{currencySymbol}{fmt(yoyChange)}
+                <span className="opacity-80 ml-1">
+                  ({yoyChange >= 0 ? '+' : ''}{yoyPct.toFixed(1)}%)
+                </span>
+              </>
+            )}
+          </span>
+        </div>
+
+        <div className="text-3xl font-bold tracking-tight mb-4">
+          {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${fmt(netWorth)}`}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
+            <div className="text-[11px] text-white/70 mb-1">年度峰值</div>
+            <div className="text-base font-semibold">
+              {hideBalance ? '******' : `${currencySymbol}${fmt(peakNw)}`}
+            </div>
+          </div>
+          <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
+            <div className="text-[11px] text-white/70 mb-1">年度平均</div>
+            <div className="text-base font-semibold">
+              {hideBalance ? '******' : `${currencySymbol}${fmt(avgNw)}`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-sm font-medium text-gray-800">12 个月资产快照</span>
+          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={{ backgroundColor: themeConfig.primary, opacity: 0.65 }}
+            />
+            已记录
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-400 mb-3">未记录月份不参与计算，绝不回填</p>
+
+        <div className="grid grid-cols-4 gap-2">
+          {monthSnapshots.map(({ month: m, hasRecord, nw, changePercent }) => {
+            if (!hasRecord) {
+              return (
+                <div
+                  key={m}
+                  className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-2.5 text-center"
+                >
+                  <div className="text-[11px] font-medium text-gray-400 mb-1">{m}月</div>
+                  <div className="text-[10px] text-gray-300">未记录</div>
+                </div>
+              );
+            }
+
+            const isCurrent  = m === lastRecordedMonth;
+            const isPositive = changePercent >= 0;
+
+            return (
+<div
+                  key={m}
+                  className="rounded-xl p-2.5 text-center cursor-pointer active:scale-95 transition-transform select-none"
+                  style={{
+                    backgroundColor: isCurrent
+                      ? `${themeConfig.primary}18`
+                      : '#f0fdf4',
+                    border: isCurrent
+                      ? `1.5px solid ${themeConfig.primary}55`
+                      : '1.5px solid transparent',
+                  }}
+                  onClick={() => onMonthClick(m, nw, changePercent)}
+                >
+                <div
+                  className="text-[11px] font-semibold mb-1"
+                  style={{ color: isCurrent ? themeConfig.primary : '#15803d' }}
+                >
+                  {m}月{isCurrent ? ' ·' : ''}
+                </div>
+
+                <div className="text-xs font-semibold text-gray-800">
+                  {hideBalance ? '***' : `${currencySymbol}${fmtShort(nw)}`}
+                </div>
+
+                <div
+                  className="text-[10px] mt-0.5"
+                  style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
+                >
+                  {isPositive ? '+' : ''}{changePercent.toFixed(1)}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 颜色说明 — 放在 grid 外部，独立占满宽度 */}
+        <div className="flex items-center justify-between mt-3 px-0.5">
+          <span className="text-[10px] text-gray-400">跌幅大</span>
+          <div className="flex items-center gap-0.5 flex-1 mx-3">
+            {['#dc2626','#f87171','#fca5a5','#d1fae5','#86efac','#22c55e','#15803d'].map((c, i) => (
+              <div
+                key={i}
+                className="h-2.5 flex-1 rounded-full"
+                style={{ backgroundColor: c, opacity: i === 3 ? 0.25 : 1 }}
+              />
+            ))}
+          </div>
+          <span className="text-[10px] text-gray-400">涨幅大</span>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-gray-800">
+            年度归因{attrTop5.length > 0 ? ` TOP ${attrTop5.length}` : ''}
+          </span>
+          <button
+            onClick={onEditAttribution}
+            className="text-[11px] px-3 py-1 rounded-full border transition-colors hover:bg-gray-50"
+            style={{
+              color:       themeConfig.primary,
+              borderColor: `${themeConfig.primary}40`,
+            }}
+          >
+            {attrTop5.length > 0 ? '编辑归因' : '填写归因'}
+          </button>
+        </div>
+
+        {attrTop5.length > 0 ? (
+          <div className="space-y-3.5">
+            {attrTop5.map(({ tag, label, emoji, totalChange, percent }) => {
+              const isNeg    = totalChange < 0;
+              const barColor = isNeg ? '#ef4444' : themeConfig.primary;
+              return (
+                <div key={tag} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-sm flex-shrink-0">
+                    {emoji}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-sm text-gray-700 truncate">{label}</span>
+                      <span
+                        className="text-xs font-semibold ml-2 flex-shrink-0"
+                        style={{ color: barColor }}
+                      >
+                        {isNeg ? '' : '+'}{percent.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width:           `${Math.min(Math.abs(percent), 100)}%`,
+                          backgroundColor: barColor,
+                          transition:      'width 0.4s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <span
+                    className="text-xs font-medium flex-shrink-0 w-[72px] text-right"
+                    style={{ color: isNeg ? '#ef4444' : '#16a34a' }}
+                  >
+                    {hideBalance
+                      ? '***'
+                      : `${isNeg ? '-' : '+'}${currencySymbol}${fmt(Math.abs(totalChange))}`
+                    }
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 text-center py-2">
+            先记录月度归因，年度汇总会自动生成
+          </p>
+        )}
+      </div>
+
+      {accRanking.length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <div className="text-sm font-medium text-gray-800 mb-1">年度账户变动排行</div>
+          <p className="text-[11px] text-gray-400 mb-3">
+            变化额 = 年末余额 − 上年末；峰值取全年最高记录
+          </p>
+
+          <div className="divide-y divide-gray-50">
+            {accRanking.slice(0, 8).map(
+              ({ accountId, accountName, accountIcon, accountType, change, peakBal }) => {
+                const isLiability = accountType === 'credit' || accountType === 'debt';
+                const isPos       = change >= 0;
+
+                return (
+                  <div
+                    key={accountId}
+                    className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+                  >
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{
+                        backgroundColor: isLiability
+                          ? '#fef2f2'
+                          : `${themeConfig.primary}15`,
+                      }}
+                    >
+                      <Icon
+                        name={accountIcon}
+                        size={16}
+                        color={isLiability ? '#ef4444' : themeConfig.primary}
+                      />
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">
+                        {accountName}
+                      </div>
+                      <div className="text-[11px] text-gray-400">
+                        峰值 {hideBalance ? '***' : `${currencySymbol}${fmt(peakBal)}`}
+                      </div>
+                    </div>
+
+                    <div
+                      className="text-sm font-semibold flex-shrink-0"
+                      style={{ color: isPos ? '#16a34a' : '#dc2626' }}
+                    >
+                      {hideBalance
+                        ? '***'
+                        : `${isPos ? '+' : '-'}${currencySymbol}${fmt(Math.abs(change))}`
+                      }
+                    </div>
+                  </div>
+                );
+              }
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="h-6" />
+    </div>
+  );
+}
+
 export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, params }: RecordPageProps) {
   const now = new Date();
   const [recordMode, setRecordMode] = useState<RecordMode>(params?.mode || 'monthly');
@@ -240,10 +636,12 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const [totalAssets, setTotalAssets] = useState(0);
   const [totalLiabilities, setTotalLiabilities] = useState(0);
   const [theme, setTheme] = useState<ThemeType>('blue');
+  const [baseCurrency, setBaseCurrency] = useState<string>('CNY');
   
   useEffect(() => {
     const settings = getSettings();
     setTheme(settings.theme || 'blue');
+    setBaseCurrency(settings.baseCurrency || 'CNY');
   }, []);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -266,6 +664,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   } | null>(null);
   const [selectedTags, setSelectedTags] = useState<AttributionTag[]>([]);
   const [attributionNote, setAttributionNote] = useState('');
+  const [tagAmounts, setTagAmounts] = useState<Record<string, string>>({});
+  // 记录用户已手动确认（失焦）的标签，锁定后不参与自动均分
+  const [lockedTags, setLockedTags] = useState<Set<string>>(new Set());
 
   // 年度归因弹窗状态
   const [showYearlyAttributionDialog, setShowYearlyAttributionDialog] = useState(false);
@@ -273,7 +674,15 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const [yearlyAttributionNote, setYearlyAttributionNote] = useState('');
   const [yearlyKeyMonths, setYearlyKeyMonths] = useState<string[]>([]);
 
+  // 月度归因弹窗
+  const [monthAttrDialog, setMonthAttrDialog] = useState<{
+    month: number;
+    nw: number;
+    changePercent: number;
+  } | null>(null);
+
   const themeConfig = THEMES[theme];
+  const currencySymbol = getCurrencyConfig(baseCurrency).symbol;
 
   // 处理外部传入的参数：自动打开归因编辑弹窗
   useEffect(() => {
@@ -471,9 +880,22 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     if (existingAttribution) {
       setSelectedTags(existingAttribution.tags);
       setAttributionNote(existingAttribution.note || '');
+      // 加载已有金额分配，并转换到当前主货币
+      if (existingAttribution.tagAmounts) {
+        const loaded: Record<string, string> = {};
+        const savedCurrency = existingAttribution.currency || 'CNY';
+        Object.entries(existingAttribution.tagAmounts).forEach(([tag, amount]) => {
+          const converted = convertToBaseCurrency(amount, savedCurrency, year, month);
+          loaded[tag] = String(converted);
+        });
+        setTagAmounts(loaded);
+      } else {
+        setTagAmounts({});
+      }
     } else {
       setSelectedTags([]);
       setAttributionNote('');
+      setTagAmounts({});
     }
 
     setPreviewData({
@@ -495,18 +917,40 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       return;
     }
 
+    // 转换金额为数字
+    const finalTagAmounts: Record<string, number> = {};
+    let allocatedTotal = 0;
+    selectedTags.forEach(tag => {
+      const val = parseFloat(tagAmounts[tag] || '0');
+      const amount = isNaN(val) ? 0 : val;
+      finalTagAmounts[tag] = amount;
+      allocatedTotal += amount;
+    });
+
+    // 如果未分配或总额不对，自动均分
+    if (selectedTags.length > 0 && (allocatedTotal === 0 || Math.abs(allocatedTotal - Math.abs(previewData.change)) > 0.01)) {
+      const equalAmount = Math.abs(previewData.change) / selectedTags.length;
+      selectedTags.forEach(tag => {
+        finalTagAmounts[tag] = equalAmount;
+      });
+    }
+
     saveMonthlyAttribution(
       year,
       month,
       previewData.change,
       previewData.changePercent,
       selectedTags,
-      attributionNote || undefined
+      attributionNote || undefined,
+      selectedTags.length > 0 ? finalTagAmounts : undefined,
+      baseCurrency
     );
 
     setShowPreviewDialog(false);
     setSelectedTags([]);
     setAttributionNote('');
+    setTagAmounts({});
+    setLockedTags(new Set());
     setHasChanges(false);
   };
 
@@ -515,6 +959,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     setShowPreviewDialog(false);
     setSelectedTags([]);
     setAttributionNote('');
+    setLockedTags(new Set());
     setHasChanges(false);
   };
 
@@ -558,7 +1003,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           };
         }
         tagStats[tag].count++;
-        tagStats[tag].totalChange += attr.change;
+        // 优先精确分配金额，否则按标签数均分，防止重复计入
+        const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+        tagStats[tag].totalChange += tagAmount;
         if (!tagStats[tag].months.includes(attr.month)) {
           tagStats[tag].months.push(attr.month);
         }
@@ -572,9 +1019,10 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
 
     const topTags = sortedTags.map(([tag]) => tag as YearlyAttributionTag);
 
-    // 生成汇总说明 - 使用月度归因的中文名称
+    // 生成汇总说明 - 使用月度归因的中文名称，正确体现金额正负
     const summaryParts = sortedTags.map(([, stats]) => {
-      return `${stats.emoji}${stats.label}(${stats.count}次，累计¥${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
+      const sign = stats.totalChange >= 0 ? '+' : '-';
+      return `${stats.emoji}${stats.label}(${stats.count}次，累计${sign}${currencySymbol}${formatAmountNoSymbol(Math.abs(stats.totalChange))})`;
     });
     const summaryText = `本年度月度归因汇总：${summaryParts.join('、')}`;
 
@@ -587,17 +1035,19 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     const lastMonth = getLastRecordedMonth(year) || 12;
 
     const accountChanges = allAccounts.map(account => {
-      // 年初余额（上年度12月）
+      // 年初余额（上年度12月）并折算
       const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
       const lastBalance = lastRecord ? lastRecord.balance : account.balance;
-      // 年末余额（今年最后有记录的月份）
+      const convertedLast = convertToBaseCurrency(lastBalance, account.currency || 'CNY', year - 1, 12);
+      // 年末余额（今年最后有记录的月份）并折算
       const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
       const currentBalance = currentRecord ? currentRecord.balance : account.balance;
+      const convertedCurrent = convertToBaseCurrency(currentBalance, account.currency || 'CNY', year, lastMonth);
       return {
         accountId: account.id,
         accountName: account.name,
         accountIcon: account.icon,
-        change: currentBalance - lastBalance,
+        change: convertedCurrent - convertedLast,
       };
     });
 
@@ -623,7 +1073,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
             emoji: getAttributionTagEmoji(tag) 
           };
         }
-        tagStats[tag].totalChange += attr.change;
+        // 精确分配或均分，防止多标签重复累计
+        const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+        tagStats[tag].totalChange += tagAmount;
         tagStats[tag].count += 1;
       });
     });
@@ -704,25 +1156,25 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const changePercent = lastNetWorth !== 0 ? (change / Math.abs(lastNetWorth)) * 100 : 0;
 
   return (
-    <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
-      {/* 标题栏 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+    <div className="pb-24 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
+      {/* 标题栏 - fixed 定位，与其他页面保持一致，不受父级 overflow 影响 */}
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
 
           <div className="relative">
             <button
-              className="flex items-center gap-1 text-lg font-semibold hover:bg-gray-50 px-2 py-1 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-white bg-white/20 hover:bg-white/30 rounded-full px-3 py-1.5 transition-colors font-bold"
               onClick={() => setShowModeDropdown(!showModeDropdown)}
             >
               {recordMode === 'monthly' ? '月度记账' : '年度记账'}
-              <ChevronDown size={18} className={`text-gray-400 transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
+              <ChevronDown size={16} className={`transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
             </button>
 
             {showModeDropdown && (
-              <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-200">
+              <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-200">
                 <button
                   className={`w-full px-4 py-2.5 text-left text-sm transition-colors ${recordMode === 'monthly' ? 'text-white' : 'hover:bg-gray-50'}`}
                   style={{ backgroundColor: recordMode === 'monthly' ? themeConfig.primary : undefined }}
@@ -748,99 +1200,104 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Button
             variant="ghost"
-            size="icon"
+            size="sm"
+            className="text-white bg-white/20 hover:bg-white/30 rounded-full"
             onClick={toggleHideBalance}
-            className="text-gray-500"
           >
-            {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
+            {hideBalance ? <EyeOff size={16} /> : <Eye size={16} />}
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            style={{ color: themeConfig.primary }}
+            className="text-white bg-white/20 hover:bg-white/30 rounded-full"
             onClick={() => onPageChange('record-logs', { year, month, mode: recordMode })}
           >
-            <History size={18} className="mr-1" />
-            记录
+            <History size={16} />
+            <span className="ml-1">记录</span>
           </Button>
         </div>
       </header>
 
+      {/* 占位元素，防止内容被固定标题栏遮挡 */}
+      <div className="h-14"></div>
+
       <div className="p-3 space-y-3">
-        {/* 月份/年份选择器 */}
+        {/* 月份/年份选择器 - 紧凑版 */}
         <Card className="bg-white shadow-sm">
-          <CardContent className="p-3">
+          <CardContent className="p-2">
             <div className="flex items-center justify-between">
               <Button variant="ghost" size="icon" onClick={goToPrev} className="hover:bg-gray-100 h-8 w-8">
-                <ChevronLeft size={20} />
+                <ChevronLeft size={18} />
               </Button>
 
               {recordMode === 'monthly' ? (
                 <button
-                  className="text-center hover:bg-gray-50 px-4 py-1.5 rounded-xl transition-all"
+                  className="flex items-center gap-1.5 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-all"
                   onClick={() => setShowMonthPicker(true)}
                 >
-                  <div className="text-lg font-bold text-gray-900">{formatMonth(year, month)}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">点击切换月份</div>
+                  <span className="text-lg font-bold text-gray-900">{formatMonth(year, month)}</span>
+                  <ChevronDown size={14} className="text-gray-400" />
                 </button>
               ) : (
                 <button
-                  className="text-center px-4 py-1.5 rounded-xl hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
                   onClick={() => setShowYearPicker(true)}
                 >
-                  <div className="text-lg font-bold text-gray-900">{year}年</div>
-                  <div className="text-xs text-gray-400 mt-0.5">点击切换年份</div>
+                  <span className="text-lg font-bold text-gray-900">{year}年</span>
+                  <ChevronDown size={14} className="text-gray-400" />
                 </button>
               )}
 
               <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100 h-8 w-8">
-                <ChevronRight size={20} />
+                <ChevronRight size={18} />
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* 净资产汇总 */}
-        <Card
-          className="text-white shadow-lg"
-          style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
-        >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-white/80 text-xs font-medium">
-                {recordMode === 'monthly' ? '本月净资产' : '年度净资产'}
-              </span>
-              <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
-                change >= 0 ? 'text-white' : 'text-red-100'
-              }`}>
-                较{recordMode === 'monthly' ? '上月' : '上年'} {hideBalance ? '******' : (
-                  <>
-                    {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
-                    <span className="ml-0.5 opacity-80">
-                      ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
-                    </span>
-                  </>
-                )}
-              </span>
-            </div>
-
-            <div className="text-2xl font-bold mb-3 tracking-tight">¥{formatHiddenAmount(netWorth, hideBalance)}</div>
-
-            <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
-              <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
-                <div className="text-xs text-white/70 mb-0.5">总资产</div>
-                <div className="font-semibold text-base">¥{formatHiddenAmount(totalAssets, hideBalance)}</div>
+{/* 净资产汇总 - 月度模式显示 */}
+        {recordMode === 'monthly' && (
+          <Card
+            className="text-white shadow-lg"
+            style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white/80 text-xs font-medium">
+                  本月净资产
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
+                  change >= 0 ? 'text-white' : 'text-red-100'
+                }`}>
+                  较上月 {hideBalance ? '******' : (
+                    <>
+                      {change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(change)}
+                      <span className="ml-0.5 opacity-80">
+                        ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                      </span>
+                    </>
+                  )}
+                </span>
               </div>
-              <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
-                <div className="text-xs text-white/70 mb-0.5">负资产</div>
-                <div className="font-semibold text-base">¥{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+
+              <div className="text-2xl font-bold mb-3 tracking-tight">{currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}</div>
+
+              <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
+                <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                  <div className="text-xs text-white/70 mb-0.5">总资产</div>
+                  <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalAssets, hideBalance)}</div>
+                </div>
+                <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                  <div className="text-xs text-white/70 mb-0.5">负资产</div>
+                  <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 悬浮预览按钮 - 固定在底部导航栏上方 */}
         {recordMode === 'monthly' && (
@@ -870,21 +1327,6 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </div>
         )}
 
-        {/* 年度归因按钮（月度模式下隐藏，年度模式下显示在固定位置） */}
-        {recordMode === 'yearly' && (
-          <div className="px-1">
-            <Button
-              variant="outline"
-              className="w-full h-12 font-semibold text-base border-2 bg-white hover:bg-gray-50"
-              style={{ borderColor: themeConfig.primary, color: themeConfig.primary }}
-              onClick={triggerYearlyAttribution}
-            >
-              <BarChart3 size={20} className="mr-2" />
-              年度归因
-            </Button>
-          </div>
-        )}
-
         {/* 快捷操作 */}
         {recordMode === 'monthly' && (
           <div className="flex gap-2">
@@ -907,142 +1349,163 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </div>
         )}
 
-        {/* 账户余额列表 */}
-        <div className="space-y-3">
-          <div className="flex justify-between items-center px-1">
-            <h2 className="text-sm font-medium text-gray-500">
-              {recordMode === 'monthly' ? '账户余额' : '年度账户余额'}
-            </h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 text-sm"
-              style={{ color: themeConfig.primary }}
-              onClick={() => onPageChange('accounts')}
-            >
-              管理账户
-            </Button>
-          </div>
+{/* 年度/月度账户列表 */}
+        {recordMode === 'yearly' ? (
+          <YearlyDashboard
+            year={year}
+            netWorth={netWorth}
+            lastNetWorth={lastNetWorth}
+            hideBalance={hideBalance}
+            themeConfig={themeConfig}
+            onEditAttribution={triggerYearlyAttribution}
+            onMonthClick={(m, nw, changePercent) =>
+              setMonthAttrDialog({ month: m, nw, changePercent })
+            }
+            currencySymbol={currencySymbol}
+          />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex justify-between items-center px-1">
+              <h2 className="text-sm font-medium text-gray-500">账户余额</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-sm"
+                style={{ color: themeConfig.primary }}
+                onClick={() => onPageChange('accounts')}
+              >
+                管理账户
+              </Button>
+            </div>
 
-          {accounts.length === 0 ? (
-            <Card className="bg-white">
-              <CardContent className="p-8 text-center">
-                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-                  <Icon name="wallet" size={28} className="text-gray-400" />
-                </div>
-                <p className="text-gray-500 font-medium mb-4">还没有账户</p>
-                <Button
-                  className="text-white px-6"
-                  style={{ backgroundColor: themeConfig.primary }}
-                  onClick={() => onPageChange('account-edit')}
-                >
-                  添加账户
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="bg-white shadow-sm overflow-hidden">
-              <div className="divide-y divide-gray-100">
-                {accounts.map((account, index) => {
-                  const isCredit = account.type === 'credit';
-                  const isDebt = account.type === 'debt';
-                  const balance = balances[account.id] || 0;
-                  const isEditing = editingAccount === account.id;
+            {accounts.length === 0 ? (
+              <Card className="bg-white">
+                <CardContent className="p-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                    <Icon name="wallet" size={28} className="text-gray-400" />
+                  </div>
+                  <p className="text-gray-500 font-medium mb-4">还没有账户</p>
+                  <Button
+                    className="text-white px-6"
+                    style={{ backgroundColor: themeConfig.primary }}
+                    onClick={() => onPageChange('account-edit')}
+                  >
+                    添加账户
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="bg-white shadow-sm overflow-hidden">
+                <div className="divide-y divide-gray-100">
+                  {accounts.map((account, index) => {
+                    const isCredit   = account.type === 'credit';
+                    const isDebt     = account.type === 'debt';
+                    const balance    = balances[account.id] || 0;
+                    const convertedBalance = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
+                    const isEditing  = editingAccount === account.id;
 
-                  return (
-                    <div
-                      key={account.id}
-                      className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
-                      style={{ animationDelay: `${index * 50}ms` }}
-                      onClick={() => onPageChange('account-detail', { accountId: account.id })}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
-                              isCredit || isDebt ? 'bg-red-50' : ''
-                            }`}
-                            style={{ backgroundColor: isCredit || isDebt ? undefined : `${themeConfig.primary}15` }}
-                          >
-                            <Icon
-                              name={account.icon}
-                              size={18}
-                              className={isCredit || isDebt ? 'text-red-500' : ''}
-                              color={isCredit || isDebt ? undefined : themeConfig.primary}
-                            />
-                          </div>
-                          <div>
-                            <div className="font-medium text-sm text-gray-900">{account.name}</div>
-                            <div className="text-xs text-gray-400 flex items-center gap-1">
-                              {getAccountTypeLabel(account.type)}
-                              {isCredit && balance > 0 && (
-                                <span className="text-red-500">· 欠款</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {isEditing ? (
-                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">¥</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                className="w-32 h-10 pl-7 text-sm font-medium"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') saveEdit();
-                                  if (e.key === 'Escape') cancelEdit();
-                                }}
+                    return (
+                      <div
+                        key={account.id}
+                        className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                        onClick={() => onPageChange('account-detail', { accountId: account.id })}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                                isCredit || isDebt ? 'bg-red-50' : ''
+                              }`}
+                              style={{
+                                backgroundColor: isCredit || isDebt
+                                  ? undefined
+                                  : `${themeConfig.primary}15`,
+                              }}
+                            >
+                              <Icon
+                                name={account.icon}
+                                size={18}
+                                className={isCredit || isDebt ? 'text-red-500' : ''}
+                                color={isCredit || isDebt ? undefined : themeConfig.primary}
                               />
                             </div>
-                            <Button
-                              size="sm"
-                              className="h-10 px-4 text-white text-sm"
-                              style={{ backgroundColor: themeConfig.primary }}
-                              onClick={saveEdit}
-                            >
-                              保存
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={(e) => startEdit(account, e)}
-                              className={`text-right px-3 py-2 rounded-xl hover:bg-gray-100 transition-all ${
-                                isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') :
-                                isDebt ? 'text-red-500' : 'text-gray-900'
-                              }`}
-                            >
-                              <div className="text-base font-medium">
-                                ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
+                            <div>
+                              <div className="font-medium text-sm text-gray-900">{account.name}</div>
+                              <div className="text-xs text-gray-400 flex items-center gap-1">
+                                {account.customTypeLabel || getAccountTypeLabel(account.type)}
+                                {isCredit && balance > 0 && (
+                                  <span className="text-red-500">· 欠款</span>
+                                )}
                               </div>
-                              <div className="text-xs text-gray-400">点击编辑</div>
-                            </button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-gray-400 hover:text-gray-600"
-                              onClick={(e) => startEdit(account, e)}
-                            >
-                              <Edit3 size={16} />
-                            </Button>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-        </div>
 
-        {/* 底部占位，防止内容被固定按钮遮挡 */}
-        {recordMode === 'monthly' && <div className="h-20"></div>}
+                          {isEditing ? (
+                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">{currencySymbol}</span>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={editValue}
+                                  onChange={e => setEditValue(e.target.value)}
+                                  className="w-32 h-10 pl-7 text-sm font-medium"
+                                  autoFocus
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') saveEdit();
+                                    if (e.key === 'Escape') cancelEdit();
+                                  }}
+                                />
+                              </div>
+                              <Button
+                                size="sm"
+                                className="h-10 px-4 text-white text-sm"
+                                style={{ backgroundColor: themeConfig.primary }}
+                                onClick={saveEdit}
+                              >
+                                保存
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e) => startEdit(account, e)}
+                                className={`text-right px-3 py-2 rounded-xl hover:bg-gray-100 transition-all ${
+                                  isCredit
+                                    ? balance > 0 ? 'text-red-500' : 'text-green-600'
+                                    : isDebt ? 'text-red-500' : 'text-gray-900'
+                                }`}
+                              >
+                                <div className="text-base font-medium">
+                                  {currencySymbol}{formatHiddenAmount(
+                                    isDebt ? Math.abs(convertedBalance) : isCredit ? Math.abs(convertedBalance) : convertedBalance,
+                                    hideBalance
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-400">点击编辑</div>
+                              </button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-gray-400 hover:text-gray-600"
+                                onClick={(e) => startEdit(account, e)}
+                              >
+                                <Edit3 size={16} />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+
+{recordMode === 'monthly' && <div className="h-20"></div>}
       </div>
 
       {/* 月份选择器弹窗 */}
@@ -1111,9 +1574,11 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           setShowPreviewDialog(false);
           setSelectedTags([]);
           setAttributionNote('');
+          setTagAmounts({});
+          setLockedTags(new Set());
         }
       }}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
           <DialogHeader>
             <DialogTitle className="text-xl">{formatMonth(year, month)} 记账预览</DialogTitle>
           </DialogHeader>
@@ -1138,14 +1603,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                   <div className="text-center">
                     <div className="text-xs text-white/70 mb-1">上月</div>
                     <div className="text-lg font-bold">
-                      {hideBalance ? '******' : `¥${formatAmountNoSymbol(previewData.lastNetWorth)}`}
+                      {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(previewData.lastNetWorth)}`}
                     </div>
                   </div>
                   <div className="text-2xl text-white/50">→</div>
                   <div className="text-center">
                     <div className="text-xs text-white/70 mb-1">本月</div>
                     <div className="text-lg font-bold">
-                      {hideBalance ? '******' : `¥${formatAmountNoSymbol(previewData.currentNetWorth)}`}
+                      {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(previewData.currentNetWorth)}`}
                     </div>
                   </div>
                 </div>
@@ -1155,7 +1620,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                     {hideBalance ? '******' : (
                       <>
                         {previewData.change >= 0 ? '+' : ''}
-                        ¥{formatAmountNoSymbol(previewData.change)}
+                        {currencySymbol}{formatAmountNoSymbol(previewData.change)}
                         <span className="text-base ml-2 opacity-80">
                           ({previewData.change >= 0 ? '+' : ''}{previewData.changePercent.toFixed(1)}%)
                         </span>
@@ -1221,7 +1686,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                         <div className={`text-sm font-semibold ${
                           item.change >= 0 ? 'text-green-600' : 'text-red-500'
                         }`}>
-                          {item.change >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                          {item.change >= 0 ? '+' : ''}{currencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                         </div>
                       </div>
                     ))}
@@ -1242,42 +1707,272 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 </div>
               )}
 
-              {/* 原因选择 - 两列网格多选 */}
-              <div>
-                <div className="text-sm font-medium text-gray-700 mb-3">
-                  {previewData.fluctuationLevel === 'abnormal' ? (
-                    <span className="text-red-600">* 请选择归因原因（必选）</span>
-                  ) : '选择归因原因（可选）'}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {getAllAttributionTagOptions().map((tag) => {
-                    const isSelected = selectedTags.includes(tag.id as AttributionTag);
-                    return (
-                      <button
-                        key={tag.id}
-                        onClick={() => {
-                          setSelectedTags(prev =>
-                            isSelected
-                              ? prev.filter(t => t !== tag.id)
-                              : [...prev, tag.id as AttributionTag]
+                {/* 原因选择 - 分类折叠面板 */}
+                <div>
+                  <div className="text-sm font-medium text-gray-700 mb-3">
+                    {previewData.fluctuationLevel === 'abnormal' ? (
+                      <span className="text-red-600">* 请选择归因原因（必选）</span>
+                    ) : '选择归因原因（可选）'}
+                  </div>
+
+                  {/* 已选标签快捷栏 */}
+                  {selectedTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-3 p-2 bg-gray-50 rounded-xl">
+                      {selectedTags.map(tagId => {
+                        const tag = getAllAttributionTagOptions().find(t => t.id === tagId);
+                        if (!tag) return null;
+                        return (
+                          <span
+                            key={tagId}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm"
+                          >
+                            <span>{tag.emoji}</span>
+                            <span className="text-gray-700">{tag.label}</span>
+                            <button
+                              onClick={() => setSelectedTags(prev => prev.filter(t => t !== tagId))}
+                              className="ml-0.5 w-4 h-4 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* 金额分配 */}
+                  {selectedTags.length > 1 && previewData && (
+                    <div className="bg-gray-50 rounded-xl p-3 mb-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-gray-700">金额分配</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">
+                            总变动: {previewData.change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(Math.abs(previewData.change))}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const equal = Math.abs(previewData.change) / selectedTags.length;
+                              const next: Record<string, string> = {};
+                              selectedTags.forEach(tag => { next[tag] = String(equal.toFixed(2)); });
+                              setTagAmounts(next);
+                              // 均分时清空所有锁，让用户重新从平均基础上调整
+                              setLockedTags(new Set());
+                            }}
+                            className="text-xs px-2 py-0.5 rounded-md bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
+                          >
+                            均分
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {selectedTags.map(tagId => {
+                          const tag = getAllAttributionTagOptions().find(t => t.id === tagId);
+                          if (!tag) return null;
+                          const inputVal = tagAmounts[tagId] || '';
+                          const isLocked = lockedTags.has(tagId);
+                          return (
+                            <div key={tagId} className="flex items-center gap-2">
+                              <span className="text-xs flex-shrink-0 w-20 truncate">{tag.emoji} {tag.label}</span>
+                              <div className="relative flex-1">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">{currencySymbol}</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={inputVal}
+                                  onChange={e => {
+                                    // onChange 只更新当前字段，不做联动
+                                    setTagAmounts(prev => ({ ...prev, [tagId]: e.target.value }));
+                                  }}
+                                  onFocus={() => {
+                                    // 获得焦点时解锁，允许用户重新调整
+                                    setLockedTags(prev => {
+                                      const next = new Set(prev);
+                                      next.delete(tagId);
+                                      return next;
+                                    });
+                                  }}
+                                  onBlur={e => {
+                                    const newVal = e.target.value;
+                                    const total = Math.abs(previewData!.change);
+                                    const currentNum = parseFloat(newVal);
+                                    if (isNaN(currentNum) || selectedTags.length < 2) return;
+
+                                    // 1. 将当前标签标记为已锁定
+                                    setLockedTags(prev => new Set([...prev, tagId]));
+
+                                    // 2. 找出除自身外 未锁定 的标签（这些才参与自动均分）
+                                    const unlockedOthers = selectedTags.filter(
+                                      t => t !== tagId && !lockedTags.has(t)
+                                    );
+
+                                    // 3. 计算所有已锁定标签（不含自身）已占用的金额
+                                    const lockedOtherTotal = selectedTags
+                                      .filter(t => t !== tagId && lockedTags.has(t))
+                                      .reduce((sum, t) => {
+                                        const v = parseFloat(tagAmounts[t] || '0');
+                                        return sum + (isNaN(v) ? 0 : v);
+                                      }, 0);
+
+                                    // 4. 剩余金额 = 总额 - 当前 - 已锁定他人
+                                    const remaining = total - currentNum - lockedOtherTotal;
+
+                                    // 5. 若无未锁定标签或已平衡，不做联动
+                                    if (unlockedOthers.length === 0 || Math.abs(remaining) < 0.01) return;
+
+                                    // 6. 将剩余均分给未锁定标签
+                                    const perTag = remaining / unlockedOthers.length;
+                                    const next: Record<string, string> = { ...tagAmounts, [tagId]: newVal };
+                                    unlockedOthers.forEach(t => {
+                                      next[t] = String(perTag.toFixed(2));
+                                    });
+                                    setTagAmounts(next);
+                                  }}
+                                  placeholder="0.00"
+                                  className={`w-full h-8 pl-5 pr-2 text-xs border rounded-lg focus:outline-none focus:ring-1 focus:ring-sky-400 transition-colors ${
+                                    isLocked
+                                      ? 'border-sky-300 bg-sky-50 text-sky-700'
+                                      : 'border-gray-200'
+                                  }`}
+                                />
+                              </div>
+                              {/* 锁定状态指示 */}
+                              <span
+                                className={`text-[10px] flex-shrink-0 w-6 text-center transition-opacity ${isLocked ? 'opacity-100' : 'opacity-0'}`}
+                                title="已锁定，不参与自动均分"
+                              >
+                                🔒
+                              </span>
+                            </div>
                           );
-                        }}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2 text-left ${
-                          isSelected
-                            ? 'text-white border-transparent shadow-md'
-                            : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200 hover:bg-gray-100'
-                        }`}
-                        style={{ backgroundColor: isSelected ? themeConfig.primary : undefined, borderColor: isSelected ? themeConfig.primary : undefined }}
-                      >
-                        <span className="text-base flex-shrink-0">{tag.emoji}</span>
-                        <span className="truncate flex-1">{tag.label}</span>
-                        {isSelected
-                          ? <Check size={14} className="flex-shrink-0 ml-auto" />
-                          : tag.editable && <span className="text-xs opacity-50 flex-shrink-0">自</span>
+                        })}
+                      </div>
+                      {/* 剩余提示 */}
+                      {(() => {
+                        const total = Math.abs(previewData.change);
+                        const allocated = selectedTags.reduce((sum, tag) => {
+                          const v = parseFloat(tagAmounts[tag] || '0');
+                          return sum + (isNaN(v) ? 0 : v);
+                        }, 0);
+                        const remaining = total - allocated;
+                        if (Math.abs(remaining) > 0.01) {
+                          return (
+                            <div className={`text-xs mt-1.5 ${remaining > 0 ? 'text-amber-600' : 'text-red-500'}`}>
+                              {remaining > 0
+                                ? `⚠ 还剩 ${currencySymbol}${formatAmountNoSymbol(remaining)} 未分配`
+                                : `⚠ 超出 ${currencySymbol}${formatAmountNoSymbol(Math.abs(remaining))}`}
+                            </div>
+                          );
                         }
-                      </button>
-                    );
-                  })}
+                        return (
+                          <div className="text-xs text-green-600 mt-1.5">✓ 已全部分配</div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                {/* 分类折叠面板 */}
+                <div className="space-y-2">
+                  {(() => {
+                    const allTags = getAllAttributionTagOptions();
+                    const categories = [
+                      { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
+                      { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
+                      { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
+                      { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
+                    ] as const;
+
+                    return categories.map(cat => {
+                      const catTags = allTags.filter(t => t.category === cat.id);
+                      if (catTags.length === 0) return null;
+
+                      const selectedCount = catTags.filter(t => selectedTags.includes(t.id as AttributionTag)).length;
+
+                      return (
+                        <div key={cat.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                          <button
+                            onClick={() => {
+                              const key = `monthly-cat-${cat.id}`;
+                              const el = document.getElementById(key);
+                              const icon = document.getElementById(`monthly-icon-${cat.id}`);
+                              if (el) {
+                                const isOpen = el.style.maxHeight !== '0px' && el.style.maxHeight !== '';
+                                el.style.maxHeight = isOpen ? '0px' : `${el.scrollHeight}px`;
+                                el.style.opacity = isOpen ? '0' : '1';
+                                if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+                              }
+                            }}
+                            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{ backgroundColor: cat.bgColor }}>
+                                {cat.emoji}
+                              </span>
+                              <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                              {selectedCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium" style={{ backgroundColor: cat.color }}>
+                                  {selectedCount}
+                                </span>
+                              )}
+                            </div>
+                            <svg
+                              id={`monthly-icon-${cat.id}`}
+                              className="w-4 h-4 text-gray-400 transition-transform duration-300"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+                          <div
+                            id={`monthly-cat-${cat.id}`}
+                            className="overflow-hidden transition-all duration-300"
+                            style={{ maxHeight: cat.id === 'income' ? `${catTags.length * 48 + 16}px` : '0px', opacity: cat.id === 'income' ? 1 : 0 }}
+                          >
+                            <div className="p-2 grid grid-cols-2 gap-1.5">
+                              {catTags.map(tag => {
+                                const isSelected = selectedTags.includes(tag.id as AttributionTag);
+                                return (
+                                  <button
+                                    key={tag.id}
+                                    onClick={() => {
+                                      setSelectedTags(prev =>
+                                        isSelected
+                                          ? prev.filter(t => t !== tag.id)
+                                          : [...prev, tag.id as AttributionTag]
+                                      );
+                                      // 取消选中时同步解锁，下次重新选中该标签应从空白开始
+                                      if (isSelected) {
+                                        setLockedTags(prev => {
+                                          const next = new Set(prev);
+                                          next.delete(tag.id);
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
+                                      isSelected
+                                        ? 'shadow-sm'
+                                        : 'bg-white border-gray-100 hover:border-gray-200'
+                                    }`}
+                                    style={{
+                                      backgroundColor: isSelected ? cat.bgColor : undefined,
+                                      borderColor: isSelected ? cat.borderColor : undefined,
+                                      color: isSelected ? cat.color : '#4b5563',
+                                    }}
+                                  >
+                                    <span className="text-sm flex-shrink-0">{tag.emoji}</span>
+                                    <span className="truncate flex-1">{tag.label}</span>
+                                    {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: cat.color }} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
@@ -1287,6 +1982,26 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <textarea
                   value={attributionNote}
                   onChange={(e) => setAttributionNote(e.target.value)}
+                  onFocus={(e) => {
+                    // 使用 visualViewport 感知键盘弹出，滚动弹窗至备注区域可见
+                    const el = e.currentTarget;
+                    const scroll = () => {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    };
+                    if (window.visualViewport) {
+                      // 等待键盘动画完成后再滚动（iOS ≈ 300ms，Android ≈ 200ms）
+                      const vv = window.visualViewport;
+                      const onResize = () => {
+                        scroll();
+                        vv.removeEventListener('resize', onResize);
+                      };
+                      vv.addEventListener('resize', onResize);
+                      // 兜底：若 visualViewport 不触发 resize，300ms 后直接滚动
+                      setTimeout(scroll, 350);
+                    } else {
+                      setTimeout(scroll, 350);
+                    }
+                  }}
                   placeholder="添加备注说明，如工资到账、投资收益等..."
                   className="w-full p-4 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-opacity-50 focus:border-transparent transition-all"
                   rows={3}
@@ -1363,7 +2078,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
 
       {/* 年度归因对话框 */}
       <Dialog open={showYearlyAttributionDialog} onOpenChange={setShowYearlyAttributionDialog}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
           <DialogHeader>
             <DialogTitle className="text-xl">{year}年年度归因</DialogTitle>
           </DialogHeader>
@@ -1384,14 +2099,14 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <div className="text-center">
                   <div className="text-xs text-white/70 mb-1">年初</div>
                   <div className="text-lg font-bold">
-                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(lastNetWorth)}`}
+                    {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(lastNetWorth)}`}
                   </div>
                 </div>
                 <div className="text-2xl text-white/50">→</div>
                 <div className="text-center">
                   <div className="text-xs text-white/70 mb-1">年末</div>
                   <div className="text-lg font-bold">
-                    {hideBalance ? '******' : `¥${formatAmountNoSymbol(netWorth)}`}
+                    {hideBalance ? '******' : `${currencySymbol}${formatAmountNoSymbol(netWorth)}`}
                   </div>
                 </div>
               </div>
@@ -1400,7 +2115,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                 <span className="text-2xl font-bold">
                   {hideBalance ? '******' : (
                     <>
-                      {change >= 0 ? '+' : ''}¥{formatAmountNoSymbol(change)}
+                      {change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(change)}
                       <span className="text-base ml-2 opacity-80">
                         ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
                       </span>
@@ -1474,7 +2189,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                         <div className={`text-sm font-semibold ${
                           item.change >= 0 ? 'text-green-600' : 'text-red-500'
                         }`}>
-                          {item.change >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
+                          {item.change >= 0 ? '+' : ''}{currencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(item.change))}
                         </div>
                       </div>
                     ))}
@@ -1509,7 +2224,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                           <span className="text-xs text-gray-400">{stats.months.length}个月</span>
                         </div>
                         <span className={`text-sm font-medium ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {stats.totalChange >= 0 ? '+' : ''}¥{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
+                          {stats.totalChange >= 0 ? '+' : ''}{currencySymbol}{hideBalance ? '******' : formatAmountNoSymbol(Math.abs(stats.totalChange))}
                         </span>
                       </div>
                     ))}
@@ -1539,32 +2254,124 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
               </div>
             </div>
 
-            {/* 年度标签选择 */}
+            {/* 年度标签选择 - 分类折叠面板 */}
             <div>
               <div className="text-sm font-medium text-gray-700 mb-3">选择原因（可选）</div>
-              <div className="grid grid-cols-2 gap-2">
-                {getAllYearlyTagOptions().map((tag) => {
-                  const isSelected = yearlySelectedTags.includes(tag.id as YearlyAttributionTag);
-                  return (
-                    <button
-                      key={tag.id}
-                      onClick={() => handleYearlyTagToggle(tag.id as YearlyAttributionTag)}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border-2 text-left ${
-                        isSelected
-                          ? 'text-white border-transparent shadow-md'
-                          : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200 hover:bg-gray-100'
-                      }`}
-                      style={{ backgroundColor: isSelected ? themeConfig.primary : undefined, borderColor: isSelected ? themeConfig.primary : undefined }}
-                    >
-                      <span className="text-base flex-shrink-0">{tag.emoji}</span>
-                      <span className="truncate flex-1">{tag.label}</span>
-                      {isSelected
-                        ? <Check size={14} className="flex-shrink-0 ml-auto" />
-                        : tag.editable && <span className="text-xs opacity-50 flex-shrink-0">自</span>
-                      }
-                    </button>
-                  );
-                })}
+
+              {/* 已选标签快捷栏 */}
+              {yearlySelectedTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3 p-2 bg-gray-50 rounded-xl">
+                  {yearlySelectedTags.map(tagId => {
+                    const tag = getAllYearlyTagOptions().find(t => t.id === tagId);
+                    if (!tag) return null;
+                    return (
+                      <span
+                        key={tagId}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm"
+                      >
+                        <span>{tag.emoji}</span>
+                        <span className="text-gray-700">{tag.label}</span>
+                        <button
+                          onClick={() => setYearlySelectedTags(prev => prev.filter(t => t !== tagId))}
+                          className="ml-0.5 w-4 h-4 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 分类折叠面板 */}
+              <div className="space-y-2">
+                {(() => {
+                  const allTags = getAllYearlyTagOptions();
+                  const categories = [
+                    { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
+                    { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
+                    { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
+                    { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
+                  ] as const;
+
+                  return categories.map(cat => {
+                    const catTags = allTags.filter(t => t.category === cat.id);
+                    if (catTags.length === 0) return null;
+
+                    const selectedCount = catTags.filter(t => yearlySelectedTags.includes(t.id as YearlyAttributionTag)).length;
+
+                    return (
+                      <div key={cat.id} className="border border-gray-100 rounded-xl overflow-hidden">
+                        <button
+                          onClick={() => {
+                            const key = `yearly-cat-${cat.id}`;
+                            const el = document.getElementById(key);
+                            const icon = document.getElementById(`yearly-icon-${cat.id}`);
+                            if (el) {
+                              const isOpen = el.style.maxHeight !== '0px' && el.style.maxHeight !== '';
+                              el.style.maxHeight = isOpen ? '0px' : `${el.scrollHeight}px`;
+                              el.style.opacity = isOpen ? '0' : '1';
+                              if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+                            }
+                          }}
+                          className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{ backgroundColor: cat.bgColor }}>
+                              {cat.emoji}
+                            </span>
+                            <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                            {selectedCount > 0 && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium" style={{ backgroundColor: cat.color }}>
+                                {selectedCount}
+                              </span>
+                            )}
+                          </div>
+                          <svg
+                            id={`yearly-icon-${cat.id}`}
+                            className="w-4 h-4 text-gray-400 transition-transform duration-300"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        <div
+                          id={`yearly-cat-${cat.id}`}
+                          className="overflow-hidden transition-all duration-300"
+                          style={{ maxHeight: cat.id === 'income' ? `${catTags.length * 48 + 16}px` : '0px', opacity: cat.id === 'income' ? 1 : 0 }}
+                        >
+                          <div className="p-2 grid grid-cols-2 gap-1.5">
+                            {catTags.map(tag => {
+                              const isSelected = yearlySelectedTags.includes(tag.id as YearlyAttributionTag);
+                              return (
+                                <button
+                                  key={tag.id}
+                                  onClick={() => handleYearlyTagToggle(tag.id as YearlyAttributionTag)}
+                                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
+                                    isSelected
+                                      ? 'shadow-sm'
+                                      : 'bg-white border-gray-100 hover:border-gray-200'
+                                  }`}
+                                  style={{
+                                    backgroundColor: isSelected ? cat.bgColor : undefined,
+                                    borderColor: isSelected ? cat.borderColor : undefined,
+                                    color: isSelected ? cat.color : '#4b5563',
+                                  }}
+                                >
+                                  <span className="text-sm flex-shrink-0">{tag.emoji}</span>
+                                  <span className="truncate flex-1">{tag.label}</span>
+                                  {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: cat.color }} />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
 
@@ -1625,6 +2432,78 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           animation: alert-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
       `}</style>
+
+      {/* 月度快照归因弹窗 — 使用完整 MonthlyAttributionDetail 组件 */}
+      {monthAttrDialog && (() => {
+        const mAttr = getMonthlyAttribution(year, monthAttrDialog.month);
+        const isPos = monthAttrDialog.changePercent >= 0;
+
+        // 有归因记录 → 展示完整归因详情
+        if (mAttr) {
+          return (
+            <MonthlyAttributionDetail
+              year={year}
+              month={monthAttrDialog.month}
+              hideBalance={hideBalance}
+              theme={theme}
+              onClose={() => setMonthAttrDialog(null)}
+              onEdit={() => {
+                const targetMonth = monthAttrDialog.month;
+                setMonthAttrDialog(null);
+                // 跳转回月度记账模式并自动打开归因编辑
+                onPageChange('record', {
+                  year,
+                  month: targetMonth,
+                  mode: 'monthly' as RecordMode,
+                  openAttributionEdit: true,
+                });
+              }}
+            />
+          );
+        }
+
+        // 无归因记录 → 展示简单快照 + 引导填写
+        return (
+          <Dialog open={true} onOpenChange={() => setMonthAttrDialog(null)}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{year}年{monthAttrDialog.month}月 · 资产快照</DialogTitle>
+                <DialogDescription>
+                  净资产{' '}
+                  <span className="font-semibold text-gray-800">
+                    {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${formatAmountNoSymbol(monthAttrDialog.nw)}`}
+                  </span>
+                  <span className={`ml-2 font-semibold ${isPos ? 'text-green-600' : 'text-red-500'}`}>
+                    {isPos ? '+' : ''}{monthAttrDialog.changePercent.toFixed(1)}%
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-6 text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto text-2xl">
+                  📝
+                </div>
+                <p className="text-sm text-gray-400">该月暂无归因记录</p>
+                <Button
+                  className="w-full text-white"
+                  style={{ backgroundColor: themeConfig.primary }}
+                  onClick={() => {
+                    const targetMonth = monthAttrDialog.month;
+                    setMonthAttrDialog(null);
+                    onPageChange('record', {
+                      year,
+                      month: targetMonth,
+                      mode: 'monthly' as RecordMode,
+                      openAttributionEdit: true,
+                    });
+                  }}
+                >
+                  前往该月填写归因
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

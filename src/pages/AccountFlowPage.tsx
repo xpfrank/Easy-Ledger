@@ -15,6 +15,7 @@ import { THEMES } from '@/types';
 
 interface AccountFlowPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
   accountId: string;
 }
 
@@ -53,7 +54,7 @@ function getFlowType(log: RecordLog): 'increase' | 'decrease' | 'neutral' {
   return 'neutral';
 }
 
-export function AccountFlowPage({ onPageChange, accountId }: AccountFlowPageProps) {
+export function AccountFlowPage({ onPageChange, accountId, onBack }: AccountFlowPageProps) {
   const [logs, setLogs] = useState<RecordLog[]>([]);
   const [filter, setFilter] = useState<FlowFilter>('all');
   const [hideBalance, setHideBalance] = useState(false);
@@ -153,7 +154,7 @@ export function AccountFlowPage({ onPageChange, accountId }: AccountFlowPageProp
         className="px-4 py-3 flex items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm"
         style={{ backgroundColor: themeConfig.primary }}
       >
-        <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={() => onPageChange('account-detail', { accountId })}>
+        <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={() => onBack ? onBack() : onPageChange('account-detail', { accountId })}>
           <ArrowLeft size={20} />
         </Button>
         <h1 className="text-lg font-semibold text-white ml-2">资产变化</h1>
@@ -202,7 +203,7 @@ export function AccountFlowPage({ onPageChange, accountId }: AccountFlowPageProp
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
           <Filter size={16} className="text-gray-400 flex-shrink-0" />
-          {(['all', 'increase', 'decrease', 'transfer_in', 'transfer_out'] as FlowFilter[]).map((f) => (
+          {(['all', 'increase', 'decrease'] as FlowFilter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}

@@ -1,26 +1,30 @@
-import { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Upload, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Plus, Upload, GitBranch, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown, GripVertical, ListOrdered } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/Icon';
 import type { Account, PageRoute } from '@/types';
+import { getCurrencyConfig } from '@/types';
 import type { ExcelImportRow } from '@/lib/storage';
 import {
+  getCustomAccountTypes,
   deleteAccountFromMonth,
   deleteAccountGlobally,
   updateAccount,
   importData,
-  formatAmountNoSymbol,
   getMonthlyRecordsByMonth,
   getSettings,
   parseExcelCSV,
   batchImportFromExcel,
   exportExcelTemplate,
+  convertToBaseCurrency,
+  formatAmountNoSymbol,
   getExpandedGroups,
   saveExpandedGroups,
   getAllAccounts,
   reorderAccountInGroup,
+  dragReorderAccountInGroup,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -28,29 +32,41 @@ import { THEMES } from '@/types';
 import type { ThemeType } from '@/types';
 
 // 隐藏金额显示
-function formatHiddenAmount(amount: number, hide: boolean): string {
+function formatHiddenAmount(amount: number, hide: boolean, currencyCode: string = 'CNY'): string {
   if (hide) {
     return '******';
   }
-  return formatAmountNoSymbol(amount);
+  const config = getCurrencyConfig(currencyCode);
+  return new Intl.NumberFormat('zh-CN', {
+    minimumFractionDigits: config.decimals,
+    maximumFractionDigits: config.decimals,
+  }).format(amount);
 }
 
 interface AccountsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
 }
 
-export function AccountsPage({ onPageChange }: AccountsPageProps) {
+export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [currentBalances, setCurrentBalances] = useState<Record<string, number>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<Account | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [hideBalance, setHideBalance] = useState(false);
+  const [baseCurrency, setBaseCurrency] = useState<string>('CNY');
   const [importMode, setImportMode] = useState<'json' | 'excel'>('json');
   const [excelData, setExcelData] = useState<ExcelImportRow[]>([]);
   const [excelError, setExcelError] = useState<string>('');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [theme, setTheme] = useState<ThemeType>('blue');
+  const [isSortMode, setIsSortMode] = useState(false);
+  // 拖拽相关状态
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const dragRef = useRef<{ startY: number; accountId: string; groupType: string; itemHeight: number; startIndex: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const themeConfig = THEMES[theme] || THEMES.blue;
 
@@ -60,6 +76,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
     const themeValue = validThemes.includes(settings.theme as ThemeType) ? settings.theme : 'blue';
     setTheme(themeValue as ThemeType);
     setHideBalance(settings.hideBalance || false);
+    setBaseCurrency(settings.baseCurrency || 'CNY');
     loadAccounts();
     // 初始化分组展开状态
     const saved = getExpandedGroups();
@@ -83,12 +100,18 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
     setCurrentBalances(balances);
   };
 
-  // 计算分组总金额
+  // 计算分组总金额（按主货币折算）
   const getGroupTotal = (groupType: string): number => {
-    const groupAccounts = accounts.filter(a => a.type === groupType);
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const groupAccounts = groupType.startsWith('custom_')
+      ? accounts.filter(a => a.customTypeLabel === groupType.replace('custom_', ''))
+      : accounts.filter(a => a.type === groupType);
     let total = 0;
     for (const account of groupAccounts) {
-      total += currentBalances[account.id] ?? account.balance;
+      const rawBal = currentBalances[account.id] ?? account.balance;
+      total += convertToBaseCurrency(rawBal, account.currency || 'CNY', year, month);
     }
     return total;
   };
@@ -101,6 +124,11 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
 
   // 获取账户类型图标
   function getAccountTypeIcon(type: string): string {
+    if (type.startsWith('custom_')) {
+      const label = type.replace('custom_', '');
+      const saved = getCustomAccountTypes().find(ct => ct.label === label);
+      return saved?.icon || 'circle';
+    }
     const iconMap: Record<string, string> = {
       'cash': 'banknote',
       'debit': 'credit-card',
@@ -219,24 +247,72 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
     }
   };
 
-  const groupedAccounts = ACCOUNT_TYPES.map(type => ({
-    ...type,
-    accounts: accounts.filter(a => a.type === type.type),
+  // Standard type groups (exclude accounts with customTypeLabel)
+  const standardGroups = ACCOUNT_TYPES.map(type => ({
+    type: type.type,
+    label: type.label,
+    icon: type.icon,
+    accounts: accounts.filter(a => a.type === type.type && !a.customTypeLabel),
   })).filter(g => g.accounts.length > 0);
+
+  // Custom type groups
+  const customTypeMap = new Map<string, typeof accounts>();
+  for (const acc of accounts) {
+    if (acc.customTypeLabel) {
+      if (!customTypeMap.has(acc.customTypeLabel)) customTypeMap.set(acc.customTypeLabel, []);
+      customTypeMap.get(acc.customTypeLabel)!.push(acc);
+    }
+  }
+  const savedCustomTypes = getCustomAccountTypes();
+  const customGroups = Array.from(customTypeMap.entries()).map(([label, accs]) => {
+    const saved = savedCustomTypes.find(ct => ct.label === label);
+    return {
+      type: `custom_${label}`,
+      label,
+      icon: saved?.icon || 'circle',
+      accounts: accs,
+    };
+  });
+
+
+
+  const groupedAccounts = [...standardGroups, ...customGroups];
 
   return (
     <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold">账户管理</h1>
+          <h1 className="text-lg font-semibold text-white">账户管理</h1>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setImportDialogOpen(true)}>
-          <Upload size={20} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`text-white rounded-full px-3 py-1 text-xs font-medium ${
+              isSortMode ? 'bg-white/30' : 'bg-white/15'
+            }`}
+            onClick={() => setIsSortMode(!isSortMode)}
+          >
+            <ListOrdered size={16} className="mr-1" />
+            {isSortMode ? '完成' : '排序'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-white rounded-full px-3 py-1 text-xs font-medium bg-white/15"
+            onClick={() => onPageChange('balance-sankey')}
+          >
+            <GitBranch size={16} className="mr-1" />
+            资产流向
+          </Button>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => setImportDialogOpen(true)}>
+            <Upload size={20} />
+          </Button>
+        </div>
       </header>
 
       {/* 占位元素，防止内容被固定标题栏遮挡 */}
@@ -248,7 +324,8 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
             <CardContent className="p-8 text-center">
               <p className="text-gray-500 mb-4">还没有账户</p>
               <Button 
-                className="bg-sky-500 hover:bg-sky-600"
+                className="text-white"
+                style={{ backgroundColor: themeConfig.primary }}
                 onClick={() => onPageChange('account-edit')}
               >
                 <Plus size={18} className="mr-1" />
@@ -291,7 +368,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                       group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
                     }`}>
                       {group.type === 'credit' ? (getGroupTotal(group.type) > 0 ? '欠款' : '溢缴') : ''}
-                      ¥{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(getGroupTotal(group.type)) : getGroupTotal(group.type), hideBalance)}
+  {getCurrencyConfig(baseCurrency).symbol}{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(getGroupTotal(group.type)) : getGroupTotal(group.type), hideBalance)}
                     </span>
                     <button
                       onClick={(e) => {
@@ -315,99 +392,189 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                   {group.accounts.map((account) => (
                     <div
                       key={account.id}
-                      className="p-3 hover:bg-gray-50 cursor-pointer"
-                      onClick={() => onPageChange('account-detail', { accountId: account.id })}
+                      className={`p-3 hover:bg-gray-50 cursor-pointer transition-all duration-200 ${
+                        draggingId === account.id ? 'opacity-50 bg-blue-50 scale-[0.98]' : ''
+                      } ${
+                        isSortMode && dragOverIndex !== null && draggingId && draggingId !== account.id &&
+                        group.accounts.indexOf(account) === dragOverIndex
+                          ? 'border-t-2 border-blue-400' : ''
+                      }`}
+                      onClick={() => !isSortMode && onPageChange('account-detail', { accountId: account.id })}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+<div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
                             account.type === 'credit' || account.type === 'debt'
                               ? 'bg-red-50'
-                              : 'bg-sky-50'
+                              : ''
                           }`}>
-                            <Icon
-                              name={account.icon}
-                              size={18}
-                              className={account.type === 'credit' || account.type === 'debt'
-                                ? 'text-red-500'
-                                : 'text-sky-500'
-                              }
-                            />
+                          <Icon
+                            name={account.icon}
+                            size={18}
+                            color={account.type === 'credit' || account.type === 'debt' ? '#ef4444' : themeConfig.primary}
+                          />
                           </div>
                           <div>
                             <div className="font-medium text-sm">{account.name}</div>
                             <div className="text-xs text-gray-400">
-                              余额: ¥{formatHiddenAmount(currentBalances[account.id] ?? account.balance, hideBalance)}
+                              余额: {getCurrencyConfig(account.currency || 'CNY').symbol}{formatHiddenAmount(currentBalances[account.id] ?? account.balance, hideBalance, account.currency || 'CNY')}
+                              {account.currency && account.currency !== baseCurrency && !hideBalance && (
+                                <span className="ml-1 text-gray-300">
+                                  ≈{getCurrencyConfig(baseCurrency).symbol}{formatAmountNoSymbol(convertToBaseCurrency(currentBalances[account.id] ?? account.balance, account.currency))}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            disabled={group.accounts.indexOf(account) === 0}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReorder(account.id, 'up');
-                            }}
-                          >
-                            <ArrowUp size={15} className={
-                              group.accounts.indexOf(account) === 0 ? 'text-gray-200' : 'text-gray-400'
-                            } />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            disabled={group.accounts.indexOf(account) === group.accounts.length - 1}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReorder(account.id, 'down');
-                            }}
-                          >
-                            <ArrowDown size={15} className={
-                              group.accounts.indexOf(account) === group.accounts.length - 1
-                                ? 'text-gray-200' : 'text-gray-400'
-                            } />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onPageChange('account-edit', { accountId: account.id });
-                            }}
-                          >
-                            <Edit3 size={16} className="text-gray-400" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete(account);
-                            }}
-                          >
-                            <Trash2 size={16} className="text-red-400" />
-                          </Button>
+<div className="flex items-center gap-1">
+                          {isSortMode ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={group.accounts.indexOf(account) === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorder(account.id, 'up');
+                                }}
+                              >
+                                <ArrowUp size={15} className={
+                                  group.accounts.indexOf(account) === 0 ? 'text-gray-200' : 'text-gray-400'
+                                } />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={group.accounts.indexOf(account) === group.accounts.length - 1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorder(account.id, 'down');
+                                }}
+                              >
+                                <ArrowDown size={15} className={
+                                  group.accounts.indexOf(account) === group.accounts.length - 1
+                                    ? 'text-gray-200'
+                                    : 'text-gray-400'
+                                } />
+                              </Button>
+                              <div
+                                className="touch-none select-none cursor-grab active:cursor-grabbing p-1"
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  const idx = group.accounts.indexOf(account);
+                                  dragRef.current = { startY: e.touches[0].clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
+                                  setDraggingId(account.id);
+                                  setDragOverIndex(idx);
+                                  longPressTimerRef.current = setTimeout(() => {
+                                    // long press activated
+                                  }, 300);
+                                }}
+                                onTouchMove={(e) => {
+                                  if (!dragRef.current) return;
+                                  e.preventDefault();
+                                  const delta = e.touches[0].clientY - dragRef.current.startY;
+                                  const offset = Math.round(delta / dragRef.current.itemHeight);
+                                  const newIndex = Math.max(0, Math.min(dragRef.current.startIndex + offset, group.accounts.length - 1));
+                                  setDragOverIndex(newIndex);
+                                }}
+                                onTouchEnd={(e) => {
+                                  e.stopPropagation();
+                                  if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+                                  if (dragRef.current && dragOverIndex !== null && dragOverIndex !== dragRef.current.startIndex) {
+                                    dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndex);
+                                    loadAccounts();
+                                  }
+                                  setDraggingId(null);
+                                  setDragOverIndex(null);
+                                  dragRef.current = null;
+                                }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  const idx = group.accounts.indexOf(account);
+                                  dragRef.current = { startY: e.clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
+                                  setDraggingId(account.id);
+                                  setDragOverIndex(idx);
+                                  const handleMove = (me: MouseEvent) => {
+                                    if (!dragRef.current) return;
+                                    const delta = me.clientY - dragRef.current.startY;
+                                    const offset = Math.round(delta / dragRef.current.itemHeight);
+                                    const newIndex = Math.max(0, Math.min(dragRef.current.startIndex + offset, group.accounts.length - 1));
+                                    setDragOverIndex(newIndex);
+                                  };
+                                  const handleUp = () => {
+                                    if (dragRef.current && dragOverIndex !== null && dragOverIndex !== dragRef.current.startIndex) {
+                                      dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndex);
+                                      loadAccounts();
+                                    }
+                                    setDraggingId(null);
+                                    setDragOverIndex(null);
+                                    dragRef.current = null;
+                                    document.removeEventListener('mousemove', handleMove);
+                                    document.removeEventListener('mouseup', handleUp);
+                                  };
+                                  document.addEventListener('mousemove', handleMove);
+                                  document.addEventListener('mouseup', handleUp);
+                                }}
+                              >
+                                <GripVertical size={16} className="text-gray-400" />
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onPageChange('account-edit', { accountId: account.id });
+                                }}
+                              >
+                                <Edit3 size={16} className="text-gray-400" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(account);
+                                }}
+                              >
+                                <Trash2 size={16} className="text-red-400" />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
                       
                       {/* 设置项 */}
                       <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-50">
                         <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-2">
-                            <Switch 
+                          <div
+                            className="flex items-center gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Switch
                               checked={account.includeInTotal}
                               onCheckedChange={() => toggleIncludeInTotal(account)}
-                              className="data-[state=checked]:bg-sky-500"
+                              style={
+                                account.includeInTotal
+                                  ? ({
+                                      '--switch-checked-bg': themeConfig.primary,
+                                    } as React.CSSProperties)
+                                  : undefined
+                              }
+                              className="data-[state=checked]:bg-[var(--switch-checked-bg)]"
                             />
                             <span className="text-xs text-gray-500">计入总资产</span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div
+                            className="flex items-center gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <Button
                               variant="ghost"
                               size="sm"
@@ -417,7 +584,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                               {account.isHidden ? (
                                 <EyeOff size={14} className="text-gray-400 mr-1" />
                               ) : (
-                                <Eye size={14} className="text-sky-500 mr-1" />
+                                <Eye size={14} style={{ color: themeConfig.primary }} className="mr-1" />
                               )}
                               <span className="text-xs">
                                 {account.isHidden ? '已隐藏' : '显示'}
@@ -440,7 +607,8 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
       {/* 添加按钮 */}
       <div className="fixed bottom-6 left-4 right-4">
         <Button 
-          className="w-full bg-sky-500 hover:bg-sky-600 h-12"
+          className="w-full h-12 text-white"
+          style={{ backgroundColor: themeConfig.primary }}
           onClick={() => onPageChange('account-edit')}
         >
           <Plus size={20} className="mr-2" />
@@ -570,7 +738,7 @@ export function AccountsPage({ onPageChange }: AccountsPageProps) {
                         <div key={index} className="flex justify-between text-gray-600">
                           <span>{row.month}</span>
                           <span className="text-gray-400">{row.accountName}</span>
-                          <span className="font-medium">¥{row.balance.toFixed(2)}</span>
+                          <span className="font-medium">{row.balance.toFixed(2)}</span>
                         </div>
                       ))}
                       {excelData.length > 5 && (

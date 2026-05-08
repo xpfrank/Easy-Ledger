@@ -24,6 +24,10 @@ export interface Account {
   graceDays?: number;
   creditLimit?: number;
   sortOrder?: number;
+  /** 自定义账户类型的显示名称；内置类型此字段为空 */
+  customTypeLabel?: string;
+  /** 账户币种代码，如 CNY/USD/EUR，默认 CNY */
+  currency?: string;
 }
 
 // 月度记录
@@ -49,6 +53,31 @@ export interface RecordLog {
 }
 
 // 应用状态
+// 自定义账户类型
+export interface CustomAccountType {
+  id: string;
+  label: string;
+  icon: string;
+  /** 'asset' | 'liability' */
+  behavior: 'asset' | 'liability';
+}
+
+
+/** 按月存储的汇率历史快照 */
+export interface ExchangeRateSnapshot {
+  code: string;   // 币种代码
+  year: number;
+  month: number;
+  rate: number;   // 该月 1单位外币兑基准货币的汇率
+}
+
+/** 内置默认汇率表（1单位外币兑 CNY） */
+export const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
+  CNY: 1,    USD: 7.2,   EUR: 7.8,  JPY: 0.048,
+  GBP: 9.1,  HKD: 0.92,  TWD: 0.22, KRW: 0.0053,
+  SGD: 5.35, AUD: 4.7,   CAD: 5.25, CHF: 8.1,
+  MYR: 1.52, THB: 0.2,   RUB: 0.08,
+};
 export interface AppState {
   accounts: Account[];
   records: MonthlyRecord[];
@@ -56,17 +85,53 @@ export interface AppState {
   attributions: MonthlyAttribution[];
   yearlyAttributions: YearlyAttribution[];
   monthlyAccountConfigs: MonthlyAccountConfig[];
+  customAccountTypes: CustomAccountType[];
   settings: AppSettings;
+  exchangeRateHistory?: ExchangeRateSnapshot[];
   version: string;
 }
 
 // 主题类型
 export type ThemeType = 'blue' | 'green' | 'orange' | 'dark' | 'purple';
 
+// 时间范围
+export type TimeRange = '6' | '12' | 'all';
+
+// 年度目标
+export interface YearlyGoal {
+  year: number;
+  targetAmount: number;
+  createdAt?: number;
+}
+
+// 健康评分
+export interface HealthScore {
+  score: number;
+  level: 'A' | 'B+' | 'B' | 'C' | 'D';
+  configScore: {
+    score: number;
+    level: 'A' | 'B+' | 'B' | 'C' | 'D';
+    cashRatio: number;
+    investmentRatio: number;
+    debtRatio: number;
+  };
+  volatilityScore: {
+    score: number;
+    level: 'A' | 'B+' | 'B' | 'C' | 'D';
+    standardDeviation: number;
+  };
+  attributionCompleteness: number;
+}
+
 // 应用设置
 export interface AppSettings {
   hideBalance: boolean;
   theme: ThemeType;
+  yearlyGoal?: YearlyGoal;
+  /** 主货币（影响金额显示格式），默认 CNY */
+  baseCurrency?: string;
+  /** 用户自定义汇率表，key = 币种代码 */
+  exchangeRates?: Record<string, { rate: number; updatedAt: number }>;
 }
 
 // 月度账户配置：记录某月某账户的"存在状态"
@@ -104,27 +169,45 @@ export interface YearlyNetWorth {
 
 // 账户分组
 export interface AccountGroup {
-  type: AccountType;
+  type: AccountType | string;
   label: string;
   accounts: Account[];
   totalBalance: number;
 }
 
 // 图标配置
+export type IconCategory = 'finance' | 'investment' | 'life' | 'work';
+
 export interface IconConfig {
   name: string;
   label: string;
   icon: string;
+  category?: IconCategory;
 }
 
 // 页面路由
-export type PageRoute = 'home' | 'accounts' | 'record' | 'trend' | 'settings' | 'account-edit' | 'record-logs' | 'account-detail' | 'account-flow';
+export type PageRoute = 'home' | 'accounts' | 'record' | 'trend' | 'settings' | 'account-edit' | 'record-logs' | 'account-detail' | 'account-flow' | 'balance-sankey';
 
 // 记账模式
 export type RecordMode = 'monthly' | 'yearly';
 
 // 波动评级
 export type FluctuationLevel = 'normal' | 'warning' | 'abnormal';
+
+// 归因标签分类
+export interface AttributionCategory {
+  id: string;
+  label: string;
+  emoji: string;
+  color: string;
+}
+
+export const ATTRIBUTION_CATEGORIES: AttributionCategory[] = [
+  { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e' },
+  { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444' },
+  { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6' },
+  { id: 'other', label: '其他', emoji: '📋', color: '#6b7280' },
+];
 
 // 归因标签类型
 export type AttributionTag =
@@ -173,6 +256,7 @@ export interface CustomAttributionTag {
   id: string;
   label: string;
   emoji: string;
+  category: string;
   createdAt: string;
 }
 
@@ -190,6 +274,7 @@ export interface TagOption {
   label: string;
   emoji: string;
   editable: boolean;
+  category?: string;
 }
 
 // 月度归因记录
@@ -201,6 +286,8 @@ export interface MonthlyAttribution {
   changePercent: number;
   fluctuationLevel: FluctuationLevel;
   tags: AttributionTag[];
+  tagAmounts?: Record<string, number>;  // 各标签分配金额
+  currency?: string;  // 保存时的主货币（用于换汇显示）
   note?: string;
   timestamp: number;
 }
@@ -213,6 +300,7 @@ export interface AccountSnapshot {
   accountType: AccountType;
   balance: number;
   change: number;
+  currency: string;
 }
 
 // 年度归因标签类型
@@ -286,33 +374,85 @@ export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string 
     account_integration: '🔄',
     yearly_other: '📝',
   };
-  if (tagEmojis[tag]) return tagEmojis[tag];
-  // 自定义标签：直接返回默认 emoji
-  if (tag.startsWith('custom_')) {
-    return '📝';
-  }
-  return '📝';
+  return tagEmojis[tag] || '';
 }
 
-// 预设图标配置
 export const PRESET_ICONS: IconConfig[] = [
-  { name: 'banknote', label: '现金', icon: 'banknote' },
-  { name: 'credit-card', label: '银行卡', icon: 'credit-card' },
-  { name: 'wallet', label: '钱包', icon: 'wallet' },
-  { name: 'trending-up', label: '投资', icon: 'trending-up' },
-  { name: 'bar-chart', label: '基金', icon: 'bar-chart' },
-  { name: 'building', label: '机构', icon: 'building' },
-  { name: 'handshake', label: '借出', icon: 'handshake' },
-  { name: 'clipboard', label: '借入', icon: 'clipboard' },
-  { name: 'smartphone', label: '手机', icon: 'smartphone' },
-  { name: 'shopping-bag', label: '购物', icon: 'shopping-bag' },
-  { name: 'car', label: '汽车', icon: 'car' },
-  { name: 'home', label: '房产', icon: 'home' },
-  { name: 'piggy-bank', label: '储蓄', icon: 'piggy-bank' },
-  { name: 'coins', label: '硬币', icon: 'coins' },
-  { name: 'bank', label: '银行', icon: 'bank' },
-  { name: 'shield', label: '保险', icon: 'shield' },
+  // ── 金融类 ─────────────────────────────────────
+  { name: 'banknote',      label: '现金',    icon: 'banknote',      category: 'finance' },
+  { name: 'credit-card',   label: '银行卡',  icon: 'credit-card',   category: 'finance' },
+  { name: 'wallet',        label: '钱包',    icon: 'wallet',        category: 'finance' },
+  { name: 'coins',         label: '硬币',    icon: 'coins',         category: 'finance' },
+  { name: 'piggy-bank',    label: '储蓄',    icon: 'piggy-bank',    category: 'finance' },
+  { name: 'landmark',      label: '银行',    icon: 'landmark',      category: 'finance' },
+  { name: 'building',      label: '机构',    icon: 'building',      category: 'finance' },
+  { name: 'receipt',       label: '收据',    icon: 'receipt',       category: 'finance' },
+  { name: 'dollar-sign',   label: '美元',    icon: 'dollar-sign',   category: 'finance' },
+  { name: 'euro',          label: '欧元',    icon: 'euro',          category: 'finance' },
+  { name: 'bitcoin',       label: '数字货币', icon: 'bitcoin',      category: 'finance' },
+  { name: 'gem',           label: '宝石',    icon: 'gem',           category: 'finance' },
+  { name: 'shield',        label: '保险',    icon: 'shield',        category: 'finance' },
+  { name: 'handshake',     label: '借出',    icon: 'handshake',     category: 'finance' },
+  { name: 'clipboard',     label: '借入',    icon: 'clipboard',     category: 'finance' },
+  { name: 'lock',          label: '锁定',    icon: 'lock',          category: 'finance' },
+
+  // ── 投资类 ─────────────────────────────────────
+  { name: 'trending-up',        label: '涨势',   icon: 'trending-up',        category: 'investment' },
+  { name: 'trending-down',      label: '跌势',   icon: 'trending-down',      category: 'investment' },
+  { name: 'bar-chart',          label: '柱图',   icon: 'bar-chart',          category: 'investment' },
+  { name: 'bar-chart-2',        label: '基金',   icon: 'bar-chart-2',        category: 'investment' },
+  { name: 'pie-chart',          label: '配置',   icon: 'pie-chart',          category: 'investment' },
+  { name: 'line-chart',         label: '折线',   icon: 'line-chart',         category: 'investment' },
+  { name: 'activity',           label: '波动',   icon: 'activity',           category: 'investment' },
+  { name: 'candlestick-chart',  label: 'K线',    icon: 'candlestick-chart',  category: 'investment' },
+  { name: 'percent',            label: '利率',   icon: 'percent',            category: 'investment' },
+  { name: 'arrow-up-right',     label: '收益',   icon: 'arrow-up-right',     category: 'investment' },
+  { name: 'layers',             label: '组合',   icon: 'layers',             category: 'investment' },
+  { name: 'refresh-cw',         label: '复利',   icon: 'refresh-cw',         category: 'investment' },
+
+  // ── 生活类 ─────────────────────────────────────
+  { name: 'home',           label: '房产',   icon: 'home',           category: 'life' },
+  { name: 'car',            label: '汽车',   icon: 'car',            category: 'life' },
+  { name: 'plane',          label: '旅行',   icon: 'plane',          category: 'life' },
+  { name: 'train',          label: '火车',   icon: 'train',          category: 'life' },
+  { name: 'bus',            label: '公交',   icon: 'bus',            category: 'life' },
+  { name: 'ship',           label: '轮船',   icon: 'ship',           category: 'life' },
+  { name: 'shopping-bag',   label: '购物袋', icon: 'shopping-bag',   category: 'life' },
+  { name: 'shopping-cart',  label: '购物车', icon: 'shopping-cart',  category: 'life' },
+  { name: 'gift',           label: '礼物',   icon: 'gift',           category: 'life' },
+  { name: 'heart',          label: '健康',   icon: 'heart',          category: 'life' },
+  { name: 'stethoscope',    label: '医疗',   icon: 'stethoscope',    category: 'life' },
+  { name: 'pill',           label: '药品',   icon: 'pill',           category: 'life' },
+  { name: 'graduation-cap', label: '教育',   icon: 'graduation-cap', category: 'life' },
+  { name: 'book',           label: '读书',   icon: 'book',           category: 'life' },
+  { name: 'baby',           label: '育儿',   icon: 'baby',           category: 'life' },
+  { name: 'coffee',         label: '餐饮',   icon: 'coffee',         category: 'life' },
+  { name: 'utensils',       label: '餐具',   icon: 'utensils',       category: 'life' },
+  { name: 'smartphone',     label: '手机',   icon: 'smartphone',     category: 'life' },
+  { name: 'music',          label: '音乐',   icon: 'music',          category: 'life' },
+  { name: 'gamepad-2',      label: '游戏',   icon: 'gamepad-2',      category: 'life' },
+  { name: 'umbrella',       label: '雨伞',   icon: 'umbrella',       category: 'life' },
+  { name: 'dog',            label: '宠物',   icon: 'dog',            category: 'life' },
+  { name: 'map-pin',        label: '地点',   icon: 'map-pin',        category: 'life' },
+  { name: 'sun',            label: '阳光',   icon: 'sun',            category: 'life' },
+
+  // ── 工作类 ─────────────────────────────────────
+  { name: 'building-2',  label: '办公楼', icon: 'building-2',  category: 'work' },
+  { name: 'factory',     label: '工厂',   icon: 'factory',     category: 'work' },
+  { name: 'briefcase',   label: '公事包', icon: 'briefcase',   category: 'work' },
+  { name: 'file-text',   label: '文件',   icon: 'file-text',   category: 'work' },
+  { name: 'calculator',  label: '计算器', icon: 'calculator',  category: 'work' },
+  { name: 'printer',     label: '打印',   icon: 'printer',     category: 'work' },
+  { name: 'mail',        label: '邮件',   icon: 'mail',        category: 'work' },
+  { name: 'phone',       label: '电话',   icon: 'phone',       category: 'work' },
+  { name: 'award',       label: '奖项',   icon: 'award',       category: 'work' },
+  { name: 'star',        label: '星级',   icon: 'star',        category: 'work' },
+  { name: 'target',      label: '目标',   icon: 'target',      category: 'work' },
+  { name: 'globe',       label: '国际',   icon: 'globe',       category: 'work' },
+  { name: 'flag',        label: '旗帜',   icon: 'flag',        category: 'work' },
+  { name: 'newspaper',   label: '报告',   icon: 'newspaper',   category: 'work' },
 ];
+
 
 // 主题配置
 export interface ThemeConfig {
@@ -323,6 +463,39 @@ export interface ThemeConfig {
   gradientFrom: string;
   gradientTo: string;
   bgLight: string;
+}
+
+// ── 多币种支持 ──────────────────────────────────────────────────────────────
+
+export interface CurrencyConfig {
+  code: string;      // ISO 4217 代码
+  symbol: string;    // 显示符号
+  name: string;      // 中文名
+  decimals: number;  // 小数位数
+}
+
+/** 预设币种列表 */
+export const CURRENCIES: CurrencyConfig[] = [
+  { code: 'CNY', symbol: '¥',  name: '人民币',  decimals: 2 },
+  { code: 'USD', symbol: '$',  name: '美元',    decimals: 2 },
+  { code: 'EUR', symbol: '€',  name: '欧元',    decimals: 2 },
+  { code: 'JPY', symbol: '¥',  name: '日元',    decimals: 0 },
+  { code: 'GBP', symbol: '£',  name: '英镑',    decimals: 2 },
+  { code: 'HKD', symbol: 'HK$', name: '港币',   decimals: 2 },
+  { code: 'TWD', symbol: 'NT$', name: '新台币',  decimals: 0 },
+  { code: 'KRW', symbol: '₩',  name: '韩元',    decimals: 0 },
+  { code: 'SGD', symbol: 'S$', name: '新加坡元', decimals: 2 },
+  { code: 'AUD', symbol: 'A$', name: '澳元',    decimals: 2 },
+  { code: 'CAD', symbol: 'C$', name: '加元',    decimals: 2 },
+  { code: 'CHF', symbol: 'CHF', name: '瑞士法郎', decimals: 2 },
+  { code: 'MYR', symbol: 'RM', name: '马来西亚林吉特', decimals: 2 },
+  { code: 'THB', symbol: '฿',  name: '泰铢',    decimals: 2 },
+  { code: 'RUB', symbol: '₽',  name: '俄罗斯卢布', decimals: 2 },
+];
+
+/** 根据币种代码获取配置 */
+export function getCurrencyConfig(code: string): CurrencyConfig {
+  return CURRENCIES.find(c => c.code === code) || { code, symbol: code, name: code, decimals: 2 };
 }
 
 export const THEMES: Record<ThemeType, ThemeConfig> = {

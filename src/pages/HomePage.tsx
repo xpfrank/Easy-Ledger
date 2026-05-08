@@ -3,7 +3,13 @@ import { ChevronRight, ChevronDown, ChevronUp, Wallet, Eye, EyeOff, Plus, Handsh
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
-import type { Account, AccountType, PageRoute, ThemeType } from '@/types';
+import { YearlyGoalCard } from '@/components/home/YearlyGoalCard';
+import { HealthScoreCard } from '@/components/home/HealthScoreCard';
+import { GoalDetailModal } from '@/components/home/GoalDetailModal';
+import { GoalEditModal } from '@/components/home/GoalEditModal';
+import { HealthDetailModal } from '@/components/home/HealthDetailModal';
+import { GoalBadge, HealthBadge } from '@/components/home/BadgeComponents';
+import type { Account, AccountType, PageRoute, ThemeType, YearlyGoal, HealthScore } from '@/types';
 import {
   getAccountsForMonth,
   getMonthlyRecordsByMonth,
@@ -12,6 +18,11 @@ import {
   getExpandedGroups,
   saveExpandedGroups,
   getSettings,
+  getYearlyGoal,
+  saveYearlyGoal,
+  getAllAttributions,
+  getCustomAccountTypes,
+  convertToBaseCurrency,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -21,7 +32,8 @@ import {
   calculateDebtIn,
   ACCOUNT_TYPES,
 } from '@/lib/calculator';
-import { THEMES } from '@/types';
+import { calculateHealthScore, calculateGoalProgress } from '@/lib/health-calculator';
+import { THEMES, getCurrencyConfig } from '@/types';
 
 interface HomePageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -58,7 +70,21 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   const [currentYear] = useState(new Date().getFullYear());
   const [currentMonth] = useState(new Date().getMonth() + 1);
 
+  const [showGoalDetail, setShowGoalDetail] = useState(false);
+  const [showHealthDetail, setShowHealthDetail] = useState(false);
+  const [showGoalEdit, setShowGoalEdit] = useState(false);
+  const [yearlyGoal, setYearlyGoal] = useState<YearlyGoal | null>(null);
+  const [goalProgress, setGoalProgress] = useState<{
+    progress: number;
+    estimatedMonthsToGoal: number;
+    isOnTrack: boolean;
+    monthlyGrowthRate: number;
+  } | null>(null);
+  const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
+
   const themeConfig = THEMES[theme];
+  const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
+  const currencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
 
   // 页面显示时自动刷新数据
   useEffect(() => {
@@ -98,23 +124,48 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     setLoanOut(calculateLoanOut(accounts, currentYear, currentMonth));
     setDebtIn(calculateDebtIn(accounts, currentYear, currentMonth));
 
-    // 获取保存的展开状态
+    const goal = getYearlyGoal() || null;
+    setYearlyGoal(goal);
+    if (goal) {
+      setGoalProgress(calculateGoalProgress(worth, goal));
+    }
+
+    const health = calculateHealthScore(accounts, currentYear, currentMonth);
+    
+    // 修正归因完整度计算
+    const allAttributions = getAllAttributions();
+    let completedMonths = 0;
+    for (let m = 1; m <= 12; m++) {
+      const attr = allAttributions.find(a => a.year === currentYear && a.month === m);
+      if (attr && attr.tags && attr.tags.length > 0) {
+        completedMonths++;
+      }
+    }
+    const monthsToCheck = Math.min(currentMonth, 12);
+    const realCompleteness = monthsToCheck > 0 
+      ? Math.round((completedMonths / monthsToCheck) * 100) 
+      : 0;
+    health.attributionCompleteness = realCompleteness;
+    
+    setHealthScore(health);
+
     const savedExpandedGroups = getExpandedGroups();
 
     setAccountGroups(() => {
       const groups: AccountGroup[] = [];
+
+      // Standard type groups (exclude custom type accounts)
       for (const typeConfig of ACCOUNT_TYPES) {
-        const typeAccounts = accounts.filter(a => a.type === typeConfig.type);
+        const typeAccounts = accounts.filter(a => a.type === typeConfig.type && !a.customTypeLabel);
         if (typeAccounts.length === 0) continue;
 
         let totalBalance = 0;
         for (const account of typeAccounts) {
-          // 使用继承机制获取余额
           const balance = getAccountBalanceForMonth(account.id, currentYear, currentMonth);
-          totalBalance += balance;
+          const converted = convertToBaseCurrency(balance, account.currency || 'CNY', currentYear, currentMonth);
+          totalBalance += converted;
         }
 
-        // 使用保存的展开状态，如果没保存过则默认展开
         const isExpanded = savedExpandedGroups[typeConfig.type] !== undefined
           ? savedExpandedGroups[typeConfig.type]
           : true;
@@ -127,11 +178,61 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
           isExpanded,
         });
       }
+
+      // Custom type groups
+      const customTypeMap = new Map<string, typeof accounts>();
+      for (const acc of accounts) {
+        if (acc.customTypeLabel) {
+          if (!customTypeMap.has(acc.customTypeLabel)) customTypeMap.set(acc.customTypeLabel, []);
+          customTypeMap.get(acc.customTypeLabel)!.push(acc);
+        }
+      }
+      for (const [label, typeAccounts] of customTypeMap) {
+        const groupKey = `custom_${label}`;
+        let totalBalance = 0;
+        for (const account of typeAccounts) {
+          const balance = getAccountBalanceForMonth(account.id, currentYear, currentMonth);
+          const converted = convertToBaseCurrency(balance, account.currency || 'CNY', currentYear, currentMonth);
+          totalBalance += converted;
+        }
+        const isExpanded = savedExpandedGroups[groupKey] !== undefined
+          ? savedExpandedGroups[groupKey]
+          : true;
+        groups.push({
+          type: groupKey as any,
+          label,
+          accounts: typeAccounts,
+          totalBalance,
+          isExpanded,
+        });
+      }
+
       return groups;
     });
   };
 
-  const toggleGroup = (type: AccountType) => {
+  const handleGoalClick = () => {
+    if (!yearlyGoal) {
+      setShowGoalEdit(true);
+    } else {
+      setShowGoalDetail(true);
+    }
+  };
+
+  const handleSaveGoal = (targetAmount: number) => {
+    const goal = {
+      year: currentYear,
+      targetAmount,
+      createdAt: Date.now(),
+    };
+
+    saveYearlyGoal(goal);
+    setYearlyGoal(goal);
+    setGoalProgress(calculateGoalProgress(netWorth, goal));
+    setShowGoalEdit(false);
+  };
+
+  const toggleGroup = (type: string) => {
     // 获取当前状态并更新
     setAccountGroups(prev => {
       const newGroups = prev.map(g =>
@@ -161,18 +262,18 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     <div className="pb-20 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
       <header 
-        className="px-4 py-3 flex justify-between items-center sticky top-0 z-10"
+        className="px-4 py-3 flex justify-between items-center sticky top-0 z-10 rounded-b-2xl"
         style={{ backgroundColor: themeConfig.primary }}
       >
-        <h1 className="text-xl font-semibold text-white">资产</h1>
+        <h1 className="text-xl font-bold tracking-wide text-white">Easy-Ledger</h1>
         <Button 
           variant="ghost" 
           size="sm" 
-          className="text-white hover:bg-white/20"
+          className="text-white bg-white/20 hover:bg-white/30 rounded-full px-3"
           onClick={() => onPageChange('account-edit')}
         >
-          <Plus size={18} className="mr-1" />
-          添加账户
+          <Plus size={16} />
+          <span className="ml-1">新增账户</span>
         </Button>
       </header>
 
@@ -185,13 +286,31 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
           }}
         >
           <CardContent className="p-5">
-            {/* 余额隐藏按钮 - 右下角 */}
-            <button
-              onClick={toggleHideBalance}
-              className="absolute right-4 bottom-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
-            >
-              {hideBalance ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
+            {/* 卡片顶部区域：月份标题 + 徽章按钮组 */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-white/80 text-sm">{currentYear}年{currentMonth}月净资产</span>
+              <div className="flex items-center gap-2">
+                {yearlyGoal && (
+                  <GoalBadge
+                    goal={yearlyGoal}
+                    currentNetWorth={netWorth}
+                    onClick={() => setShowGoalDetail(true)}
+                  />
+                )}
+                {healthScore && (
+                  <HealthBadge
+                    healthScore={healthScore}
+                    onClick={() => setShowHealthDetail(true)}
+                  />
+                )}
+                <button
+                  onClick={toggleHideBalance}
+                  className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                >
+                  {hideBalance ? <EyeOff size={18} className="text-white/80" /> : <Eye size={18} className="text-white/80" />}
+                </button>
+              </div>
+            </div>
 
             {/* 只显示净资产 */}
             <div>
@@ -199,7 +318,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                 <div>
                   <div className="text-white/80 text-sm mb-1">净资产（元）</div>
                   <div className="text-3xl font-bold tracking-tight">
-                    ¥{formatHiddenAmount(netWorth, hideBalance)}
+                    {currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}
                   </div>
                 </div>
               </div>
@@ -214,9 +333,13 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                     {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
                   </span>
                 </div>
-                <span className="text-white/70 text-xs">
-                  共 {hideBalance ? '**' : visibleAccountCount} 个账户
-                </span>
+                <button
+                  className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-full border border-white/40 bg-white/15 backdrop-blur-sm active:bg-white/25 transition-all hover:bg-white/20"
+                  onClick={() => onPageChange('balance-sankey')}
+                >
+                  <span className="text-white">共 {hideBalance ? '**' : visibleAccountCount} 个账户</span>
+                  <ChevronRight size={14} className="text-white" />
+                </button>
               </div>
             </div>
           </CardContent>
@@ -226,37 +349,47 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
         <div className="grid grid-cols-2 gap-3">
           <Card className="bg-white">
             <CardContent className="p-3 text-center">
-              <div className="flex items-center justify-center gap-1.5 mb-1.5">
-                <div
-                  className="w-6 h-6 rounded-md flex items-center justify-center"
-                  style={{ backgroundColor: `${themeConfig.primary}15` }}
-                >
-                  <Handshake size={12} style={{ color: themeConfig.primary }} />
-                </div>
-                <div className="text-xs text-gray-500">借出</div>
+              <div className="w-10 h-10 rounded-full mx-auto mb-1.5 flex items-center justify-center" style={{ backgroundColor: `${themeConfig.primary}18` }}>
+                <Handshake size={18} style={{ color: themeConfig.primary }} />
               </div>
-              <div className="text-base font-semibold text-gray-800">
-                ¥{formatHiddenAmount(loanOut, hideBalance)}
+              <div className="text-xs text-gray-500 mb-0.5">借出</div>
+              <div className="text-sm font-bold text-gray-800">
+                {currencySymbol}{formatHiddenAmount(loanOut, hideBalance)}
               </div>
             </CardContent>
           </Card>
           <Card className="bg-white">
             <CardContent className="p-3 text-center">
-              <div className="flex items-center justify-center gap-1.5 mb-1.5">
-                <div
-                  className="w-6 h-6 rounded-md flex items-center justify-center"
-                  style={{ backgroundColor: `${themeConfig.primary}15` }}
-                >
-                  <ClipboardList size={12} style={{ color: themeConfig.primary }} />
-                </div>
-                <div className="text-xs text-gray-500">借入</div>
+              <div className="w-10 h-10 rounded-full mx-auto mb-1.5 flex items-center justify-center" style={{ backgroundColor: `${themeConfig.primary}18` }}>
+                <ClipboardList size={18} style={{ color: themeConfig.primary }} />
               </div>
-              <div className="text-base font-semibold text-gray-800">
-                ¥{formatHiddenAmount(debtIn, hideBalance)}
+              <div className="text-xs text-gray-500 mb-0.5">借入</div>
+              <div className="text-sm font-bold text-gray-800">
+                {currencySymbol}{formatHiddenAmount(debtIn, hideBalance)}
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* 年度目标 & 健康度分析卡片 - 独立区域，借贷统计下方、账户列表上方 */}
+        <YearlyGoalCard
+          goal={yearlyGoal}
+          goalProgress={goalProgress}
+          currentNetWorth={netWorth}
+          primaryColor={themeConfig.primary}
+          hideBalance={hideBalance}
+          baseCurrencySymbol={currencySymbol}
+          onClick={handleGoalClick}
+          onSetGoal={() => setShowGoalEdit(true)}
+        />
+
+        {healthScore && (
+          <HealthScoreCard
+            healthScore={healthScore}
+            primaryColor={themeConfig.primary}
+            onClick={() => setShowHealthDetail(true)}
+          />
+        )}
 
         {/* 账户分组列表 */}
         <div className="space-y-2">
@@ -319,7 +452,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                       group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
                     }`}>
                       {group.type === 'credit' ? (group.totalBalance > 0 ? '欠款' : '溢缴') : ''}
-                      ¥{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(group.totalBalance) : group.totalBalance, hideBalance)}
+                      {currencySymbol}{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(group.totalBalance) : group.totalBalance, hideBalance)}
                     </span>
                     <button
                       onClick={(e) => {
@@ -344,6 +477,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                       const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
                       const record = records.find(r => r.accountId === account.id);
                       const balance = record ? record.balance : account.balance;
+                      const convertedBalance = convertToBaseCurrency(balance, account.currency || 'CNY', currentYear, currentMonth);
                       const isCredit = account.type === 'credit';
                       const isDebt = account.type === 'debt';
 
@@ -376,11 +510,11 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                           </div>
                           <div className="flex items-center gap-2">
                             <span className={`text-sm font-medium ${
-                              isCredit ? (balance > 0 ? 'text-red-500' : 'text-green-600') : 
+                              isCredit ? (convertedBalance > 0 ? 'text-red-500' : 'text-green-600') : 
                               isDebt ? 'text-red-500' : ''
                             }`}>
-                              {isCredit ? (balance > 0 ? '欠款' : '溢缴') : ''}
-                              ¥{formatHiddenAmount(isDebt ? Math.abs(balance) : isCredit ? Math.abs(balance) : balance, hideBalance)}
+                              {isCredit ? (convertedBalance > 0 ? '欠款' : '溢缴') : ''}
+                              {currencySymbol}{formatHiddenAmount(isDebt ? Math.abs(convertedBalance) : isCredit ? Math.abs(convertedBalance) : convertedBalance, hideBalance)}
                             </span>
                             <ChevronRight size={16} className="text-gray-300" />
                           </div>
@@ -394,12 +528,53 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
           )}
         </div>
       </div>
+
+      {/* 年度目标详情弹窗 */}
+      {showGoalDetail && goalProgress && yearlyGoal && (
+        <GoalDetailModal
+          goal={yearlyGoal}
+          goalProgress={goalProgress}
+          currentNetWorth={netWorth}
+          hideBalance={hideBalance}
+          primaryColor={themeConfig.primary}
+          baseCurrencySymbol={currencySymbol}
+          onClose={() => setShowGoalDetail(false)}
+          onEdit={() => {
+            setShowGoalDetail(false);
+            setShowGoalEdit(true);
+          }}
+        />
+      )}
+
+      {/* 年度目标编辑弹窗 */}
+      {showGoalEdit && (
+        <GoalEditModal
+          currentYear={currentYear}
+          primaryColor={themeConfig.primary}
+          onClose={() => setShowGoalEdit(false)}
+          onSave={handleSaveGoal}
+        />
+      )}
+
+      {/* 健康度详情弹窗 */}
+      {showHealthDetail && healthScore && (
+        <HealthDetailModal
+          healthScore={healthScore}
+          primaryColor={themeConfig.primary}
+          onClose={() => setShowHealthDetail(false)}
+        />
+      )}
     </div>
   );
 }
 
-function getAccountTypeIcon(type: AccountType): string {
-  const iconMap: Record<AccountType, string> = {
+function getAccountTypeIcon(type: string): string {
+  if (type.startsWith('custom_')) {
+    const label = type.replace('custom_', '');
+    const saved = getCustomAccountTypes().find(ct => ct.label === label);
+    return saved?.icon || 'circle';
+  }
+  const iconMap: Record<string, string> = {
     'cash': 'banknote',
     'debit': 'credit-card',
     'credit': 'credit-card',

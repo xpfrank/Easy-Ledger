@@ -10,21 +10,25 @@ import { RecordPage } from '@/pages/RecordPage';
 import { RecordLogsPage } from '@/pages/RecordLogsPage';
 import { TrendPage } from '@/pages/TrendPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { BalanceSankeyPage } from '@/pages/BalanceSankeyPage';
 import { getSettings, updateSettings, migrateToMonthlyAccountConfigs } from '@/lib/storage';
+import { THEMES } from '@/types';
 import './App.css';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<PageRoute>('home');
   const [pageParams, setPageParams] = useState<any>(null);
-  // 全局余额隐藏状态 - 在 App 层级管理，确保跨页面同步
   const [hideBalance, setHideBalanceState] = useState(false);
+  const [theme, setTheme] = useState<string>('blue');
 
-  // 初始化从本地存储读取余额隐藏状态
   useEffect(() => {
     const settings = getSettings();
     setHideBalanceState(settings.hideBalance);
+    setTheme(settings.theme || 'blue');
     migrateToMonthlyAccountConfigs();
   }, []);
+
+  const themeConfig = THEMES[theme as keyof typeof THEMES] || THEMES.blue;
 
   // 全局余额隐藏状态切换函数
   const toggleHideBalance = useCallback(() => {
@@ -167,13 +171,13 @@ function App() {
       case 'home':
         return <HomePage onPageChange={handlePageChange} params={pageParams} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
       case 'accounts':
-        return <AccountsPage onPageChange={handlePageChange} />;
+        return <AccountsPage onPageChange={handlePageChange} onBack={handleBack} />;
       case 'account-edit':
-        return <AccountEditPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+        return <AccountEditPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'account-detail':
-        return <AccountDetailPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+        return <AccountDetailPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'account-flow':
-        return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} />;
+        return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'record':
         return <RecordPage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} params={pageParams} />;
       case 'record-logs':
@@ -189,6 +193,8 @@ function App() {
         return <TrendPage onPageChange={handlePageChange} />;
       case 'settings':
         return <SettingsPage onPageChange={handlePageChange} />;
+      case 'balance-sankey':
+        return <BalanceSankeyPage onPageChange={handlePageChange} hideBalance={hideBalance} onBack={handleBack} />;
       default:
         return <HomePage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} />;
     }
@@ -220,7 +226,7 @@ function App() {
       {/* 底部导航栏 */}
       {showBottomNav && (
         <div className="max-w-md mx-auto">
-          <BottomNav currentPage={currentPage} onPageChange={handlePageChangeWithHistory} />
+          <BottomNav currentPage={currentPage} onPageChange={handlePageChangeWithHistory} themeConfig={themeConfig} />
         </div>
       )}
 

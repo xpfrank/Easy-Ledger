@@ -12,9 +12,10 @@ import {
   deleteAccount,
   loadData,
   getAccountsForMonth,
+  convertToBaseCurrency,
 } from '@/lib/storage';
 import { getAccountTypeLabel, getAccountHistory, calculateTotalAssets } from '@/lib/calculator';
-import { THEMES } from '@/types';
+import { THEMES, getCurrencyConfig } from '@/types';
 import {
   XAxis,
   YAxis,
@@ -62,6 +63,7 @@ import {
 
 interface AccountDetailPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
   accountId: string;
 }
 
@@ -298,8 +300,9 @@ function calculateContribution(account: Account): ContributionData {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  // 计算当月账户余额
+  // 计算当月账户余额并折算
   const currentBalance = getAccountMonthBalance(account, year, month);
+  const convertedBalance = convertToBaseCurrency(currentBalance, account.currency || 'CNY', year, month);
 
   // 计算当月总资产
   const accounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
@@ -313,6 +316,7 @@ function calculateContribution(account: Account): ContributionData {
     lastMonth = 12;
   }
   const lastMonthBalance = getAccountMonthBalance(account, lastYear, lastMonth);
+  const lastConvertedBalance = convertToBaseCurrency(lastMonthBalance, account.currency || 'CNY', lastYear, lastMonth);
   const lastYearAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
   const lastTotalAssets = calculateTotalAssets(lastYearAccounts, lastYear, lastMonth);
 
@@ -320,11 +324,11 @@ function calculateContribution(account: Account): ContributionData {
   const isDebtAccount = account.type === 'credit' || account.type === 'debt';
 
   // 计算当月占比（针对资产账户用正余额，负债账户用绝对值）
-  let accountValue = currentBalance;
+  let accountValue = convertedBalance;
   if (isDebtAccount && account.type === 'credit') {
     // 信用卡：溢缴款计入资产，欠款计入负债
     // 这里贡献度按实际账户余额绝对值计算
-    accountValue = Math.abs(currentBalance);
+    accountValue = Math.abs(convertedBalance);
   } else if (isDebtAccount && account.type === 'debt') {
     // 借入账户：不计入资产贡献度
     accountValue = 0;
@@ -340,9 +344,9 @@ function calculateContribution(account: Account): ContributionData {
 
   if (lastTotalAssets > 0) {
     // 上月该账户余额
-    let lastAccountValue = lastMonthBalance;
+    let lastAccountValue = lastConvertedBalance;
     if (isDebtAccount && account.type === 'credit') {
-      lastAccountValue = Math.abs(lastMonthBalance);
+      lastAccountValue = Math.abs(lastConvertedBalance);
     } else if (isDebtAccount && account.type === 'debt') {
       lastAccountValue = 0;
     }
@@ -412,7 +416,7 @@ function ThemeProgress({ value, themeColor, className = '' }: ThemeProgressProps
   );
 }
 
-export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPageProps) {
+export function AccountDetailPage({ onPageChange, accountId, onBack }: AccountDetailPageProps) {
   const [account, setAccount] = useState<Account | null>(null);
   const [currentBalance, setCurrentBalance] = useState(0);
   const [hideBalance, setHideBalance] = useState(false);
@@ -422,6 +426,10 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
   const [brushRange, setBrushRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const themeConfig = THEMES[theme];
+  const currencySymbol = getCurrencyConfig(account?.currency || 'CNY').symbol;
+  const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
+  const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
+  const isForeignCurrency = account?.currency && account.currency !== baseCurrencyCode;
 
   useEffect(() => {
     const settings = getSettings();
@@ -466,11 +474,29 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
       ? getCreditTrendData(account.id, months)
       : getSavingsTrendData(account.id, months);
 
+    // 换算每个数据点为主货币
+    const convertedData = rawData.map((d: any) => {
+      const yr = parseInt(d.month?.split('-')[0] ?? d.year);
+      const mo = parseInt(d.month?.split('-')[1] ?? d.month);
+      if (account.type === 'credit') {
+        return {
+          ...d,
+          debt: convertToBaseCurrency(d.debt ?? 0, account.currency || 'CNY', yr, mo),
+          surplus: convertToBaseCurrency(d.surplus ?? 0, account.currency || 'CNY', yr, mo),
+        };
+      } else {
+        return {
+          ...d,
+          balance: convertToBaseCurrency(d.balance ?? 0, account.currency || 'CNY', yr, mo),
+        };
+      }
+    });
+
     // 超过16个月时自动按季度聚合
-    if (rawData.length > 16) {
-      return aggregateToQuarter(rawData, account.type === 'credit');
+    if (convertedData.length > 16) {
+      return aggregateToQuarter(convertedData, account.type === 'credit');
     }
-    return rawData;
+    return convertedData;
   }, [account, trendRange]);
 
   // 计算年度分割线位置
@@ -540,7 +566,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
     return (
       <div className="pb-24 bg-gray-50 min-h-screen">
         <header className="bg-white px-4 py-3 flex items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('accounts')}>
+          <Button variant="ghost" size="icon" onClick={() => onBack ? onBack() : onPageChange('accounts')}>
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-lg font-semibold ml-2">账户详情</h1>
@@ -562,7 +588,7 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
         style={{ backgroundColor: themeConfig.primary }}
       >
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={() => onPageChange('accounts')}>
+          <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-8 w-8" onClick={() => onBack ? onBack() : onPageChange('accounts')}>
             <ArrowLeft size={18} />
           </Button>
           <h1 className="text-base font-semibold text-white">{account.name}</h1>
@@ -619,18 +645,28 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
               </button>
             </div>
 
-            {/* 余额显示 - 压缩间距 */}
-            <div className="mb-2">
-              <div className="text-white/70 text-xs mb-0.5">
-                {isCredit ? '剩余欠款' : isDebt ? '借入金额' : '当前余额'}
-              </div>
-              <div className="text-2xl font-bold">
-                ¥{formatHiddenAmount(isDebt || isCredit ? Math.abs(currentBalance) : currentBalance, hideBalance)}
-              </div>
-              {isCredit && currentBalance < 0 && (
-                <div className="text-xs text-green-200 mt-0.5">溢缴款 ¥{formatHiddenAmount(Math.abs(currentBalance), hideBalance)}</div>
-              )}
-            </div>
+              {/* 余额显示 - 压缩间距 */}
+             <div className="mb-2">
+               <div className="text-white/70 text-xs mb-0.5">
+                 {isCredit ? '剩余欠款' : isDebt ? '借入金额' : '当前余额'}
+               </div>
+               <div className="text-2xl font-bold">
+                 {baseCurrencySymbol}{formatHiddenAmount(
+                   convertToBaseCurrency(
+                     isDebt || isCredit ? Math.abs(currentBalance) : currentBalance,
+                     account.currency || 'CNY'
+                   ), hideBalance
+                 )}
+               </div>
+               {isForeignCurrency && !hideBalance && (
+                 <div className="text-xs text-white/60 mt-0.5">
+                   原始：{currencySymbol}{formatAmountNoSymbol(Math.abs(currentBalance))}
+                 </div>
+               )}
+               {isCredit && currentBalance < 0 && (
+                 <div className="text-xs text-green-200 mt-0.5">溢缴款 {baseCurrencySymbol}{formatHiddenAmount(convertToBaseCurrency(Math.abs(currentBalance), account.currency || 'CNY'), hideBalance)}</div>
+               )}
+             </div>
 
             {/* 信用卡专属信息 - 压缩布局 */}
             {isCredit && (
@@ -651,30 +687,30 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                 </div>
                 {/* 总额度与剩余额度 */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white/10 rounded-lg p-2 text-center">
-                    <div className="text-white/60 text-xs mb-0.5">总额度</div>
-                    <div className="text-base font-bold text-white">
-                      {account.creditLimit && account.creditLimit > 0
-                        ? `¥${hideBalance ? '******' : formatAmountNoSymbol(account.creditLimit)}`
-                        : <span className="text-white/50 text-sm">未设置</span>
-                      }
-                    </div>
-                  </div>
-                  <div className="bg-white/10 rounded-lg p-2 text-center">
-                    <div className="text-white/60 text-xs mb-0.5">剩余额度</div>
-                    <div className={`text-base font-bold ${currentBalance >= 0 ? 'text-green-200' : 'text-white'}`}>
-                      {account.creditLimit && account.creditLimit > 0
-                        ? (() => {
-                            // 计算剩余额度：欠款为正时减少，溢缴款为负时增加
-                            const remainingLimit = currentBalance >= 0
-                              ? account.creditLimit - currentBalance
-                              : account.creditLimit + Math.abs(currentBalance);
-                            return `¥${hideBalance ? '******' : formatAmountNoSymbol(Math.max(0, remainingLimit))}`;
-                          })()
-                        : <span className="text-white/50 text-sm">未设置</span>
-                      }
-                    </div>
-                  </div>
+                   <div className="bg-white/10 rounded-lg p-2 text-center">
+                     <div className="text-white/60 text-xs mb-0.5">总额度</div>
+                     <div className="text-base font-bold text-white">
+                       {account.creditLimit && account.creditLimit > 0
+                         ? `${baseCurrencySymbol}${hideBalance ? '******' : formatAmountNoSymbol(convertToBaseCurrency(account.creditLimit, account.currency || 'CNY'))}`
+                         : <span className="text-white/50 text-sm">未设置</span>
+                       }
+                     </div>
+                   </div>
+                   <div className="bg-white/10 rounded-lg p-2 text-center">
+                     <div className="text-white/60 text-xs mb-0.5">剩余额度</div>
+                     <div className={`text-base font-bold ${currentBalance >= 0 ? 'text-green-200' : 'text-white'}`}>
+                       {account.creditLimit && account.creditLimit > 0
+                         ? (() => {
+                             // 计算剩余额度：欠款为正时减少，溢缴款为负时增加
+                             const remainingLimit = currentBalance >= 0
+                               ? account.creditLimit - currentBalance
+                               : account.creditLimit + Math.abs(currentBalance);
+                             return `${baseCurrencySymbol}${hideBalance ? '******' : formatAmountNoSymbol(convertToBaseCurrency(Math.max(0, remainingLimit), account.currency || 'CNY'))}`;
+                           })()
+                         : <span className="text-white/50 text-sm">未设置</span>
+                       }
+                     </div>
+                   </div>
                 </div>
               </div>
             )}
@@ -703,8 +739,8 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
             {/* 本月资产数据 + 占比（单行显示） */}
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500 text-xs">
-                本月：<span className="font-medium text-gray-900">¥{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)}</span>
-                <span className="text-gray-400 ml-1">/ 总资产¥{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}</span>
+                本月：<span className="font-medium text-gray-900">{baseCurrencySymbol}{formatHiddenAmount(contribution?.currentMonthBalance || 0, hideBalance)}</span>
+                <span className="text-gray-400 ml-1">/ 总资产{baseCurrencySymbol}{formatHiddenAmount(contribution?.totalAssets || 0, hideBalance)}</span>
               </span>
               <span className="font-semibold text-sm" style={{ color: themeConfig.primary }}>
                 {hideBalance ? '******' : `${(contribution?.percentage || 0).toFixed(1)}%`}
@@ -807,52 +843,52 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           }}
                         />
                         <YAxis
-                          tick={{ fontSize: 9 }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`}
-                          width={35}
-                        />
-                        <Tooltip
-                          formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '欠款']}
-                          labelFormatter={(l, payload) => {
-                            if (payload && payload[0] && payload[0].payload) {
-                              return payload[0].payload.fullLabel || l;
-                            }
-                            return l;
-                          }}
-                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                          content={({ active, payload }) => {
-                            if (!active || !payload || !payload[0]) return null;
-                            const data = payload[0].payload;
-                            const isQuarter = data._originalItems && data._originalItems.length > 0;
-                            return (
-                              <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
-                                <div className="font-medium text-gray-900 mb-2">{data.fullLabel}</div>
-                                {isQuarter ? (
-                                  <>
-                                    <div className="text-gray-500 mb-2">季度末欠款：¥{formatHiddenAmount(data.debt || data.balance, hideBalance)}</div>
-                                    {data._originalItems.length > 0 && (
-                                      <div className="pt-2 border-t border-gray-100">
-                                        <div className="text-gray-500 mb-1.5">📊 本季度月度欠款明细：</div>
-                                        {data._originalItems.map((item: any, idx: number) => (
-                                          <div key={idx} className="flex justify-between py-0.5 text-gray-600">
-                                            <span>{item.fullLabel || item.month}</span>
-                                            <span className="font-medium">¥{formatHiddenAmount(item.debt || 0, hideBalance)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="text-gray-500">
-                                    欠款：¥{formatHiddenAmount(data.debt || 0, hideBalance)}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }}
-                        />
+                           tick={{ fontSize: 9 }}
+                           axisLine={false}
+                           tickLine={false}
+                           tickFormatter={(v) => `${baseCurrencySymbol}${(v / 1000).toFixed(0)}k`}
+                           width={35}
+                         />
+                         <Tooltip
+                           formatter={(v: number) => [`${baseCurrencySymbol}${formatHiddenAmount(v, hideBalance)}`, '欠款']}
+                           labelFormatter={(l, payload) => {
+                             if (payload && payload[0] && payload[0].payload) {
+                               return payload[0].payload.fullLabel || l;
+                             }
+                             return l;
+                           }}
+                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                           content={({ active, payload }) => {
+                             if (!active || !payload || !payload[0]) return null;
+                             const data = payload[0].payload;
+                             const isQuarter = data._originalItems && data._originalItems.length > 0;
+                             return (
+                               <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
+                                 <div className="font-medium text-gray-900 mb-2">{data.fullLabel}</div>
+                                 {isQuarter ? (
+                                   <>
+                                     <div className="text-gray-500 mb-2">季度末欠款：{baseCurrencySymbol}{formatHiddenAmount(data.debt || data.balance, hideBalance)}</div>
+                                     {data._originalItems.length > 0 && (
+                                       <div className="pt-2 border-t border-gray-100">
+                                         <div className="text-gray-500 mb-1.5">📊 本季度月度欠款明细：</div>
+                                         {data._originalItems.map((item: any, idx: number) => (
+                                           <div key={idx} className="flex justify-between py-0.5 text-gray-600">
+                                             <span>{item.fullLabel || item.month}</span>
+                                             <span className="font-medium">{baseCurrencySymbol}{formatHiddenAmount(item.debt || 0, hideBalance)}</span>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     )}
+                                   </>
+                                 ) : (
+                                   <div className="text-gray-500">
+                                     欠款：{baseCurrencySymbol}{formatHiddenAmount(data.debt || 0, hideBalance)}
+                                   </div>
+                                 )}
+                               </div>
+                             );
+                           }}
+                         />
                         {/* 年度分割线 - 在每年1月位置 */}
                         {yearBoundaries.map((boundary) => {
                           const dataPoint = trendData[boundary.index];
@@ -940,52 +976,52 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                           }}
                         />
                         <YAxis
-                          tick={{ fontSize: 9 }}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={(v) => `¥${(v / 1000).toFixed(0)}k`}
-                          width={35}
-                        />
-                        <Tooltip
-                          formatter={(v: number) => [`¥${formatHiddenAmount(v, hideBalance)}`, '余额']}
-                          labelFormatter={(l, payload) => {
-                            if (payload && payload[0] && payload[0].payload) {
-                              return payload[0].payload.fullLabel || l;
-                            }
-                            return l;
-                          }}
-                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                          content={({ active, payload }) => {
-                            if (!active || !payload || !payload[0]) return null;
-                            const data = payload[0].payload;
-                            const isQuarter = data._originalItems && data._originalItems.length > 0;
-                            return (
-                              <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
-                                <div className="font-medium text-gray-900 mb-2">{data.fullLabel}</div>
-                                {isQuarter ? (
-                                  <>
-                                    <div className="text-gray-500 mb-2">季度末余额：¥{formatHiddenAmount(data.balance, hideBalance)}</div>
-                                    {data._originalItems.length > 0 && (
-                                      <div className="pt-2 border-t border-gray-100">
-                                        <div className="text-gray-500 mb-1.5">🔍 本季度月度余额明细：</div>
-                                        {data._originalItems.map((item: any, idx: number) => (
-                                          <div key={idx} className="flex justify-between py-0.5 text-gray-600">
-                                            <span>{item.fullLabel || item.month}</span>
-                                            <span className="font-medium">¥{formatHiddenAmount(item.balance, hideBalance)}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="text-gray-500">
-                                    余额：¥{formatHiddenAmount(data.balance, hideBalance)}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }}
-                        />
+                           tick={{ fontSize: 9 }}
+                           axisLine={false}
+                           tickLine={false}
+                           tickFormatter={(v) => `${baseCurrencySymbol}${(v / 1000).toFixed(0)}k`}
+                           width={35}
+                         />
+                         <Tooltip
+                           formatter={(v: number) => [`${baseCurrencySymbol}${formatHiddenAmount(v, hideBalance)}`, '余额']}
+                           labelFormatter={(l, payload) => {
+                             if (payload && payload[0] && payload[0].payload) {
+                               return payload[0].payload.fullLabel || l;
+                             }
+                             return l;
+                           }}
+                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                           content={({ active, payload }) => {
+                             if (!active || !payload || !payload[0]) return null;
+                             const data = payload[0].payload;
+                             const isQuarter = data._originalItems && data._originalItems.length > 0;
+                             return (
+                               <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 text-xs">
+                                 <div className="font-medium text-gray-900 mb-2">{data.fullLabel}</div>
+                                 {isQuarter ? (
+                                   <>
+                                     <div className="text-gray-500 mb-2">季度末余额：{baseCurrencySymbol}{formatHiddenAmount(data.balance, hideBalance)}</div>
+                                     {data._originalItems.length > 0 && (
+                                       <div className="pt-2 border-t border-gray-100">
+                                         <div className="text-gray-500 mb-1.5">🔍 本季度月度余额明细：</div>
+                                         {data._originalItems.map((item: any, idx: number) => (
+                                           <div key={idx} className="flex justify-between py-0.5 text-gray-600">
+                                             <span>{item.fullLabel || item.month}</span>
+                                             <span className="font-medium">{baseCurrencySymbol}{formatHiddenAmount(item.balance, hideBalance)}</span>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     )}
+                                   </>
+                                 ) : (
+                                   <div className="text-gray-500">
+                                     余额：{baseCurrencySymbol}{formatHiddenAmount(data.balance, hideBalance)}
+                                   </div>
+                                 )}
+                               </div>
+                             );
+                           }}
+                         />
                         {/* 年度分割线 - 在每年1月位置 */}
                         {yearBoundaries.map((boundary) => {
                           const dataPoint = trendData[boundary.index];
@@ -1074,19 +1110,19 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         <div className="text-center">
                           <div className="text-xs text-gray-400">最高欠款</div>
                           <div className="text-sm font-medium text-red-500">
-                            ¥{formatHiddenAmount((stats as any).maxDebt, hideBalance)}
+                            {baseCurrencySymbol}{formatHiddenAmount((stats as any).maxDebt, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-400">平均欠款</div>
                           <div className="text-sm font-medium">
-                            ¥{formatHiddenAmount((stats as any).avgDebt, hideBalance)}
+                            {baseCurrencySymbol}{formatHiddenAmount((stats as any).avgDebt, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-400">当前欠款</div>
                           <div className="text-sm font-medium">
-                            ¥{formatHiddenAmount(Math.abs(currentBalance), hideBalance)}
+                            {baseCurrencySymbol}{formatHiddenAmount(convertToBaseCurrency(Math.abs(currentBalance), account.currency || 'CNY'), hideBalance)}
                           </div>
                         </div>
                       </>
@@ -1095,19 +1131,19 @@ export function AccountDetailPage({ onPageChange, accountId }: AccountDetailPage
                         <div className="text-center">
                           <div className="text-xs text-gray-400">最高余额</div>
                           <div className="text-sm font-medium text-green-600">
-                            ¥{formatHiddenAmount((stats as any).maxBalance, hideBalance)}
+                            {baseCurrencySymbol}{formatHiddenAmount((stats as any).maxBalance, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-400">最低余额</div>
                           <div className="text-sm font-medium">
-                            ¥{formatHiddenAmount((stats as any).minBalance, hideBalance)}
+                            {baseCurrencySymbol}{formatHiddenAmount((stats as any).minBalance, hideBalance)}
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-400">平均余额</div>
                           <div className="text-sm font-medium">
-                            ¥{formatHiddenAmount((stats as any).avgBalance, hideBalance)}
+                            {baseCurrencySymbol}{formatHiddenAmount((stats as any).avgBalance, hideBalance)}
                           </div>
                         </div>
                       </>

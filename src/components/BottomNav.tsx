@@ -4,6 +4,9 @@ import type { PageRoute } from '@/types';
 interface BottomNavProps {
   currentPage: PageRoute;
   onPageChange: (page: PageRoute) => void;
+  themeConfig?: {
+    primary: string;
+  };
 }
 
 const navItems: { page: PageRoute; label: string; icon: typeof Home }[] = [
@@ -13,7 +16,9 @@ const navItems: { page: PageRoute; label: string; icon: typeof Home }[] = [
   { page: 'settings', label: '设置', icon: Settings },
 ];
 
-export function BottomNav({ currentPage, onPageChange }: BottomNavProps) {
+export function BottomNav({ currentPage, onPageChange, themeConfig }: BottomNavProps) {
+  const activeColor = themeConfig?.primary || '#0ea5e9';
+  
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 safe-area-bottom z-50">
       <div className="flex justify-around items-center h-14 max-w-md mx-auto">
@@ -26,11 +31,12 @@ export function BottomNav({ currentPage, onPageChange }: BottomNavProps) {
               key={item.page}
               onClick={() => onPageChange(item.page)}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
-                isActive ? 'text-sky-500' : 'text-gray-400'
+                isActive ? '' : 'text-gray-400'
               }`}
+              style={isActive ? { color: activeColor } : undefined}
             >
               <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-              <span className={`text-xs mt-0.5 ${isActive ? 'font-medium' : ''}`}>
+              <span className={`text-xs mt-0.5 ${isActive ? 'font-medium' : ''}`} style={isActive ? { color: activeColor } : undefined}>
                 {item.label}
               </span>
             </button>
