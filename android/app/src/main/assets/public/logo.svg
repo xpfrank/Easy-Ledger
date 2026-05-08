@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 背景渐变 -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#38bdf8"/>
+      <stop offset="100%" style="stop-color:#0ea5e9"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- 圆角方形背景 -->
+  <rect x="32" y="32" width="448" height="448" rx="80" fill="url(#bgGradient)"/>
+  
+  <!-- 钱包主体 -->
+  <path d="M128 160h256a32 32 0 0 1 32 32v192a32 32 0 0 1-32 32H128a32 32 0 0 1-32-32V192a32 32 0 0 1 32-32z" 
+        fill="#ffffff" opacity="0.95"/>
+  
+  <!-- 钱包折痕 -->
+  <path d="M128 160 L256 240 L384 160" 
+        fill="none" stroke="#e0f2fe" stroke-width="8" opacity="0.5"/>
+  
+  <!-- 钱币符号 ¥ -->
+  <text x="256" y="340" font-family="system-ui, -apple-system, sans-serif" 
+        font-size="140" font-weight="bold" fill="#0ea5e9" text-anchor="middle">¥</text>
+  
+  <!-- 装饰小圆点 -->
+  <circle cx="360" cy="220" r="16" fill="#38bdf8" opacity="0.6"/>
+</svg>
