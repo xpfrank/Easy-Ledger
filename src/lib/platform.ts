@@ -17,27 +17,43 @@ export async function saveFileToDevice(
 ): Promise<{ success: boolean; message: string; data?: string }> {
   try {
     if (isNativePlatform()) {
-      const filePath = `EasyLedger/${fileName}`;
+      const dirPath = 'EasyLedger/Exports';
+      const filePath = `${dirPath}/${fileName}`;
+
+      try {
+        await Filesystem.mkdir({
+          path: dirPath,
+          directory: Directory.Cache,
+          recursive: true,
+        });
+      } catch (e: any) {
+        if (!e.message?.toLowerCase().includes('exists')) {
+          console.warn('mkdir warning:', e);
+        }
+      }
+
       await Filesystem.writeFile({
         path: filePath,
         data: data,
-        directory: Directory.Documents,
+        directory: Directory.Cache,
         encoding: Encoding.UTF8,
-        recursive: true,
       });
 
-      const uri = await Filesystem.getUri({
+      const uriResult = await Filesystem.getUri({
         path: filePath,
-        directory: Directory.Documents,
+        directory: Directory.Cache,
       });
 
       await Share.share({
         title: '导出记账数据',
         text: `EasyLedger 导出文件: ${fileName}`,
-        url: uri.uri,
+        url: uriResult.uri,
       });
 
-      return { success: true, message: '文件已保存，可通过分享选择保存位置' };
+      return { 
+        success: true, 
+        message: '文件已生成，请在分享面板中选择保存位置或发送方式' 
+      };
     } else {
       const blob = new Blob([data], { type: mimeType });
       const url = URL.createObjectURL(blob);
@@ -50,6 +66,10 @@ export async function saveFileToDevice(
     }
   } catch (error: any) {
     console.error('Save file failed:', error);
-    return { success: false, message: `保存失败: ${error.message || '未知错误'}`, data };
+    return { 
+      success: false, 
+      message: `保存失败: ${error.message || '未知错误'}`, 
+      data 
+    };
   }
 }
