@@ -212,11 +212,11 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
         parts.push(exportToCSV(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth));
       }
       if (exportContent.monthlyAttribution) {
-        parts.push('\n--- 月度归因 ---\n');
+        parts.push('--- 月度归因 ---');
         parts.push(exportMonthlyAttributionCSV(exportStartYear, exportStartMonth, exportEndYear, exportEndMonth));
       }
       if (exportContent.yearlyAttribution) {
-        parts.push('\n--- 年度归因 ---\n');
+        parts.push('--- 年度归因 ---');
         parts.push(exportYearlyAttributionCSV(exportStartYear, exportEndYear));
       }
       data = parts.join('\n');
@@ -811,28 +811,25 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
 
       {/* 导出对话框 */}
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>导出数据</DialogTitle>
-            <DialogDescription>
-              选择要导出的时间范围
-            </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-4">
+          <div className="space-y-3">
             <div>
-              <div className="text-sm text-gray-500 mb-2">开始时间</div>
+              <div className="text-xs text-gray-400 mb-2">开始时间</div>
               <div className="flex gap-2">
                 <select
                   value={exportStartYear}
                   onChange={(e) => setExportStartYear(Number(e.target.value))}
-                  className="flex-1 p-2 border rounded-lg"
+                  className="flex-1 p-2.5 border rounded-lg text-sm bg-gray-50"
                 >
                   {yearRange.map(y => <option key={y} value={y}>{y}年</option>)}
                 </select>
                 <select
                   value={exportStartMonth}
                   onChange={(e) => setExportStartMonth(Number(e.target.value))}
-                  className="flex-1 p-2 border rounded-lg"
+                  className="flex-1 p-2.5 border rounded-lg text-sm bg-gray-50"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                     <option key={m} value={m}>{m}月</option>
@@ -841,19 +838,19 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-500 mb-2">结束时间</div>
+              <div className="text-xs text-gray-400 mb-2">结束时间</div>
               <div className="flex gap-2">
                 <select
                   value={exportEndYear}
                   onChange={(e) => setExportEndYear(Number(e.target.value))}
-                  className="flex-1 p-2 border rounded-lg"
+                  className="flex-1 p-2.5 border rounded-lg text-sm bg-gray-50"
                 >
                   {yearRange.map(y => <option key={y} value={y}>{y}年</option>)}
                 </select>
                 <select
                   value={exportEndMonth}
                   onChange={(e) => setExportEndMonth(Number(e.target.value))}
-                  className="flex-1 p-2 border rounded-lg"
+                  className="flex-1 p-2.5 border rounded-lg text-sm bg-gray-50"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                     <option key={m} value={m}>{m}月</option>
@@ -862,7 +859,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-500 mb-2">导出格式</div>
+              <div className="text-xs text-gray-400 mb-2">导出格式</div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setExportFormat('json')}
@@ -885,7 +882,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-500 mb-2">导出内容</div>
+              <div className="text-xs text-gray-400 mb-2">导出内容</div>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -917,12 +914,13 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowExportDialog(false)}>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowExportDialog(false)}>
               取消
             </Button>
             <Button 
               variant="outline"
+              size="sm"
               onClick={() => {
                 setShowExportDialog(false);
                 handleFullBackup();
@@ -932,10 +930,11 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
             </Button>
             <Button 
               className="text-white"
+              size="sm"
               style={{ backgroundColor: themeConfig.primary }}
               onClick={handleExport}
             >
-              按范围导出
+              导出
             </Button>
           </DialogFooter>
         </DialogContent>
