@@ -26,7 +26,7 @@ import {
 } from '@/lib/storage';
 import { getCurrencyConfig } from '@/types';
 
-import { calculateNetWorth } from '@/lib/calculator';
+import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
 import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionDetail';
 
@@ -41,6 +41,14 @@ interface RecordLogsPageProps {
 function formatHiddenAmount(amount: number, hide: boolean): string {
   if (hide) {
     return '******';
+  }
+  return formatAmountNoSymbol(amount);
+}
+
+// 超过6位数（≥100,000）时用"万"单位，保留两位小数；否则正常格式
+function formatWanAmount(amount: number): string {
+  if (Math.abs(amount) >= 100000) {
+    return `${(amount / 10000).toFixed(2)}万`;
   }
   return formatAmountNoSymbol(amount);
 }
@@ -217,8 +225,12 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
 
   const renderYearlyAttributionCard = (attr: YearlyAttribution) => {
     const key = `yearly-${attr.year}`;
-    const isPositive = attr.change >= 0;
-    const absWan = (Math.abs(attr.change) / 10000).toFixed(1);
+
+    // 与详情弹窗保持完全一致：用 calculateNetWorth 计算年末净资产，自动处理货币换算
+    const lastMonth = getLastRecordedMonth(attr.year) || 12;
+    const currentAccounts = getAccountsForMonth(attr.year, lastMonth).filter(a => !a.isHidden);
+    const currentNW = calculateNetWorth(currentAccounts, attr.year, lastMonth);
+    const isPositive = attr.changePercent >= 0;
 
     return (
       <div
@@ -253,14 +265,11 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
           )}
         </div>
 
-        {/* 右侧：变化金额 + 百分比 */}
+        {/* 右侧：年末净资产 + 同比涨跌幅 */}
         <div className="text-right flex-shrink-0">
-           <div
-             className="text-sm font-bold"
-             style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
-           >
-             {isPositive ? '+' : '-'}{baseCurrencySymbol}{hideBalance ? '***' : `${absWan}万`}
-           </div>
+          <div className="text-sm font-bold text-gray-800">
+            {hideBalance ? '******' : `${baseCurrencySymbol}${formatWanAmount(currentNW)}`}
+          </div>
           <div
             className="text-xs font-medium mt-0.5 px-1.5 py-0.5 rounded-lg inline-block"
             style={{
