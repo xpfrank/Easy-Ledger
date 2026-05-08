@@ -1041,6 +1041,7 @@ export interface ExcelImportRow {
   accountIcon?: string;
   isHidden?: boolean;
   balance: number;
+  currency?: string;
   attributionTag?: string;
   note?: string;
 }
@@ -1073,6 +1074,23 @@ function parseCSVLine(line: string): string[] {
 
 const VALID_ACCOUNT_TYPES = ['cash', 'debit', 'credit', 'digital', 'investment', 'loan', 'debt'];
 
+const ACCOUNT_TYPE_NAME_MAP: Record<string, AccountType> = {
+  '现金': 'cash',
+  '储蓄卡': 'debit',
+  '信用卡': 'credit',
+  '网络支付': 'digital',
+  '投资账户': 'investment',
+  '借出': 'loan',
+  '借入': 'debt',
+};
+
+function resolveAccountType(input: string): AccountType | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (VALID_ACCOUNT_TYPES.includes(trimmed)) return trimmed as AccountType;
+  return ACCOUNT_TYPE_NAME_MAP[trimmed] || null;
+}
+
 export function parseExcelCSV(content: string): ExcelImportRow[] {
   const cleanContent = content.replace(/^\uFEFF/, '').trim();
   const lines = cleanContent.split('\n');
@@ -1082,6 +1100,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
 
   const headerLine = lines[0].toLowerCase();
   const isNewFormat = headerLine.includes('账户id') && headerLine.includes('账户类型');
+  const isImportTemplateFormat = !isNewFormat && headerLine.includes('账户类型') && headerLine.includes('币种');
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -1092,7 +1111,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
 
     if (isNewFormat && isNaN(parseInt(parts[0]))) continue;
 
-    let year: number, month: number, accountId: string | undefined, accountName: string, accountType: string | undefined, customTypeLabel: string | undefined, accountIcon: string | undefined, isHidden: boolean | undefined, balance: number, attributionTag: string | undefined, note: string | undefined;
+    let year: number, month: number, accountId: string | undefined, accountName: string, accountType: string | undefined, customTypeLabel: string | undefined, accountIcon: string | undefined, isHidden: boolean | undefined, balance: number, currency: string | undefined, attributionTag: string | undefined, note: string | undefined;
 
     if (isNewFormat) {
       year = parseInt(parts[0]);
@@ -1126,7 +1145,22 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
         attributionTag = parts[8] || undefined;
         note = parts[9] || undefined;
       }
+    } else if (isImportTemplateFormat) {
+      // 新模板格式：月份(YYYY-MM),账户名称,账户类型,余额,币种,归因标签,备注
+      const monthRaw = parts[0].replace(/^#.*/, '');
+      const normalizedMonth = normalizeMonthFormat(monthRaw);
+      if (!normalizedMonth) continue;
+      const [y, m] = normalizedMonth.split('-');
+      year = parseInt(y);
+      month = parseInt(m);
+      accountName = parts[1];
+      accountType = parts[2] || undefined;
+      balance = parseFloat((parts[3] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
+      currency = parts[4] || 'CNY';
+      attributionTag = parts[5] || undefined;
+      note = parts[6] || undefined;
     } else {
+      // 旧模板格式：月份,账户名称,余额,归因标签,备注
       const monthRaw = parts[0].replace(/^#.*/, '');
       const normalizedMonth = normalizeMonthFormat(monthRaw);
       if (!normalizedMonth) continue;
@@ -1137,14 +1171,15 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
       balance = parseFloat(parts[2].replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
       attributionTag = parts[3] || undefined;
       note = parts[4] || undefined;
+      currency = 'CNY';
     }
 
     if (!year || !month || !accountName || isNaN(balance)) {
-      result.push({ year: year || 0, month: month || 0, accountName, balance: 0, attributionTag: 'ERROR_PARSE', note: `第${i + 1}行格式错误` });
+      result.push({ year: year || 0, month: month || 0, accountName, balance: 0, currency: currency || 'CNY', attributionTag: 'ERROR_PARSE', note: `第${i + 1}行格式错误` });
       continue;
     }
 
-    result.push({ year, month, accountId, accountName, accountType, customTypeLabel, accountIcon, isHidden, balance, attributionTag, note } as ExcelImportRow);
+    result.push({ year, month, accountId, accountName, accountType, customTypeLabel, accountIcon, isHidden, balance, currency, attributionTag, note } as ExcelImportRow);
   }
 
   return result;
@@ -1221,10 +1256,35 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
         // 检查是否已添加过
         const alreadyAdded = data.accounts.some(a => normalizeAccountName(a.name) === normalizedRowName);
         if (!alreadyAdded) {
-          // 使用导入数据中的类型、图标和隐藏状态，或使用默认值
-          const accountType = (row.accountType && VALID_ACCOUNT_TYPES.includes(row.accountType)) ? row.accountType as AccountType : 'debit';
+          // 解析账户类型：标准类型直接用，非标准类型自动创建自定义分类
+          let accountType: AccountType = 'debit';
+          let customLabel: string | undefined;
+          let behavior: 'asset' | 'liability' = 'asset';
+          
+          if (row.accountType) {
+            const resolved = resolveAccountType(row.accountType);
+            if (resolved) {
+              accountType = resolved;
+            } else {
+              // 非默认分类 → 自动创建自定义分类（直接在 data 上操作，避免覆盖）
+              customLabel = row.accountType;
+              behavior = 'asset';
+              if (!data.customAccountTypes) data.customAccountTypes = [];
+              const alreadyHasType = data.customAccountTypes.some(ct => ct.label === customLabel);
+              if (!alreadyHasType) {
+                data.customAccountTypes.push({
+                  id: generateId(),
+                  label: customLabel,
+                  icon: row.accountIcon || 'wallet',
+                  behavior: behavior,
+                });
+              }
+            }
+          }
+          
           const accountIcon = row.accountIcon || 'credit-card';
           const isHidden = row.isHidden ?? false;
+          const currency = row.currency || 'CNY';
           const newAccount: Account = {
             id: generateId(),
             name: row.accountName,
@@ -1233,7 +1293,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
             balance: 0,
             includeInTotal: true,
             isHidden: isHidden,
-            customTypeLabel: row.customTypeLabel || undefined,
+            customTypeLabel: customLabel,
+            currency: currency,
           };
           data.accounts.push(newAccount);
           createdAccounts.push(row.accountName);
@@ -1443,7 +1504,7 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 export function exportExcelTemplate(): string {
   const accounts = getAllAccounts();
   const BOM = '\uFEFF';
-  const header = '月份(YYYY-MM),账户名称,余额,归因标签(可选),备注(可选)';
+  const header = '月份(YYYY-MM),账户名称,账户类型,余额,币种,归因标签(可选),备注(可选)';
 
   const now = new Date();
   const examples: string[] = [];
@@ -1453,7 +1514,8 @@ export function exportExcelTemplate(): string {
     const month = date.getMonth() + 1;
     const monthStr = `${year}-${month.toString().padStart(2, '0')}`;
     const defaultAccount = accounts.length > 0 ? accounts[0].name : '账户名称';
-    examples.push(`${monthStr},${defaultAccount},0.00,,`);
+    const defaultType = accounts.length > 0 ? accounts[0].type : 'debit';
+    examples.push(`${monthStr},${defaultAccount},${defaultType},0.00,CNY,,`);
   }
 
   return BOM + [header, ...examples].join('\n');
