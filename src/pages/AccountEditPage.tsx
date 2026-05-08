@@ -15,6 +15,8 @@ import {
   getMonthlyRecord,
   getCustomAccountTypes,
   addCustomAccountType,
+  deleteCustomAccountType,
+  getAllAccounts,
 } from '@/lib/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES, CURRENCIES, getCurrencyConfig } from '@/types';
@@ -263,6 +265,29 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
     }
   };
 
+  const handleDeleteCustomType = (e: React.MouseEvent, ct: CustomAccountType) => {
+    e.stopPropagation();
+
+    const allAccounts = getAllAccounts();
+    const usedCount = allAccounts.filter(a => a.customTypeLabel === ct.label).length;
+
+    if (usedCount > 0) {
+      alert(`「${ct.label}」正在被 ${usedCount} 个账户使用，请先修改这些账户的分类后再删除。`);
+      return;
+    }
+
+    if (!confirm(`确定删除自定义分类「${ct.label}」吗？`)) return;
+
+    deleteCustomAccountType(ct.id);
+    setSavedCustomTypes(getCustomAccountTypes());
+
+    if (isCustomType && customTypeName === ct.label) {
+      setIsCustomType(false);
+      setCustomTypeName('');
+      setFormData(p => ({ ...p, type: 'cash', customTypeLabel: undefined, icon: 'banknote' }));
+    }
+  };
+
   const isCredit = !isCustomType && formData.type === 'credit';
 
   const allIconsFlat = useMemo(() => ICON_GROUPS.flatMap((g) => g.icons), []);
@@ -325,23 +350,30 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
               {savedCustomTypes.map((ct) => {
                 const sel = isCustomType && customTypeName === ct.label;
                 return (
-                  <button
-                    key={ct.id}
-                    onClick={() => {
-                      setIsCustomType(true);
-                      setCustomTypeName(ct.label);
-                      setCustomBehavior(ct.behavior);
-                      setCustomIcon(ct.icon);
-                      setFormData((p) => ({ ...p, icon: ct.icon, customTypeLabel: ct.label, type: ct.behavior === 'liability' ? 'debt' : 'debit' }));
-                    }}
-                    className="flex flex-col items-center justify-center py-3 px-1 rounded-xl border transition-all active:scale-95"
-                    style={sel
-                      ? { borderColor: themeConfig.primary, backgroundColor: `${themeConfig.primary}14`, color: themeConfig.primary }
-                      : { borderColor: '#e5e7eb', color: '#9ca3af' }}
-                  >
-                    <Icon name={ct.icon} size={20} color={sel ? themeConfig.primary : undefined} className={sel ? '' : 'text-gray-400'} />
-                    <span className="text-xs mt-1 font-medium leading-tight truncate max-w-full">{ct.label}</span>
-                  </button>
+                  <div key={ct.id} className="relative">
+                    <button
+                      onClick={() => {
+                        setIsCustomType(true);
+                        setCustomTypeName(ct.label);
+                        setCustomBehavior(ct.behavior);
+                        setCustomIcon(ct.icon);
+                        setFormData((p) => ({ ...p, icon: ct.icon, customTypeLabel: ct.label, type: ct.behavior === 'liability' ? 'debt' : 'debit' }));
+                      }}
+                      className="flex flex-col items-center justify-center py-3 px-1 rounded-xl border transition-all active:scale-95 w-full"
+                      style={sel
+                        ? { borderColor: themeConfig.primary, backgroundColor: `${themeConfig.primary}14`, color: themeConfig.primary }
+                        : { borderColor: '#e5e7eb', color: '#9ca3af' }}
+                    >
+                      <Icon name={ct.icon} size={20} color={sel ? themeConfig.primary : undefined} className={sel ? '' : 'text-gray-400'} />
+                      <span className="text-xs mt-1 font-medium leading-tight truncate max-w-full px-1">{ct.label}</span>
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteCustomType(e, ct)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center shadow-sm hover:bg-red-600 active:scale-90"
+                    >
+                      ×
+                    </button>
+                  </div>
                 );
               })}
 

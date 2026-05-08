@@ -344,7 +344,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
           setExcelError('');
         } else {
           setExcelData([]);
-          setExcelError('无法解析 CSV 文件，请确保格式正确（月份,账户名称,余额）');
+          setExcelError('无法解析 CSV 文件，请确保格式正确（月份,账户名称,账户类型,余额,币种）或（月份,账户名称,余额）');
         }
       };
       reader.onerror = () => {
@@ -1076,7 +1076,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
               {importMode === 'excel' && (
                 <>
                   <DialogDescription className="text-sm">
-                    上传 CSV 文件批量导入月度余额数据。表格格式：月份、账户名称、当月余额。导入后仅更新指定账户的指定月份，未填写的账户月份保持不变。
+                    上传 CSV 文件批量导入月度余额数据。表格格式：<b>月份(YYYY-MM)、账户名称、账户类型、余额、币种</b>（后两列可选）。如填写非默认分类，系统将自动创建该分类。导入后仅更新指定账户的指定月份，未填写的账户月份保持不变。
                   </DialogDescription>
 
                   <div className="py-3 space-y-3">
