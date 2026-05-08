@@ -1,5 +1,17 @@
 {
 	"appId": "com.ledger.app",
 	"appName": "记账本",
-	"webDir": "dist"
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	},
+	"android": {},
+	"ios": {
+		"contentInset": "always"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 0
+		}
+	}
 }

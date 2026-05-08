@@ -10,9 +10,6 @@ export function isAndroid(): boolean {
   return isNativePlatform() && (window as any).Capacitor.getPlatform() === 'android';
 }
 
-/**
- * 保存文件到设备：Android/iOS 使用 Capacitor Filesystem + Share，浏览器使用标准下载
- */
 export async function saveFileToDevice(
   data: string,
   fileName: string,
@@ -20,21 +17,27 @@ export async function saveFileToDevice(
 ): Promise<{ success: boolean; message: string; data?: string }> {
   try {
     if (isNativePlatform()) {
+      const filePath = `EasyLedger/${fileName}`;
       await Filesystem.writeFile({
-        path: `EasyLedger/${fileName}`,
+        path: filePath,
         data: data,
         directory: Directory.Documents,
         encoding: Encoding.UTF8,
         recursive: true,
       });
-      const filePath = `Documents/EasyLedger/${fileName}`;
+
+      const uri = await Filesystem.getUri({
+        path: filePath,
+        directory: Directory.Documents,
+      });
+
       await Share.share({
         title: '导出记账数据',
-        text: fileName,
-        url: `file://${filePath}`,
-        dialogTitle: '保存或分享文件',
+        text: `EasyLedger 导出文件: ${fileName}`,
+        url: uri.uri,
       });
-      return { success: true, message: `文件已保存到 ${filePath}` };
+
+      return { success: true, message: '文件已保存，可通过分享选择保存位置' };
     } else {
       const blob = new Blob([data], { type: mimeType });
       const url = URL.createObjectURL(blob);
