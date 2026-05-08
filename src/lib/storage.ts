@@ -1125,7 +1125,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
         customTypeLabel = parts[5] || undefined;
         accountIcon = parts[6] || undefined;
         isHidden = (parts[7] || '') === '1' ? true : (parts[7] || '') === '0' ? false : undefined;
-        // parts[8] = currency (跳过，从账户自身读取)
+        currency = parts[8] || 'CNY';
         balance = parseFloat((parts[9] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
         attributionTag = parts[10] || undefined;
         note = parts[11] || undefined;
@@ -1134,6 +1134,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
         customTypeLabel = parts[5] || undefined;
         accountIcon = parts[6] || undefined;
         isHidden = (parts[7] || '') === '1' ? true : (parts[7] || '') === '0' ? false : undefined;
+        currency = 'CNY';
         balance = parseFloat((parts[8] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
         attributionTag = parts[9] || undefined;
         note = parts[10] || undefined;
@@ -1141,6 +1142,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
         // 旧格式: 年份,月份,账户ID,账户名称,账户类型,账户图标,是否隐藏,余额,归因标签,备注
         accountIcon = parts[5] || undefined;
         isHidden = (parts[6] || '') === '1' ? true : (parts[6] || '') === '0' ? false : undefined;
+        currency = 'CNY';
         balance = parseFloat((parts[7] || '0').replace(/[¥￥]/g, '').replace(/,/g, '').replace(/\s+/g, ''));
         attributionTag = parts[8] || undefined;
         note = parts[9] || undefined;
@@ -1174,7 +1176,7 @@ export function parseExcelCSV(content: string): ExcelImportRow[] {
       currency = 'CNY';
     }
 
-    if (!year || !month || !accountName || isNaN(balance)) {
+    if (!year || !month || !accountName || !accountName.trim() || isNaN(balance)) {
       result.push({ year: year || 0, month: month || 0, accountName, balance: 0, currency: currency || 'CNY', attributionTag: 'ERROR_PARSE', note: `第${i + 1}行格式错误` });
       continue;
     }
@@ -1251,6 +1253,8 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
     // 第一遍：收集并自动创建不存在的账户
     const accountSet = new Set(data.accounts.map(a => normalizeAccountName(a.name)));
     for (const row of rows) {
+      if (!row.accountName || !row.accountName.trim()) continue;
+      
       const normalizedRowName = normalizeAccountName(row.accountName);
       if (!accountSet.has(normalizedRowName)) {
         // 检查是否已添加过
@@ -1265,6 +1269,21 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
             const resolved = resolveAccountType(row.accountType);
             if (resolved) {
               accountType = resolved;
+              // 如果同时有 customTypeLabel，需要注册自定义分类
+              if (row.customTypeLabel) {
+                customLabel = row.customTypeLabel;
+                behavior = (resolved === 'credit' || resolved === 'debt') ? 'liability' : 'asset';
+                if (!data.customAccountTypes) data.customAccountTypes = [];
+                const alreadyHasType = data.customAccountTypes.some(ct => ct.label === customLabel);
+                if (!alreadyHasType) {
+                  data.customAccountTypes.push({
+                    id: generateId(),
+                    label: customLabel,
+                    icon: row.accountIcon || 'wallet',
+                    behavior: behavior,
+                  });
+                }
+              }
             } else {
               // 非默认分类 → 自动创建自定义分类（直接在 data 上操作，避免覆盖）
               customLabel = row.accountType;
@@ -1504,6 +1523,22 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
 export function exportExcelTemplate(): string {
   const accounts = getAllAccounts();
   const BOM = '\uFEFF';
+  
+  const instructions: string[] = [
+    '# Easy Ledger 资产导入模板',
+    '# ============================',
+    '# 填写说明：',
+    '# 1. 月份格式：YYYY-MM，例如 2026-05',
+    '# 2. 账户类型：可填写内置类型（现金、储蓄卡、信用卡、网络支付、投资账户、借出、借入）',
+    '#    或填写自定义分类名称（如公积金、医保个账），系统会自动创建该分类',
+    '# 3. 余额：纯数字即可，负数表示欠款（如信用卡、借入）',
+    '# 4. 币种：填写货币代码，如 CNY（默认）、USD、HKD、EUR、JPY 等，不填则默认为人民币',
+    '# 5. 归因标签（可选）：如工资积累、投资收益、日常波动、奖金 等',
+    '# 6. 备注（可选）：任意文字说明',
+    '# 7. 可直接在本模板基础上修改数据后导入，也可删除示例行后自行添加',
+    '#',
+  ];
+  
   const header = '月份(YYYY-MM),账户名称,账户类型,余额,币种,归因标签(可选),备注(可选)';
 
   const now = new Date();
@@ -1513,12 +1548,14 @@ export function exportExcelTemplate(): string {
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const monthStr = `${year}-${month.toString().padStart(2, '0')}`;
-    const defaultAccount = accounts.length > 0 ? accounts[0].name : '账户名称';
-    const defaultType = accounts.length > 0 ? accounts[0].type : 'debit';
+    const defaultAccount = accounts.length > 0 ? accounts[0].name : '招商银行储蓄卡';
+    const defaultType = accounts.length > 0 
+      ? (accounts[0].customTypeLabel || '储蓄卡') 
+      : '储蓄卡';
     examples.push(`${monthStr},${defaultAccount},${defaultType},0.00,CNY,,`);
   }
 
-  return BOM + [header, ...examples].join('\n');
+  return BOM + [...instructions, header, ...examples].join('\n');
 }
 
 export function exportToCSV(startYear?: number, startMonth?: number, endYear?: number, endMonth?: number): string {
