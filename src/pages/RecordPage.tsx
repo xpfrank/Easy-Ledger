@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -314,7 +314,13 @@ function YearlyDashboard({
       // 优先使用 tagAmounts 中该标签的精确分配金额；
       // 若无自定义分配，则将总变动按标签数均分，避免多标签重复累计
       const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
-      tagMap[tag].totalChange += tagAmount;
+      const convertedTagAmount = convertToBaseCurrency(
+        tagAmount,
+        attr.currency || 'CNY',
+        attr.year,
+        attr.month
+      );
+      tagMap[tag].totalChange += convertedTagAmount;
     });
   });
 
@@ -681,19 +687,40 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     changePercent: number;
   } | null>(null);
 
+  // 用 ref 标记"待触发归因弹窗"，避免 state 异步时序问题
+  const pendingAttributionOpenRef = useRef(false);
+
   const themeConfig = THEMES[theme];
   const currencySymbol = getCurrencyConfig(baseCurrency).symbol;
 
+  // 同步外部 params 到内部 state（防止同路由切月份时 state 没更新）
+  useEffect(() => {
+    if (params?.year) setYear(params.year);
+    if (params?.month) setMonth(params.month);
+    if (params?.mode && params.mode !== recordMode) setRecordMode(params.mode);
+  }, [params?.year, params?.month, params?.mode]);
+
   // 处理外部传入的参数：自动打开归因编辑弹窗
   useEffect(() => {
-    if (params?.openAttributionEdit) {
-      if (recordMode === 'monthly') {
-        triggerPreview();
-      } else {
-        triggerYearlyAttribution();
-      }
+    if (!params?.openAttributionEdit) return;
+    const targetMode = params.mode ?? recordMode;
+    if (targetMode === 'yearly') {
+      triggerYearlyAttribution();
+    } else {
+      if (params.year) setYear(params.year);
+      if (params.month) setMonth(params.month);
+      setRecordMode('monthly');
+      pendingAttributionOpenRef.current = true;
     }
-  }, []);
+  }, [params?.openAttributionEdit]);
+
+  // 当 year/month/recordMode 更新后，检查是否有待触发的归因弹窗
+  useEffect(() => {
+    if (pendingAttributionOpenRef.current && recordMode === 'monthly') {
+      pendingAttributionOpenRef.current = false;
+      triggerPreview();
+    }
+  }, [year, month, recordMode]);
 
   useEffect(() => {
     // 从全局 props 接收 hideBalance
@@ -2450,13 +2477,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
               onEdit={() => {
                 const targetMonth = monthAttrDialog.month;
                 setMonthAttrDialog(null);
-                // 跳转回月度记账模式并自动打开归因编辑
-                onPageChange('record', {
-                  year,
-                  month: targetMonth,
-                  mode: 'monthly' as RecordMode,
-                  openAttributionEdit: true,
-                });
+                setRecordMode('monthly');
+                setMonth(targetMonth);
+                pendingAttributionOpenRef.current = true;
               }}
             />
           );
@@ -2489,12 +2512,9 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                   onClick={() => {
                     const targetMonth = monthAttrDialog.month;
                     setMonthAttrDialog(null);
-                    onPageChange('record', {
-                      year,
-                      month: targetMonth,
-                      mode: 'monthly' as RecordMode,
-                      openAttributionEdit: true,
-                    });
+                    setRecordMode('monthly');
+                    setMonth(targetMonth);
+                    pendingAttributionOpenRef.current = true;
                   }}
                 >
                   前往该月填写归因
