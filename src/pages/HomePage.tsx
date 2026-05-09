@@ -58,6 +58,38 @@ function formatHiddenAmount(amount: number, hide: boolean): string {
   return formatAmountNoSymbol(amount);
 }
 
+// SVG 环形图辅助函数
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
+  const angleRad = ((angleDeg - 90) * Math.PI) / 180;
+  return {
+    x: cx + r * Math.cos(angleRad),
+    y: cy + r * Math.sin(angleRad),
+  };
+}
+
+function describeDonutSegment(
+  cx: number,
+  cy: number,
+  outerR: number,
+  innerR: number,
+  startAngle: number,
+  endAngle: number
+) {
+  const outerStart = polarToCartesian(cx, cy, outerR, endAngle);
+  const outerEnd = polarToCartesian(cx, cy, outerR, startAngle);
+  const innerStart = polarToCartesian(cx, cy, innerR, endAngle);
+  const innerEnd = polarToCartesian(cx, cy, innerR, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+
+  return [
+    `M ${outerStart.x} ${outerStart.y}`,
+    `A ${outerR} ${outerR} 0 ${largeArcFlag} 0 ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `A ${innerR} ${innerR} 0 ${largeArcFlag} 1 ${innerStart.x} ${innerStart.y}`,
+    'Z',
+  ].join(' ');
+}
+
 export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance }: HomePageProps) {
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [netWorth, setNetWorth] = useState(0);
@@ -258,6 +290,56 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     ? (netWorthChange / Math.abs(lastMonthNetWorth)) * 100 
     : 0;
 
+  // ── 资产分布数据计算 ─────────────────────────────
+  const customTypes = getCustomAccountTypes();
+
+  // 颜色映射（按 label，支持自定义分类）
+  const LABEL_COLORS: Record<string, string> = {
+    '现金': '#0ea5e9',
+    '储蓄卡': '#38bdf8',
+    '网络支付': '#10b981',
+    '投资账户': '#f59e0b',
+    '借出': '#8b5cf6',
+  };
+  const DEFAULT_COLORS = ['#0ea5e9', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#64748b'];
+
+  const assetDistribution = accountGroups
+    .filter(g => {
+      // 1. 明确排除负债类内置类型
+      if (g.type === 'credit' || g.type === 'debt') return false;
+
+      // 2. 如果是自定义分类，查 behavior
+      const customType = customTypes.find(ct => ct.label === g.label);
+      if (customType) {
+        return customType.behavior !== 'liability';
+      }
+
+      // 3. 其余内置资产类保留
+      return true;
+    })
+    .map(g => ({
+      type: g.type,
+      label: g.label,
+      amount: g.totalBalance,
+    }))
+    .filter(item => item.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const totalAssetAmount = assetDistribution.reduce((sum, item) => sum + item.amount, 0);
+
+  // 智能金额格式化：超过百万显示"万"
+  const formatAmountSmart = (amount: number): string => {
+    if (hideBalance) return '******';
+    if (Math.abs(amount) >= 1000000) {
+      return (amount / 10000).toLocaleString('zh-CN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }) + '万';
+    }
+    return formatAmountNoSymbol(amount);
+  };
+  // ── 资产分布数据计算结束 ─────────────────────────
+
   return (
     <div className="pb-20 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
@@ -391,141 +473,143 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
           />
         )}
 
-        {/* 账户分组列表 */}
+        {/* 资产分布卡片 */}
         <div className="space-y-2">
-          <div className="flex justify-between items-center px-1">
-            <h2 className="text-sm font-medium text-gray-500">账户列表</h2>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-8"
-              style={{ color: themeConfig.primary }}
-              onClick={() => onPageChange('accounts')}
-            >
-              管理账户
-            </Button>
-          </div>
+          <Card className="bg-white overflow-hidden">
+            {/* 标题栏 */}
+            <div className="flex justify-between items-center px-5 pt-4 pb-2">
+              <h3 className="font-bold text-gray-800 text-base">资产分布</h3>
+              <button
+                onClick={() => onPageChange('accounts')}
+                className="px-3 py-1.5 rounded-full text-xs font-medium text-white flex items-center gap-1 active:scale-95 transition-transform"
+                style={{
+                  background: `linear-gradient(135deg, ${themeConfig.primary} 0%, ${themeConfig.gradientTo} 100%)`,
+                  boxShadow: `0 2px 8px ${themeConfig.primary}55`
+                }}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                管理
+              </button>
+            </div>
 
-          {accountGroups.length === 0 ? (
-            <Card className="bg-white">
+            {assetDistribution.length === 0 ? (
+              /* 无账户：空状态 */
               <CardContent className="p-8 text-center">
                 <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
                   <Wallet size={28} className="text-gray-400" />
                 </div>
                 <p className="text-gray-500 mb-4">还没有账户，添加一个吧</p>
-                <Button 
+                <Button
                   className="text-white"
                   style={{ backgroundColor: themeConfig.primary }}
-                  onClick={() => onPageChange('account-edit')}
+                  onClick={() => onPageChange('accounts')}
                 >
                   <Icon name="plus" size={18} className="mr-1" />
                   添加账户
                 </Button>
               </CardContent>
-            </Card>
-          ) : (
-            accountGroups.map((group) => (
-              <Card key={group.type} className="bg-white overflow-hidden">
-                {/* 分组标题 */}
-                <div
-                  className="flex items-center justify-between p-3.5 bg-white cursor-pointer select-none border-b border-gray-100 hover:bg-gray-50"
-                  onClick={() => toggleGroup(group.type)}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div 
-                      className="w-7 h-7 rounded-lg flex items-center justify-center bg-white shadow-sm"
-                      style={{ 
-                        color: group.type === 'credit' || group.type === 'debt' ? '#ef4444' : themeConfig.primary 
-                      }}
-                    >
-                      <Icon 
-                        name={getAccountTypeIcon(group.type)} 
-                        size={16} 
-                      />
-                    </div>
-                    <span className="font-semibold text-sm text-gray-800">{group.label}</span>
-                    <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full shadow-sm">{group.accounts.length}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium ${
-                      group.type === 'credit' && group.totalBalance < 0 ? 'text-green-600' : 
-                      group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
-                    }`}>
-                      {group.type === 'credit' ? (group.totalBalance > 0 ? '欠款' : '溢缴') : ''}
-                      {currencySymbol}{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(group.totalBalance) : group.totalBalance, hideBalance)}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleGroup(group.type);
-                      }}
-                      className="p-1.5 rounded-full bg-white hover:bg-gray-100 transition-colors text-gray-500 shadow-sm"
-                    >
-                      {group.isExpanded ? (
-                        <ChevronUp size={16} />
-                      ) : (
-                        <ChevronDown size={16} />
-                      )}
-                    </button>
+            ) : (
+              /* 有账户：大环形图 + 带进度条的表格 */
+              <CardContent className="p-5 pt-1 pb-4">
+                {/* 环形图 */}
+                <div className="flex justify-center mb-5">
+                  <div className="relative">
+                    <svg width="200" height="200" viewBox="0 0 200 200">
+                      {assetDistribution.map((item, index) => {
+                        const percentage = totalAssetAmount > 0 ? item.amount / totalAssetAmount : 0;
+                        const angle = percentage * 360;
+                        const startAngle = assetDistribution
+                          .slice(0, index)
+                          .reduce((sum, prev) => sum + (totalAssetAmount > 0 ? (prev.amount / totalAssetAmount) * 360 : 0), 0);
+                        const endAngle = startAngle + angle;
+                        const color = LABEL_COLORS[item.label] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+
+                        if (angle < 0.5) return null;
+
+                        return (
+                          <path
+                            key={String(item.type)}
+                            d={describeDonutSegment(100, 100, 84, 56, startAngle, endAngle)}
+                            fill={color}
+                            stroke="white"
+                            strokeWidth="3"
+                          />
+                        );
+                      })}
+                      <text x="100" y="88" textAnchor="middle" className="text-xs fill-gray-400">
+                        总资产
+                      </text>
+                      <text x="100" y="114" textAnchor="middle" className="text-lg font-bold fill-gray-800">
+                        {formatAmountSmart(totalAssetAmount)}
+                      </text>
+                    </svg>
                   </div>
                 </div>
 
-                {/* 账户列表 */}
-                {group.isExpanded && (
-                  <div className="divide-y divide-gray-100">
-                    {group.accounts.map((account) => {
-                      const records = getMonthlyRecordsByMonth(currentYear, currentMonth);
-                      const record = records.find(r => r.accountId === account.id);
-                      const balance = record ? record.balance : account.balance;
-                      const convertedBalance = convertToBaseCurrency(balance, account.currency || 'CNY', currentYear, currentMonth);
-                      const isCredit = account.type === 'credit';
-                      const isDebt = account.type === 'debt';
+                {/* 表头 */}
+                <div className="flex items-center px-1 pb-2 border-b border-gray-100 mb-1">
+                  <span className="text-xs text-gray-400 font-medium" style={{ width: '96px' }}>分类</span>
+                  <span className="text-xs text-gray-400 font-medium flex-1 text-center">趋势</span>
+                  <span className="text-xs text-gray-400 font-medium text-right" style={{ width: '90px' }}>金额</span>
+                  <span className="text-xs text-gray-400 font-medium text-right" style={{ width: '48px' }}>占比</span>
+                </div>
 
-                      return (
-                        <div 
-                          key={account.id}
-                          className="flex items-center justify-between p-3 hover:bg-gray-50 cursor-pointer"
-                          onClick={() => onPageChange('account-detail', { accountId: account.id })}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div 
-                              className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                                isCredit || isDebt ? 'bg-red-50' : ''
-                              }`}
-                              style={{ backgroundColor: isCredit || isDebt ? undefined : `${themeConfig.primary}15` }}
-                            >
-                              <Icon 
-                                name={account.icon} 
-                                size={18} 
-                                className={isCredit || isDebt ? 'text-red-500' : ''}
-                                color={isCredit || isDebt ? undefined : themeConfig.primary}
-                              />
-                            </div>
-                            <div>
-                              <div className="font-medium text-sm">{account.name}</div>
-                              {account.note && (
-                                <div className="text-xs text-gray-400">{account.note}</div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-medium ${
-                              isCredit ? (convertedBalance > 0 ? 'text-red-500' : 'text-green-600') : 
-                              isDebt ? 'text-red-500' : ''
-                            }`}>
-                              {isCredit ? (convertedBalance > 0 ? '欠款' : '溢缴') : ''}
-                              {currencySymbol}{formatHiddenAmount(isDebt ? Math.abs(convertedBalance) : isCredit ? Math.abs(convertedBalance) : convertedBalance, hideBalance)}
-                            </span>
-                            <ChevronRight size={16} className="text-gray-300" />
+                {/* 表格行 */}
+                <div className="space-y-0">
+                  {assetDistribution.map((item, index) => {
+                    const percentage = totalAssetAmount > 0 ? (item.amount / totalAssetAmount) * 100 : 0;
+                    const color = LABEL_COLORS[item.label] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+                    return (
+                      <div
+                        key={String(item.type)}
+                        className="flex items-center gap-2 py-2 border-b border-gray-50 last:border-b-0"
+                      >
+                        {/* 分类名：96px 宽，5-6个汉字不截断 */}
+                        <div className="flex items-center gap-1.5 flex-shrink-0" style={{ width: '96px' }}>
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: color }}
+                          />
+                          <span className="text-sm text-gray-700 truncate" title={item.label}>
+                            {item.label}
+                          </span>
+                        </div>
+
+                        {/* 进度条：自适应 */}
+                        <div className="flex-1 min-w-0 px-1">
+                          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${Math.max(percentage, 0.5)}%`, backgroundColor: color }}
+                            />
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </Card>
-            ))
-          )}
+
+                        {/* 金额：固定宽，右对齐，智能转"万" */}
+                        <span
+                          className="text-sm text-gray-600 font-medium tabular-nums text-right flex-shrink-0"
+                          style={{ width: '90px' }}
+                        >
+                          {formatAmountSmart(item.amount)}
+                        </span>
+
+                        {/* 占比：固定宽，右对齐，带颜色 */}
+                        <span
+                          className="text-sm font-bold tabular-nums text-right flex-shrink-0"
+                          style={{ width: '48px', color }}
+                        >
+                          {percentage.toFixed(1)}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            )}
+          </Card>
         </div>
       </div>
 
