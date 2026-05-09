@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, ChevronUp, Wallet, Eye, EyeOff, Plus, Handshake, ClipboardList } from 'lucide-react';
+import { ChevronRight, Wallet, Eye, EyeOff, Plus, Handshake, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
@@ -12,11 +12,9 @@ import { GoalBadge, HealthBadge } from '@/components/home/BadgeComponents';
 import type { Account, AccountType, PageRoute, ThemeType, YearlyGoal, HealthScore } from '@/types';
 import {
   getAccountsForMonth,
-  getMonthlyRecordsByMonth,
   getAccountBalanceForMonth,
   formatAmountNoSymbol,
   getExpandedGroups,
-  saveExpandedGroups,
   getSettings,
   getYearlyGoal,
   saveYearlyGoal,
@@ -262,24 +260,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     setYearlyGoal(goal);
     setGoalProgress(calculateGoalProgress(netWorth, goal));
     setShowGoalEdit(false);
-  };
-
-  const toggleGroup = (type: string) => {
-    // 获取当前状态并更新
-    setAccountGroups(prev => {
-      const newGroups = prev.map(g =>
-        g.type === type ? { ...g, isExpanded: !g.isExpanded } : g
-      );
-
-      // 保存展开状态到本地存储
-      const expandedState: Record<string, boolean> = {};
-      newGroups.forEach(g => {
-        expandedState[g.type] = g.isExpanded;
-      });
-      saveExpandedGroups(expandedState);
-
-      return newGroups;
-    });
   };
 
   // 获取账户数量（用于显示）
@@ -652,20 +632,4 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   );
 }
 
-function getAccountTypeIcon(type: string): string {
-  if (type.startsWith('custom_')) {
-    const label = type.replace('custom_', '');
-    const saved = getCustomAccountTypes().find(ct => ct.label === label);
-    return saved?.icon || 'circle';
-  }
-  const iconMap: Record<string, string> = {
-    'cash': 'banknote',
-    'debit': 'credit-card',
-    'credit': 'credit-card',
-    'digital': 'wallet',
-    'investment': 'trending-up',
-    'loan': 'handshake',
-    'debt': 'clipboard',
-  };
-  return iconMap[type] || 'circle';
-}
+
