@@ -1366,20 +1366,22 @@ export function batchImportFromExcel(rows: ExcelImportRow[], mergeMode: 'overwri
       );
 
       if (existingRecord) {
+        const parsedTag = row.attributionTag ? parseAttributionTagFromLabel(row.attributionTag) : null;
         attributionData.push({
           year: Number(year),
           month: Number(month),
           change: row.balance - existingRecord.balance,
-          tags: row.attributionTag ? [row.attributionTag as AttributionTag] : [],
+          tags: parsedTag ? [parsedTag] : [],
           note: row.note
         });
         existingRecord.balance = row.balance;
       } else {
+        const parsedTag = row.attributionTag ? parseAttributionTagFromLabel(row.attributionTag) : null;
         attributionData.push({
           year: Number(year),
           month: Number(month),
           change: row.balance,
-          tags: row.attributionTag ? [row.attributionTag as AttributionTag] : [],
+          tags: parsedTag ? [parsedTag] : [],
           note: row.note
         });
         data.records.push({
