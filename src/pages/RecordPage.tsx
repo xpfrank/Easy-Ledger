@@ -245,6 +245,9 @@ interface YearlyDashboardProps {
   onEditAttribution: () => void;
   onMonthClick: (month: number, nw: number, changePercent: number) => void;
   currencySymbol: string;
+  onPrevYear: () => void;
+  onNextYear: () => void;
+  onOpenYearPicker: () => void;
 }
 
 function fmtShort(n: number): string {
@@ -264,6 +267,9 @@ function YearlyDashboard({
   onEditAttribution,
   onMonthClick,
   currencySymbol,
+  onPrevYear,
+  onNextYear,
+  onOpenYearPicker,
 }: YearlyDashboardProps) {
   const monthSnapshots = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
@@ -374,42 +380,72 @@ function YearlyDashboard({
 
   return (
     <div className="space-y-3">
+      {/* 年度净资产卡片：年份选择器融入顶部 */}
       <div
-        className="rounded-2xl p-5 text-white shadow-lg"
+        className="rounded-2xl overflow-hidden text-white shadow-lg"
         style={{
           background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)`,
         }}
       >
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-white/75 text-xs font-medium">年度净资产</span>
-
-          <span className="bg-white/20 rounded-full px-3 py-1 text-xs font-medium backdrop-blur-sm">
-            {hideBalance ? '******' : (
-              <>
-                较上年 {yoyChange >= 0 ? '+' : ''}{currencySymbol}{fmt(yoyChange)}
-                <span className="opacity-80 ml-1">
-                  ({yoyChange >= 0 ? '+' : ''}{yoyPct.toFixed(1)}%)
-                </span>
-              </>
-            )}
-          </span>
+        {/* 顶部：年份导航 */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-4">
+          <button
+            onClick={onPrevYear}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+          >
+            <ChevronLeft size={20} className="text-white" />
+          </button>
+          
+          {/* 年份文字可点击，打开年份选择器 */}
+          <button
+            onClick={onOpenYearPicker}
+            className="flex flex-col items-center hover:bg-white/20 px-4 py-1 rounded-xl transition-colors"
+          >
+            <span className="text-xl font-bold text-white">{year}年</span>
+            <span className="text-sm text-white/60 mt-1">年度记账</span>
+          </button>
+          
+          <button
+            onClick={onNextYear}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+          >
+            <ChevronRight size={20} className="text-white" />
+          </button>
         </div>
 
-        <div className="text-3xl font-bold tracking-tight mb-4">
-          {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${fmt(netWorth)}`}
-        </div>
+        <div className="px-5 pb-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-white/75 text-xs font-medium">年度净资产</span>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
-            <div className="text-[11px] text-white/70 mb-1">年度峰值</div>
-            <div className="text-base font-semibold">
-              {hideBalance ? '******' : `${currencySymbol}${fmt(peakNw)}`}
-            </div>
+            <span className="bg-white/20 rounded-full px-3 py-1 text-xs font-medium backdrop-blur-sm">
+              {hideBalance ? '******' : (
+                <>
+                  较上年 {yoyChange >= 0 ? '+' : ''}{currencySymbol}{fmt(yoyChange)}
+                  <span className="opacity-80 ml-1">
+                    ({yoyChange >= 0 ? '+' : ''}{yoyPct.toFixed(1)}%)
+                  </span>
+                </>
+              )}
+            </span>
           </div>
-          <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
-            <div className="text-[11px] text-white/70 mb-1">年度平均</div>
-            <div className="text-base font-semibold">
-              {hideBalance ? '******' : `${currencySymbol}${fmt(avgNw)}`}
+
+          {/* 金额字号改大：text-3xl → text-4xl */}
+          <div className="text-4xl font-bold tracking-tight mb-4">
+            {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${fmt(netWorth)}`}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
+              <div className="text-[11px] text-white/70 mb-1">年度峰值</div>
+              <div className="text-base font-semibold">
+                {hideBalance ? '******' : `${currencySymbol}${fmt(peakNw)}`}
+              </div>
+            </div>
+            <div className="bg-white/15 rounded-xl p-3 backdrop-blur-sm">
+              <div className="text-[11px] text-white/70 mb-1">年度平均</div>
+              <div className="text-base font-semibold">
+                {hideBalance ? '******' : `${currencySymbol}${fmt(avgNw)}`}
+              </div>
             </div>
           </div>
         </div>
@@ -1252,74 +1288,65 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       <div className="h-14"></div>
 
       <div className="p-3 space-y-3">
-        {/* 月份/年份选择器 - 紧凑版 */}
-        <Card className="bg-white shadow-sm">
-          <CardContent className="p-2">
-            <div className="flex items-center justify-between">
-              <Button variant="ghost" size="icon" onClick={goToPrev} className="hover:bg-gray-100 h-8 w-8">
-                <ChevronLeft size={18} />
-              </Button>
-
-              {recordMode === 'monthly' ? (
-                <button
-                  className="flex items-center gap-1.5 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-all"
-                  onClick={() => setShowMonthPicker(true)}
-                >
-                  <span className="text-lg font-bold text-gray-900">{formatMonth(year, month)}</span>
-                  <ChevronDown size={14} className="text-gray-400" />
-                </button>
-              ) : (
-                <button
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-                  onClick={() => setShowYearPicker(true)}
-                >
-                  <span className="text-lg font-bold text-gray-900">{year}年</span>
-                  <ChevronDown size={14} className="text-gray-400" />
-                </button>
-              )}
-
-              <Button variant="ghost" size="icon" onClick={goToNext} className="hover:bg-gray-100 h-8 w-8">
-                <ChevronRight size={18} />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-{/* 净资产汇总 - 月度模式显示 */}
+{/* 净资产汇总 - 月度模式：月份选择器融入顶部 */}
         {recordMode === 'monthly' && (
           <Card
-            className="text-white shadow-lg"
+            className="text-white shadow-lg overflow-hidden"
             style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
           >
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-white/80 text-xs font-medium">
-                  本月净资产
-                </span>
-                <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
-                  change >= 0 ? 'text-white' : 'text-red-100'
-                }`}>
-                  较上月 {hideBalance ? '******' : (
-                    <>
-                      {change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(change)}
-                      <span className="ml-0.5 opacity-80">
-                        ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
-                      </span>
-                    </>
-                  )}
-                </span>
+            <CardContent className="p-0">
+              {/* 顶部：月份导航（融入卡片） */}
+              <div className="flex items-center justify-between px-5 pt-4 pb-4">
+                <button
+                  onClick={goToPrev}
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <ChevronLeft size={20} className="text-white" />
+                </button>
+                <button
+                  className="flex items-center gap-1 hover:bg-white/20 px-4 py-1.5 rounded-xl transition-colors"
+                  onClick={() => setShowMonthPicker(true)}
+                >
+                  <span className="text-xl font-bold text-white">{formatMonth(year, month)}</span>
+                  <ChevronDown size={14} className="text-white/70" />
+                </button>
+                <button
+                  onClick={goToNext}
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors"
+                >
+                  <ChevronRight size={20} className="text-white" />
+                </button>
               </div>
 
-              <div className="text-2xl font-bold mb-3 tracking-tight">{currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}</div>
-
-              <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
-                <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
-                  <div className="text-xs text-white/70 mb-0.5">总资产</div>
-                  <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalAssets, hideBalance)}</div>
+              <div className="px-5 pb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white/80 text-xs font-medium">本月净资产</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-sm font-medium ${
+                    change >= 0 ? 'text-white' : 'text-red-100'
+                  }`}>
+                    较上月 {hideBalance ? '******' : (
+                      <>
+                        {change >= 0 ? '+' : ''}{currencySymbol}{formatAmountNoSymbol(change)}
+                        <span className="ml-0.5 opacity-80">
+                          ({change >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)
+                        </span>
+                      </>
+                    )}
+                  </span>
                 </div>
-                <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
-                  <div className="text-xs text-white/70 mb-0.5">负资产</div>
-                  <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+
+                {/* 金额字号改大：text-2xl → text-4xl */}
+                <div className="text-4xl font-bold mb-3 tracking-tight">{currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}</div>
+
+                <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
+                  <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                    <div className="text-xs text-white/70 mb-0.5">总资产</div>
+                    <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalAssets, hideBalance)}</div>
+                  </div>
+                  <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
+                    <div className="text-xs text-white/70 mb-0.5">负资产</div>
+                    <div className="font-semibold text-base">{currencySymbol}{formatHiddenAmount(totalLiabilities, hideBalance)}</div>
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -1389,20 +1416,30 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
               setMonthAttrDialog({ month: m, nw, changePercent })
             }
             currencySymbol={currencySymbol}
+            onPrevYear={goToPrev}
+            onNextYear={goToNext}
+            onOpenYearPicker={() => setShowYearPicker(true)}
           />
         ) : (
           <div className="space-y-3">
-            <div className="flex justify-between items-center px-1">
-              <h2 className="text-sm font-medium text-gray-500">账户余额</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-sm"
+            {/* 账户余额标题：通栏+绿色竖线+账户数量+管理按钮 */}
+            <div className="flex items-center justify-between px-1 py-1">
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-5 rounded-full" style={{ background: `linear-gradient(180deg, ${themeConfig.primary} 0%, ${themeConfig.gradientTo} 100%)` }}></div>
+                <span className="font-bold text-gray-800">账户余额</span>
+                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{accounts.length}个账户</span>
+              </div>
+              <button
+                className="flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded-full hover:bg-gray-100 transition-colors active:scale-95"
                 style={{ color: themeConfig.primary }}
                 onClick={() => onPageChange('accounts')}
               >
-                管理账户
-              </Button>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                管理
+              </button>
             </div>
 
             {accounts.length === 0 ? (
