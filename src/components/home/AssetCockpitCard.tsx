@@ -399,18 +399,6 @@ export function AssetCockpitCard({
           </div>
         </div>
 
-        {/* ── 分类提醒 ── */}
-        {needsClassify && (
-          <div
-            className="mx-[18px] mb-2.5 flex items-center justify-between px-3 py-2 rounded-[10px] bg-amber-50 border border-amber-200"
-            onClick={(e) => { e.stopPropagation(); onClassifyClick?.(); }}
-          >
-            <span className="text-[11.5px] text-amber-800 font-medium">
-              {classifiedCount}/{totalCount} 账户已分类
-            </span>
-            <span className="text-[11px] font-bold text-amber-700">去分类 ›</span>
-          </div>
-        )}
 
         {/* ── 分数环 + 变化 ── */}
         <div className="flex items-center gap-3 px-[18px] mb-3">
@@ -464,11 +452,14 @@ export function AssetCockpitCard({
             </div>
             <button
               onClick={handleViewDetail}
-              className="flex items-center gap-1 shrink-0 px-3 py-2 rounded-lg text-[12px] font-bold border"
-              style={{ borderColor: `${primaryColor}30`, color: primaryColor, backgroundColor: `${primaryColor}08` }}
+              className="flex items-center gap-1 shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-medium"
+              style={{ color: primaryColor, backgroundColor: `${primaryColor}12` }}
             >
-              {needsClassify ? '去分类' : '查看健康分析'}
-              <ChevronRight size={14} />
+              {needsClassify ? (
+                <>{totalCount - classifiedCount}个账户待分类 <ChevronRight size={14} /></>
+              ) : (
+                <>查看健康分析 <ChevronRight size={14} /></>
+              )}
             </button>
           </div>
         </div>
@@ -550,47 +541,42 @@ export function AssetCockpitCard({
                 const prevNW = calculateNetWorth(getAccountsForMonth(prevY, prevM).filter(a => !a.isHidden), prevY, prevM);
                 const changePct = prevNW !== 0 ? ((curNW - prevNW) / Math.abs(prevNW)) * 100 : 0;
                 const isUp = changePct >= 0;
+                const sd = healthScore.volatilityScore.standardDeviation;
+                const marks = [0, 20, 40, 60, 80, 100];
+                const barColor = sd <= 20 ? '#22c55e' : sd <= 40 ? '#3b82f6' : sd <= 60 ? '#eab308' : sd <= 80 ? '#f97316' : '#ef4444';
                 return (
-                  <div className="shrink-0 text-center">
-                    <div className="text-[16px] font-extrabold leading-none" style={{ color: isUp ? primaryColor : '#c57a00' }}>
-                      {hideBalance ? '***' : `${isUp ? '+' : ''}${changePct.toFixed(1)}%`}
+                  <>
+                    <div className="shrink-0 text-center">
+                      <div className="text-[16px] font-extrabold leading-none" style={{ color: isUp ? primaryColor : '#c57a00' }}>
+                        {hideBalance ? '***' : `${isUp ? '+' : ''}${changePct.toFixed(1)}%`}
+                      </div>
+                      <div className="text-[8px] text-gray-400 mt-0.5">本月波动</div>
                     </div>
-                    <div className="text-[8px] text-gray-400 mt-0.5">本月波动</div>
-                  </div>
-                );
-              })()}
-              <div className="shrink-0 text-center">
-                <div className="text-[12px] font-bold text-gray-400">
-                  {hideBalance ? '***' : `${healthScore.volatilityScore.standardDeviation}%`}
-                </div>
-                <div className="text-[8px] text-gray-300 mt-0.5">标准差</div>
-              </div>
-              <div className="flex-1 min-w-0">
-                {(() => {
-                  const sd = healthScore.volatilityScore.standardDeviation;
-                  const max = Math.max(sd * 1.3, 22);
-                  const marks = [2, 5, 10, 20];
-                  return (
-                    <>
+                    <div className="shrink-0 text-center">
+                      <div className="text-[12px] font-bold text-gray-400">
+                        {hideBalance ? '***' : `${healthScore.volatilityScore.standardDeviation}%`}
+                      </div>
+                      <div className="text-[8px] text-gray-300 mt-0.5">标准差</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
                       <div className="relative h-[5px] bg-gray-200 rounded-full">
                         <div
                           className="absolute top-[-2px] bottom-[-2px] w-[3px] rounded-full"
-                          style={{ left: `${Math.min((sd / max) * 100, 100)}%`, backgroundColor: primaryColor }}
+                          style={{ left: `${Math.min(sd, 100)}%`, backgroundColor: barColor }}
                         />
-                        {marks.filter(m => m < max).map(m => (
-                          <div key={m} className="absolute top-[-2px] bottom-[-2px] w-[1px] bg-gray-300" style={{ left: `${(m / max) * 100}%` }} />
+                        {marks.map(m => (
+                          <div key={m} className={`absolute top-[-2px] bottom-[-2px] w-[1px] ${m === 0 || m === 100 ? "bg-gray-200" : "bg-gray-300"}`} style={{ left: `${m}%` }} />
                         ))}
                       </div>
                       <div className="flex justify-between mt-0.5">
-                        <span className="text-[7px] text-gray-300">0</span>
-                        {marks.filter(m => m < max).map(m => (
+                        {marks.map(m => (
                           <span key={m} className="text-[7px] text-gray-300">{m}%</span>
                         ))}
                       </div>
-                    </>
-                  );
-                })()}
-              </div>
+                    </div>
+                  </>
+                );
+              })()}
               <CockpitMiniBar primaryColor={primaryColor} />
             </div>
           </div>

@@ -737,9 +737,11 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   // 记账页拖拽状态
   const [recordDraggingId, setRecordDraggingId] = useState<string | null>(null);
   const [recordDragOverIndex, setRecordDragOverIndex] = useState<number | null>(null);
-  const [recordDragGhostPos, setRecordDragGhostPos] = useState<{ y: number; text: string } | null>(null);
   const recordDragRef = useRef<{ startY: number; accountId: string; itemHeight: number; startIndex: number } | null>(null);
   const recordDragOverIndexRef = useRef<number | null>(null);
+  const recordGhostRef = useRef<HTMLDivElement | null>(null);
+  const recordGhostTextRef = useRef<HTMLSpanElement | null>(null);
+  const recordRafRef = useRef<number>(0);
 
   const themeConfig = THEMES[theme];
   const currencySymbol = getCurrencyConfig(baseCurrency).symbol;
@@ -1555,7 +1557,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                       <div
                         key={account.id}
                         data-record-index={index}
-                        className={`p-4 transition-all duration-200 ${
+                        className={`p-4 ${recordDraggingId ? '' : 'transition-all duration-200'} ${
                           isRecordSortMode
                             ? recordDraggingId === account.id
                               ? 'scale-[1.04] shadow-2xl bg-blue-50/80 border border-blue-300 rounded-xl z-10 relative ring-2 ring-blue-200/60'
@@ -1565,10 +1567,15 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                             : 'hover:bg-gray-50 cursor-pointer'
                         } ${
                           isRecordSortMode && recordDragOverIndex === index && recordDraggingId !== account.id
-                            ? 'border-l-[4px] border-l-blue-500 bg-blue-50/60 pl-[13px]'
+                            ? 'border-l-[4px] bg-blue-50/60 pl-[13px]'
                             : ''
                         }`}
-                        style={{ animationDelay: `${index * 50}ms` }}
+                        style={{
+                          ...(isRecordSortMode && recordDragOverIndex === index && recordDraggingId !== account.id
+                            ? { borderLeftColor: themeConfig.primary }
+                            : {}),
+                          animationDelay: `${index * 50}ms`,
+                        }}
                         onClick={() => !isRecordSortMode && onPageChange('account-detail', { accountId: account.id })}
                       >
                         <div className="flex items-center justify-between">
@@ -1638,32 +1645,44 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                 className={`p-1.5 rounded-md transition-colors touch-none select-none cursor-grab active:cursor-grabbing ${
                                   recordDraggingId === account.id ? 'bg-blue-100' : 'bg-blue-50 hover:bg-blue-100'
                                 }`}
+                                style={{ touchAction: 'none' }}
                                 onTouchStart={(e) => {
                                   e.stopPropagation();
                                   recordDragRef.current = { startY: e.touches[0].clientY, accountId: account.id, itemHeight: 72, startIndex: index };
                                   setRecordDraggingId(account.id);
                                   setRecordDragOverIndex(index);
                                   recordDragOverIndexRef.current = index;
-                                  setRecordDragGhostPos({ y: e.touches[0].clientY - 30, text: account.name });
+                                  if (recordGhostRef.current) {
+                                    recordGhostRef.current.style.top = (e.touches[0].clientY - 30) + 'px';
+                                    recordGhostRef.current.style.display = 'block';
+                                    if (recordGhostTextRef.current) recordGhostTextRef.current.textContent = account.name;
+                                  }
                                   if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                                 }}
                                 onTouchMove={(e) => {
                                   if (!recordDragRef.current) return;
                                   e.preventDefault();
-                                  const touch = e.touches[0];
-                                  setRecordDragGhostPos({ y: touch.clientY - 30, text: account.name });
-                                  const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                                  const row = el?.closest('[data-record-index]');
-                                  if (row) {
-                                    const idx = parseInt(row.getAttribute('data-record-index') || '-1', 10);
-                                    if (idx >= 0) { setRecordDragOverIndex(idx); recordDragOverIndexRef.current = idx; }
-                                  }
+                                  if (recordRafRef.current) return;
+                                  recordRafRef.current = requestAnimationFrame(() => {
+                                    recordRafRef.current = 0;
+                                    const touch = e.touches[0];
+                                    if (recordGhostRef.current) recordGhostRef.current.style.top = (touch.clientY - 30) + 'px';
+                                    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                                    const row = el?.closest('[data-record-index]');
+                                    if (row) {
+                                      const idx = parseInt(row.getAttribute('data-record-index') || '-1', 10);
+                                      if (idx >= 0 && idx !== recordDragOverIndexRef.current) {
+                                        recordDragOverIndexRef.current = idx;
+                                        setRecordDragOverIndex(idx);
+                                      }
+                                    }
+                                  });
                                 }}
                                 onTouchEnd={(e) => {
                                   e.stopPropagation();
+                                  if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = 0; }
                                   if (recordDragRef.current && recordDragOverIndexRef.current !== null && recordDragOverIndexRef.current !== recordDragRef.current.startIndex) {
                                     dragReorderAccountForRecord(recordDragRef.current.accountId, recordDragOverIndexRef.current);
-                                    // 重新加载排序后列表
                                     const sortConfig = getRecordSortOrder();
                                     setAccounts(prev => [...prev].sort((a, b) => {
                                       const oA = sortConfig[a.id] ?? (a.recordSortOrder ?? 999999);
@@ -1671,10 +1690,10 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                       return oA - oB;
                                     }));
                                   }
+                                  if (recordGhostRef.current) recordGhostRef.current.style.display = 'none';
                                   setRecordDraggingId(null);
                                   setRecordDragOverIndex(null);
                                   recordDragOverIndexRef.current = null;
-                                  setRecordDragGhostPos(null);
                                   recordDragRef.current = null;
                                 }}
                                 onMouseDown={(e) => {
@@ -1683,19 +1702,31 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                   setRecordDraggingId(account.id);
                                   setRecordDragOverIndex(index);
                                   recordDragOverIndexRef.current = index;
-                                  setRecordDragGhostPos({ y: e.clientY - 30, text: account.name });
+                                  if (recordGhostRef.current) {
+                                    recordGhostRef.current.style.top = (e.clientY - 30) + 'px';
+                                    recordGhostRef.current.style.display = 'block';
+                                    if (recordGhostTextRef.current) recordGhostTextRef.current.textContent = account.name;
+                                  }
                                   if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                                   const handleMove = (me: MouseEvent) => {
                                     if (!recordDragRef.current) return;
-                                    setRecordDragGhostPos({ y: me.clientY - 30, text: account.name });
-                                    const el = document.elementFromPoint(me.clientX, me.clientY);
-                                    const row = el?.closest('[data-record-index]');
-                                    if (row) {
-                                      const idx = parseInt(row.getAttribute('data-record-index') || '-1', 10);
-                                      if (idx >= 0) { setRecordDragOverIndex(idx); recordDragOverIndexRef.current = idx; }
-                                    }
+                                    if (recordRafRef.current) return;
+                                    recordRafRef.current = requestAnimationFrame(() => {
+                                      recordRafRef.current = 0;
+                                      if (recordGhostRef.current) recordGhostRef.current.style.top = (me.clientY - 30) + 'px';
+                                      const el = document.elementFromPoint(me.clientX, me.clientY);
+                                      const row = el?.closest('[data-record-index]');
+                                      if (row) {
+                                        const idx = parseInt(row.getAttribute('data-record-index') || '-1', 10);
+                                        if (idx >= 0 && idx !== recordDragOverIndexRef.current) {
+                                          recordDragOverIndexRef.current = idx;
+                                          setRecordDragOverIndex(idx);
+                                        }
+                                      }
+                                    });
                                   };
                                   const handleUp = () => {
+                                    if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = 0; }
                                     if (recordDragRef.current && recordDragOverIndexRef.current !== null && recordDragOverIndexRef.current !== recordDragRef.current.startIndex) {
                                       dragReorderAccountForRecord(recordDragRef.current.accountId, recordDragOverIndexRef.current);
                                       const sortConfig = getRecordSortOrder();
@@ -1705,10 +1736,10 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                         return oA - oB;
                                       }));
                                     }
-                                    setRecordDraggingId(null);
+                                    if (recordGhostRef.current) recordGhostRef.current.style.display = 'none';
+                                      setRecordDraggingId(null);
                                     setRecordDragOverIndex(null);
                                     recordDragOverIndexRef.current = null;
-                                    setRecordDragGhostPos(null);
                                     recordDragRef.current = null;
                                     document.removeEventListener('mousemove', handleMove);
                                     document.removeEventListener('mouseup', handleUp);
@@ -2789,23 +2820,19 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
         }
       `}</style>
 
-      {/* 记账页拖拽幽灵卡片 */}
-      {recordDragGhostPos && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
-          style={{
-            top: recordDragGhostPos.y,
-            animation: 'drag-ghost-in 0.15s ease-out',
-          }}
-        >
-          <div className="bg-white/95 backdrop-blur-sm shadow-[0_12px_40px_rgba(0,0,0,0.18)] rounded-xl px-4 py-3 border border-blue-200/60 flex items-center gap-3 min-w-[200px]">
-            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-              <GripVertical size={16} className="text-blue-500" />
-            </div>
-            <span className="font-medium text-sm text-gray-800">{recordDragGhostPos.text}</span>
+      {/* 记账页拖拽幽灵卡片 — ref 驱动，不触发 React 重渲染 */}
+      <div
+        ref={recordGhostRef}
+        className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
+        style={{ display: 'none', willChange: 'transform', contain: 'layout style' }}
+      >
+        <div className="bg-white/95 backdrop-blur-sm shadow-[0_12px_40px_rgba(0,0,0,0.18)] rounded-xl px-4 py-3 border border-blue-200/60 flex items-center gap-3 min-w-[200px]">
+          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+            <GripVertical size={16} className="text-blue-500" />
           </div>
+          <span ref={recordGhostTextRef} className="font-medium text-sm text-gray-800"></span>
         </div>
-      )}
+      </div>
     </div>
   );
 }

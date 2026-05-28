@@ -161,6 +161,7 @@ function MonthRow({ month, themeColor, formatBalance, currencySymbol, onView, on
           </button>
         </div>
       </div>
+
     </div>
   );
 }
@@ -241,7 +242,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
   const [selectedData, setSelectedData] = useState<TrendData | null>(null);
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [hideBalance, setHideBalance] = useState(false);
-  const [filterTag, setFilterTag] = useState<FilterTag>('all');
+  const [selectedFilters, setSelectedFilters] = useState<Set<string>>(new Set(['all']));
+  const [showFilterModal, setShowFilterModal] = useState(false);
 
   // 季度聚合视图状态
   const [quarterlyHistory, setQuarterlyHistory] = useState<QuarterlyNetWorth[]>([]);
@@ -535,9 +537,9 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
     }
   }, [monthlyHistory, useQuarterlyView]);
 
-  // 根据筛选标签计算是否过滤
+  // 根据筛选标签计算是否过滤（支持多选）
   const filteredHistory = useMemo(() => {
-    if (filterTag === 'all') return history;
+    if (selectedFilters.has('all') || selectedFilters.size === 0) return history;
 
     return history.map((point: TrendPoint | YearlyNetWorth | QuarterlyNetWorth) => {
       const hasAttribution = 'attribution' in point && point.attribution && point.attribution.tags?.length > 0;
@@ -546,19 +548,19 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       }
 
       let shouldShow = false;
-      
-      // 异常波动：按波动等级筛选
-      if (filterTag === 'abnormal') {
+
+      if (selectedFilters.has('abnormal')) {
         shouldShow = point.attribution!.fluctuationLevel === 'abnormal';
-      } 
-      // 通用标签匹配：直接比对标签 ID（支持自定义标签）
-      else {
-        shouldShow = (point.attribution!.tags as string[]).includes(filterTag);
+      }
+
+      if (!shouldShow) {
+        const tags = point.attribution!.tags as string[];
+        shouldShow = tags.some(tag => selectedFilters.has(tag));
       }
 
       return { ...point, isFiltered: !shouldShow };
     });
-  }, [history, filterTag, trendType]);
+  }, [history, selectedFilters, trendType]);
 
   // 为 Recharts 准备格式化数据（需要在 extremePointsInfo 之前计算）
   const rechartsData = useMemo(() => {
@@ -788,32 +790,24 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           </div>
         </div>
 
-        {/* 归因筛选 */}
-        <div className="bg-white rounded-xl border border-gray-100 p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Filter size={12} className="text-gray-400" />
-            <span className="text-xs text-gray-400 font-medium">归因筛选</span>
-            <span className="text-xs text-gray-300 ml-auto">
-              {filterTagList.length - 2 > 0 ? `已使用 ${filterTagList.length - 2} 个标签` : '暂无归因数据'}
-            </span>
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
-            {filterTagList.map(item => (
-              <button
-                key={item.id}
-                className={`px-2.5 py-1 rounded-lg text-xs whitespace-nowrap transition-all flex-shrink-0 border ${
-                  filterTag === item.id
-                    ? 'bg-gray-900 text-white border-gray-900 font-medium'
-                    : 'bg-gray-50 text-gray-600 border-transparent hover:bg-gray-100'
-                }`}
-                onClick={() => setFilterTag(item.id)}
-              >
-                <span className="mr-0.5">{item.emoji}</span>
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* 归因筛选入口 */}
+        <button
+          className="w-full bg-white rounded-xl border border-gray-100 p-3 flex items-center gap-2 transition-colors hover:bg-gray-50 active:scale-[0.99]"
+          onClick={() => setShowFilterModal(true)}
+        >
+          <Filter size={14} className="text-gray-400" />
+          <span className="text-xs font-medium text-gray-600">归因筛选</span>
+          <span className="text-xs text-gray-400 ml-auto flex items-center gap-1">
+            {(() => {
+              if (selectedFilters.has('all')) return '全部';
+              const labels: string[] = [];
+              if (selectedFilters.has('abnormal')) labels.push('异常');
+              filterTagList.filter(t => t.id !== 'all' && t.id !== 'abnormal' && selectedFilters.has(t.id)).forEach(t => labels.push(t.label));
+              return labels.length > 0 ? labels.join('、') : '未选择';
+            })()}
+            <ChevronDown size={12} />
+          </span>
+        </button>
 
         {filteredHistory.filter((h: any) => !h.isFiltered).length === 0 ? (
           <Card className="bg-white">
@@ -871,11 +865,11 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                         <XAxis 
                           dataKey="label" 
-                          tick={{ fontSize: 10 }}
+                          tick={{ fontSize: 9 }}
                           axisLine={false}
                           tickLine={false}
                           allowDataOverflow={true}
-                          interval={rechartsData.length > 16 ? 2 : rechartsData.length > 8 ? 1 : 0}
+                          interval={0}
                           tickFormatter={(value) => {
                             if (trendType === 'yearly') return value;
                             const item = rechartsData.find((d: any) => d.label === value);
@@ -884,8 +878,8 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                               if (item.quarter === 1) return `${item.year}年`;
                               return value;
                             }
-                            if (item.month === 1) return `${item.year}年`;
-                            return value.split('-')[1] + '月';
+                            if (item.month === 1) return `${item.year}`;
+                            return `${item.month}月`;
                           }}
                         />
                         <YAxis 
@@ -949,31 +943,30 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
                         />
                         {/* 年度分割线 */}
                         {rechartsData.map((item: any, index: number) => {
-                          if (index > 0) {
-                            if (trendType === 'monthly' && !useQuarterlyView && item.month === 1) {
-                              return (
-                                <ReferenceLine
-                                  key={`boundary-${item.year}`}
-                                  x={item.label}
-                                  stroke="#9ca3af"
-                                  strokeWidth={1}
-                                  ifOverflow="extendDomain"
-                                />
-                              );
-                            }
-                            if (useQuarterlyView && item.quarter === 1) {
-                              return (
-                                <ReferenceLine
-                                  key={`boundary-${item.year}-Q${item.quarter}`}
-                                  x={item.label}
-                                  stroke="#9ca3af"
-                                  strokeWidth={1}
-                                  ifOverflow="extendDomain"
-                                />
-                              );
-                            }
-                          }
-                          return null;
+                          if (index === 0) return null;
+                          const prev = rechartsData[index - 1];
+                          const isYearBoundary = trendType === 'monthly' && !useQuarterlyView
+                            ? (item.month === 1 && prev.month === 12 && item.year === prev.year + 1) || (item.year !== prev.year)
+                            : useQuarterlyView
+                              ? (item.quarter === 1 && item.year !== prev.year)
+                              : false;
+                          if (!isYearBoundary) return null;
+                          return (
+                            <ReferenceLine
+                              key={`boundary-${item.year}`}
+                              x={item.label}
+                              stroke="#9ca3af"
+                              strokeWidth={1}
+                              ifOverflow="extendDomain"
+                              label={{
+                                value: `${item.year}年`,
+                                position: 'top',
+                                fontSize: 9,
+                                fill: '#9ca3af',
+                                offset: 8,
+                              }}
+                            />
+                          );
                         })}
                         {/* 极值点标记 - 使用自定义动画组件 */}
                         {extremePointsInfo.maxData && rechartsData.length > 0 && (
@@ -1071,59 +1064,26 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
               </CardContent>
             </Card>
 
-            {/* 数据摘要 */}
+            {/* 数据摘要 - 四宫格 */}
             {stats && !stats.hasOnlyOneValidPoint && (
               <div className="grid grid-cols-2 gap-3">
-                <Card className="bg-white shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
-                        <TrendingUp size={16} className="text-green-500" />
+                {[
+                  { label: '最高净资产', value: formatBalance(stats.maxNetWorth), icon: TrendingUp, iconColor: '#22c55e', bgColor: '#f0fdf4', valueColor: '#15803d' },
+                  { label: '最低净资产', value: formatBalance(stats.minNetWorth), icon: TrendingDown, iconColor: '#ef4444', bgColor: '#fef2f2', valueColor: '#dc2626' },
+                  { label: '平均净资产', value: formatBalance(stats.avgNetWorth), icon: Calendar, iconColor: '#3b82f6', bgColor: '#eff6ff', valueColor: '#1d4ed8' },
+                  { label: '总变化', value: `${stats.totalChange >= 0 ? '+' : ''}${formatBalance(stats.totalChange)}`, icon: stats.totalChange >= 0 ? TrendingUp : TrendingDown, iconColor: themeConfig.primary, bgColor: `${themeConfig.primary}10`, valueColor: stats.totalChange >= 0 ? '#15803d' : '#dc2626' },
+                ].map((item, i) => {
+                  const IconComp = item.icon;
+                  return (
+                    <div key={i} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-col items-center justify-center text-center">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2" style={{ backgroundColor: item.bgColor }}>
+                        <IconComp size={15} style={{ color: item.iconColor }} />
                       </div>
-                      <span className="text-xs text-gray-500">最高净资产</span>
+                      <span className="text-[11px] text-gray-400 mb-1">{item.label}</span>
+                      <span className="text-base font-medium" style={{ color: item.valueColor }}>{hideBalance ? '****' : item.value}</span>
                     </div>
-                    <div className="text-lg font-semibold mt-1">{formatBalance(stats.maxNetWorth)}</div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center">
-                        <TrendingDown size={16} className="text-red-500" />
-                      </div>
-                      <span className="text-xs text-gray-500">最低净资产</span>
-                    </div>
-                    <div className="text-lg font-semibold mt-1">{formatBalance(stats.minNetWorth)}</div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                        <Calendar size={16} className="text-blue-500" />
-                      </div>
-                      <span className="text-xs text-gray-500">平均净资产</span>
-                    </div>
-                    <div className="text-lg font-semibold mt-1">{formatBalance(stats.avgNetWorth)}</div>
-                  </CardContent>
-                </Card>
-                <Card className="bg-white shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${stats.totalChange >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                        {stats.totalChange >= 0 ? (
-                          <TrendingUp size={16} className="text-green-500" />
-                        ) : (
-                          <TrendingDown size={16} className="text-red-500" />
-                        )}
-                      </div>
-                      <span className="text-xs text-gray-500">总变化</span>
-                    </div>
-                    <div className={`text-lg font-semibold mt-1 ${stats.totalChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                      {stats.totalChange >= 0 ? '+' : ''}{formatBalance(stats.totalChange)}
-                    </div>
-                  </CardContent>
-                </Card>
+                  );
+                })}
               </div>
             )}
           </>
@@ -1381,6 +1341,87 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
           )}
         </DialogContent>
       </Dialog>
+
+
+      {/* 归因筛选弹窗 */}
+      <Dialog open={showFilterModal} onOpenChange={setShowFilterModal}>
+        <DialogContent className="max-w-md p-0 overflow-hidden" style={{ maxHeight: '80vh' }}>
+          <DialogHeader className="px-5 pt-5 pb-3">
+            <DialogTitle className="text-base font-bold">归因筛选</DialogTitle>
+          </DialogHeader>
+          <div className="px-5 pb-2">
+            <div className="text-xs text-gray-400">
+              已选 {selectedFilters.has('all') ? '全部' : `${selectedFilters.size} 项`}
+            </div>
+          </div>
+          <div className="px-5 pb-4 space-y-2 max-h-[50vh] overflow-y-auto">
+            <button
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                selectedFilters.has('all') ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-100 hover:bg-gray-50'
+              }`}
+              onClick={() => setSelectedFilters(new Set(['all']))}
+            >
+              <span className="text-sm">📊</span>
+              <span className="text-sm font-medium flex-1 text-left">全部</span>
+              {selectedFilters.has('all') && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </button>
+            <button
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                selectedFilters.has('abnormal') ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-100 hover:bg-gray-50'
+              }`}
+              onClick={() => {
+                const next = new Set(selectedFilters);
+                next.delete('all');
+                next.has('abnormal') ? next.delete('abnormal') : next.add('abnormal');
+                if (next.size === 0) next.add('all');
+                setSelectedFilters(next);
+              }}
+            >
+              <span className="text-sm">⚠️</span>
+              <span className="text-sm font-medium flex-1 text-left">异常波动</span>
+              {selectedFilters.has('abnormal') && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </button>
+            {filterTagList.filter(t => t.id !== 'all' && t.id !== 'abnormal').map(item => {
+              const isSelected = selectedFilters.has(item.id);
+              return (
+                <button
+                  key={item.id}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                    isSelected ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-100 hover:bg-gray-50'
+                  }`}
+                  onClick={() => {
+                    const next = new Set(selectedFilters);
+                    next.delete('all');
+                    isSelected ? next.delete(item.id) : next.add(item.id);
+                    if (next.size === 0) next.add('all');
+                    setSelectedFilters(next);
+                  }}
+                >
+                  <span className="text-sm">{item.emoji}</span>
+                  <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                  {isSelected && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex gap-3 px-5 py-4 border-t border-gray-100">
+            <button
+              className="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-600 bg-gray-100 transition-colors hover:bg-gray-200"
+              onClick={() => setSelectedFilters(new Set(['all']))}
+            >
+              重置
+            </button>
+            <button
+              className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-colors"
+              style={{ backgroundColor: themeConfig.primary }}
+              onClick={() => setShowFilterModal(false)}
+            >
+              确认
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

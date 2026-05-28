@@ -75,13 +75,15 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
   const dragRef = useRef<{ startY: number; accountId: string; groupType: string; itemHeight: number; startIndex: number } | null>(null);
   const dragOverIndexRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 浮动拖拽幽灵（账户 + 分组通用）
-  const [dragGhostPos, setDragGhostPos] = useState<{ y: number; text: string } | null>(null);
   // 分组拖拽状态
   const [draggingGroupType, setDraggingGroupType] = useState<string | null>(null);
   const [dragOverGroupIndex, setDragOverGroupIndex] = useState<number | null>(null);
   const groupDragRef = useRef<{ startY: number; groupType: string; groupHeight: number; startIndex: number } | null>(null);
   const groupDragOverIndexRef = useRef<number | null>(null);
+  // 幽灵卡片 ref（直接 DOM 操作，避免 setState 触发重渲染）
+  const ghostRef = useRef<HTMLDivElement | null>(null);
+  const ghostTextRef = useRef<HTMLSpanElement | null>(null);
+  const rafRef = useRef<number>(0);
   // groupLongPressRef removed - not needed
 
   // 批量操作状态
@@ -709,30 +711,35 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                             setDraggingGroupType(group.type);
                             setDragOverGroupIndex(groupIndex);
                             groupDragOverIndexRef.current = groupIndex;
-                            setDragGhostPos({ y: e.touches[0].clientY - 30, text: group.label });
+                            if (ghostRef.current) { ghostRef.current.style.top = (e.touches[0].clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = group.label; }
                             if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                           }}
                           onTouchMove={(e) => {
                             if (!groupDragRef.current) return;
                             e.preventDefault();
                             const touch = e.touches[0];
-                            setDragGhostPos({ y: touch.clientY - 30, text: group.label });
-                            const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                            const groupEl = el?.closest('[data-group-index]');
-                            if (groupEl) {
-                              const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
-                              if (idx >= 0) { setDragOverGroupIndex(idx); groupDragOverIndexRef.current = idx; }
-                            }
+                            if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
+                            if (rafRef.current) return;
+                            rafRef.current = requestAnimationFrame(() => {
+                              rafRef.current = 0;
+                              const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                              const groupEl = el?.closest('[data-group-index]');
+                              if (groupEl) {
+                                const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
+                                if (idx >= 0 && idx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = idx; setDragOverGroupIndex(idx); }
+                              }
+                            });
                           }}
                           onTouchEnd={(e) => {
                             e.stopPropagation();
+                            if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                             if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
                               handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
                             }
+                            if (ghostRef.current) ghostRef.current.style.display = 'none';
                             setDraggingGroupType(null);
                             setDragOverGroupIndex(null);
                             groupDragOverIndexRef.current = null;
-                            setDragGhostPos(null);
                             groupDragRef.current = null;
                           }}
                           onMouseDown={(e) => {
@@ -741,26 +748,31 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                             setDraggingGroupType(group.type);
                             setDragOverGroupIndex(groupIndex);
                             groupDragOverIndexRef.current = groupIndex;
-                            setDragGhostPos({ y: e.clientY - 30, text: group.label });
+                            if (ghostRef.current) { ghostRef.current.style.top = (e.clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = group.label; }
                             if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                             const handleMove = (me: MouseEvent) => {
                               if (!groupDragRef.current) return;
-                              setDragGhostPos({ y: me.clientY - 30, text: group.label });
-                              const el = document.elementFromPoint(me.clientX, me.clientY);
-                              const groupEl = el?.closest('[data-group-index]');
-                              if (groupEl) {
-                                const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
-                                if (idx >= 0) { setDragOverGroupIndex(idx); groupDragOverIndexRef.current = idx; }
-                              }
+                              if (ghostRef.current) ghostRef.current.style.top = (me.clientY - 30) + 'px';
+                              if (rafRef.current) return;
+                              rafRef.current = requestAnimationFrame(() => {
+                                rafRef.current = 0;
+                                const el = document.elementFromPoint(me.clientX, me.clientY);
+                                const groupEl = el?.closest('[data-group-index]');
+                                if (groupEl) {
+                                  const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
+                                  if (idx >= 0 && idx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = idx; setDragOverGroupIndex(idx); }
+                                }
+                              });
                             };
                             const handleUp = () => {
+                              if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                               if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
                                 handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
                               }
+                              if (ghostRef.current) ghostRef.current.style.display = 'none';
                               setDraggingGroupType(null);
                               setDragOverGroupIndex(null);
                               groupDragOverIndexRef.current = null;
-                              setDragGhostPos(null);
                               groupDragRef.current = null;
                               document.removeEventListener('mousemove', handleMove);
                               document.removeEventListener('mouseup', handleUp);
@@ -930,7 +942,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   setDraggingId(account.id);
                                   setDragOverIndex(idx);
                                   dragOverIndexRef.current = idx;
-                                  setDragGhostPos({ y: e.touches[0].clientY - 30, text: account.name });
+                                  if (ghostRef.current) { ghostRef.current.style.top = (e.touches[0].clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = account.name; }
                                   if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                                   longPressTimerRef.current = setTimeout(() => {}, 300);
                                 }}
@@ -938,26 +950,30 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   if (!dragRef.current) return;
                                   e.preventDefault();
                                   const touch = e.touches[0];
-                                  setDragGhostPos({ y: touch.clientY - 30, text: account.name });
-                                  // 用 elementFromPoint 精确命中目标行
-                                  const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                                  const row = el?.closest('[data-account-index]');
-                                  if (row) {
-                                    const idx = parseInt(row.getAttribute('data-account-index') || '-1', 10);
-                                    if (idx >= 0) { setDragOverIndex(idx); dragOverIndexRef.current = idx; }
-                                  }
+                                  if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
+                                  if (rafRef.current) return;
+                                  rafRef.current = requestAnimationFrame(() => {
+                                    rafRef.current = 0;
+                                    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                                    const row = el?.closest('[data-account-index]');
+                                    if (row) {
+                                      const idx = parseInt(row.getAttribute('data-account-index') || '-1', 10);
+                                      if (idx >= 0 && idx !== dragOverIndexRef.current) { dragOverIndexRef.current = idx; setDragOverIndex(idx); }
+                                    }
+                                  });
                                 }}
                                 onTouchEnd={(e) => {
                                   e.stopPropagation();
+                                  if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                                   if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
                                   if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
                                     dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
                                     loadAccounts();
                                   }
+                                  if (ghostRef.current) ghostRef.current.style.display = 'none';
                                   setDraggingId(null);
                                   setDragOverIndex(null);
                                   dragOverIndexRef.current = null;
-                                  setDragGhostPos(null);
                                   dragRef.current = null;
                                 }}
                                 onMouseDown={(e) => {
@@ -967,27 +983,32 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   setDraggingId(account.id);
                                   setDragOverIndex(idx);
                                   dragOverIndexRef.current = idx;
-                                  setDragGhostPos({ y: e.clientY - 30, text: account.name });
+                                  if (ghostRef.current) { ghostRef.current.style.top = (e.clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = account.name; }
                                   if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                                   const handleMove = (me: MouseEvent) => {
                                     if (!dragRef.current) return;
-                                    setDragGhostPos({ y: me.clientY - 30, text: account.name });
-                                    const el = document.elementFromPoint(me.clientX, me.clientY);
-                                    const row = el?.closest('[data-account-index]');
-                                    if (row) {
-                                      const idx2 = parseInt(row.getAttribute('data-account-index') || '-1', 10);
-                                      if (idx2 >= 0) { setDragOverIndex(idx2); dragOverIndexRef.current = idx2; }
-                                    }
+                                    if (ghostRef.current) ghostRef.current.style.top = (me.clientY - 30) + 'px';
+                                    if (rafRef.current) return;
+                                    rafRef.current = requestAnimationFrame(() => {
+                                      rafRef.current = 0;
+                                      const el = document.elementFromPoint(me.clientX, me.clientY);
+                                      const row = el?.closest('[data-account-index]');
+                                      if (row) {
+                                        const idx2 = parseInt(row.getAttribute('data-account-index') || '-1', 10);
+                                        if (idx2 >= 0 && idx2 !== dragOverIndexRef.current) { dragOverIndexRef.current = idx2; setDragOverIndex(idx2); }
+                                      }
+                                    });
                                   };
                                   const handleUp = () => {
+                                    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                                     if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
                                       dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
                                       loadAccounts();
                                     }
+                                    if (ghostRef.current) ghostRef.current.style.display = 'none';
                                     setDraggingId(null);
                                     setDragOverIndex(null);
                                     dragOverIndexRef.current = null;
-                                    setDragGhostPos(null);
                                     dragRef.current = null;
                                     document.removeEventListener('mousemove', handleMove);
                                     document.removeEventListener('mouseup', handleUp);
@@ -1512,23 +1533,19 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
         }
       `}</style>
 
-      {/* 拖拽幽灵卡片 */}
-      {dragGhostPos && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
-          style={{
-            top: dragGhostPos.y,
-            animation: 'drag-ghost-in 0.15s ease-out',
-          }}
-        >
-          <div className="bg-white/95 backdrop-blur-sm shadow-[0_12px_40px_rgba(0,0,0,0.18)] rounded-xl px-4 py-3 border border-blue-200/60 flex items-center gap-3 min-w-[200px]">
-            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-              <GripVertical size={16} className="text-blue-500" />
-            </div>
-            <span className="font-medium text-sm text-gray-800">{dragGhostPos.text}</span>
+      {/* 拖拽幽灵卡片 — ref 驱动，不触发 React 重渲染 */}
+      <div
+        ref={ghostRef}
+        className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
+        style={{ display: 'none', animation: 'drag-ghost-in 0.15s ease-out' }}
+      >
+        <div className="bg-white/95 backdrop-blur-sm shadow-[0_12px_40px_rgba(0,0,0,0.18)] rounded-xl px-4 py-3 border border-blue-200/60 flex items-center gap-3 min-w-[200px]">
+          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+            <GripVertical size={16} className="text-blue-500" />
           </div>
+          <span ref={ghostTextRef} className="font-medium text-sm text-gray-800"></span>
         </div>
-      )}
+      </div>
     </div>
   );
 }
