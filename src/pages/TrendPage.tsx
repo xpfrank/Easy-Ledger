@@ -36,6 +36,7 @@ const AnimatedPulseDot = ({ cx, cy, r, fill, stroke, strokeWidth, isMin }: any) 
 
 interface TrendPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
 }
 
 type TrendType = 'monthly' | 'yearly';
@@ -232,7 +233,7 @@ type TrendData = TrendPoint | YearlyNetWorth | QuarterlyNetWorth;
 // 问题1修复：定义淡红色用于最低谷标注
 const LOW_POINT_COLOR = '#f87171'; // 淡红色
 
-export function TrendPage({ onPageChange }: TrendPageProps) {
+export function TrendPage({ onPageChange, onBack }: TrendPageProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('12');
   const [trendType, setTrendType] = useState<TrendType>('monthly');
   const [showTrendDropdown, setShowTrendDropdown] = useState(false);
@@ -698,7 +699,7 @@ export function TrendPage({ onPageChange }: TrendPageProps) {
       {/* 标题栏 */}
       <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-lg font-semibold text-white">资产趋势</h1>

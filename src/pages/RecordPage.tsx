@@ -44,6 +44,7 @@ import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributio
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
   hideBalance: boolean;
   toggleHideBalance: () => void;
   params?: {
@@ -672,7 +673,7 @@ function YearlyDashboard({
   );
 }
 
-export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, params }: RecordPageProps) {
+export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalance, params }: RecordPageProps) {
   const now = new Date();
   const [recordMode, setRecordMode] = useState<RecordMode>(params?.mode || 'monthly');
   const [year, setYear] = useState(params?.year || now.getFullYear());
@@ -1289,7 +1290,7 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
       {/* 标题栏 - fixed 定位，与其他页面保持一致，不受父级 overflow 影响 */}
       <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
 
