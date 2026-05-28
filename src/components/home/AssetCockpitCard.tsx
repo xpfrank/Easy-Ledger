@@ -55,15 +55,10 @@ function CockpitMiniBar({ primaryColor }: { primaryColor: string }) {
   );
 }
 
-function maskAmount(amount: number, hide: boolean): string {
-  return hide ? '******' : formatAmountNoSymbol(amount);
-}
-
 interface AssetCockpitCardProps {
   healthScore: HealthScore;
   scoreChange: number;
   primaryColor: string;
-  configKey?: number;
   onClick?: () => void;
   onStageClick?: () => void;
   onIntervalSettingsClick?: () => void;
@@ -132,7 +127,6 @@ export function AssetCockpitCard({
   healthScore,
   scoreChange,
   primaryColor,
-  configKey = 0,
   onClick,
   onStageClick,
   onIntervalSettingsClick,
@@ -150,10 +144,6 @@ export function AssetCockpitCard({
   const [attrTab, setAttrTab] = useState<'monthly' | 'yearly'>('monthly');
   const [showFormula, setShowFormula] = useState(false);
   const allAttributions = getAllAttributions();
-  const sortedAttributions = [...allAttributions].sort((a, b) => {
-    if (a.year !== b.year) return a.year - b.year;
-    return a.month - b.month;
-  });
 
   const nextLevelScore = useMemo(() => {
     const levels = [
@@ -260,7 +250,6 @@ export function AssetCockpitCard({
     const pastMonthsThisYear = dots.filter(
       (d) => d.year === currentYear && !d.isFuture && !d.isCurrent
     );
-    const currentMonthDone = dots.find(d => d.isCurrent)?.done || false;
     const missed = pastMonthsThisYear.filter((d) => !d.done).length;
 
     const hasAnyData = all.length > 0;

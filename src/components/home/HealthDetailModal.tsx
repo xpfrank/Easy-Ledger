@@ -127,7 +127,6 @@ export function HealthDetailModal({
   onViewTrend,
   currentAllocations,
   hideBalance = false,
-  baseCurrencySymbol = '¥',
 }: HealthDetailModalProps) {
   const intervals = getReferenceIntervals();
   const [ignored, setIgnored] = useState(getIgnoredSuggestions());
@@ -151,11 +150,6 @@ export function HealthDetailModal({
     if (!currentAllocations) return [];
     return generateOptimizationSuggestions(currentAllocations, intervals, ignored, monthlyExpense);
   }, [currentAllocations, intervals, ignored, monthlyExpense]);
-
-  const handleIgnore = (id: string) => {
-    ignoreSuggestion(id);
-    setIgnored([...ignored, id]);
-  };
 
   const anomalyRows = configRows?.filter((r) => r.status === 'below' || r.status === 'above') || [];
   const normalRows = configRows?.filter((r) => r.status === 'within' || r.status === 'empty') || [];
