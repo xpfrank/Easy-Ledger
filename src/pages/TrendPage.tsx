@@ -39,7 +39,6 @@ interface TrendPageProps {
 }
 
 type TrendType = 'monthly' | 'yearly';
-type FilterTag = 'all' | 'abnormal' | string;
 
 interface YearlyNetWorth {
   year: number;

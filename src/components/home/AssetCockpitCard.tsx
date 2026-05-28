@@ -3,7 +3,7 @@ import { ChevronRight, Settings2, Droplets, Landmark, TrendingUp, Shield, Activi
 import { Card, CardContent } from '@/components/ui/card';
 import { calculateNetWorth } from '@/lib/calculator';
 import type { HealthScore } from '@/types';
-import { getLifeStage, getReferenceIntervals, getAllAttributions, getAllYearlyAttributions, getAccountsForMonth, formatAmountNoSymbol } from '@/lib/storage';
+import { getLifeStage, getReferenceIntervals, getAllAttributions, getAllYearlyAttributions, getAccountsForMonth } from '@/lib/storage';
 import {
   CATEGORY_KEYS,
   CATEGORY_META,
@@ -55,9 +55,6 @@ function CockpitMiniBar({ primaryColor }: { primaryColor: string }) {
   );
 }
 
-function maskAmount(amount: number, hide: boolean): string {
-  return hide ? '******' : formatAmountNoSymbol(amount);
-}
 
 interface AssetCockpitCardProps {
   healthScore: HealthScore;
@@ -149,12 +146,6 @@ export function AssetCockpitCard({
   const intervals = getReferenceIntervals();
   const [attrTab, setAttrTab] = useState<'monthly' | 'yearly'>('monthly');
   const [showFormula, setShowFormula] = useState(false);
-  const allAttributions = getAllAttributions();
-  const sortedAttributions = [...allAttributions].sort((a, b) => {
-    if (a.year !== b.year) return a.year - b.year;
-    return a.month - b.month;
-  });
-
   const nextLevelScore = useMemo(() => {
     const levels = [
       { level: 'A' as const, min: 90 },
@@ -260,7 +251,6 @@ export function AssetCockpitCard({
     const pastMonthsThisYear = dots.filter(
       (d) => d.year === currentYear && !d.isFuture && !d.isCurrent
     );
-    const currentMonthDone = dots.find(d => d.isCurrent)?.done || false;
     const missed = pastMonthsThisYear.filter((d) => !d.done).length;
 
     const hasAnyData = all.length > 0;

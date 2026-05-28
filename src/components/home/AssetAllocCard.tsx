@@ -3,7 +3,6 @@ import { PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent } from '@/components/ui/card';
 import { Droplets, Landmark, TrendingUp, Shield, ChevronRight, Shuffle } from 'lucide-react';
 import type { Account } from '@/types';
-import { formatAmountNoSymbol } from '@/lib/storage';
 
 import {
   CATEGORY_KEYS,
@@ -12,9 +11,6 @@ import {
 
 } from '@/lib/allocation-config';
 
-function maskAmount(amount: number, hide: boolean): string {
-  return hide ? '******' : amount.toFixed(2);
-}
 
 interface AssetAllocCardProps {
   accounts: Account[];
@@ -48,9 +44,9 @@ const CATEGORY_ICONS: Record<string, typeof Droplets> = {
 export function AssetAllocCard({
   accounts,
   categoryAmounts,
-  currentAllocations,
+  // currentAllocations,
   primaryColor,
-  configKey = 0,
+  // configKey = 0,
   hasClassifiedAccounts = false,
   onClassifyClick,
   onReclassifyClick,

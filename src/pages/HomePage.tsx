@@ -24,9 +24,7 @@ import {
   saveYearlyGoal,
   convertToBaseCurrency,
   saveHealthHistory,
-  getQCDismissedTotal,
   setQCDismissedTotal,
-  getReferenceIntervals,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -68,7 +66,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   const [lastMonthNetWorth, setLastMonthNetWorth] = useState(0);
   const [loanOut, setLoanOut] = useState(0);
   const [debtIn, setDebtIn] = useState(0);
-  const [accountGroups, setAccountGroups] = useState<AccountGroup[]>([]);
+  const [, setAccountGroups] = useState<AccountGroup[]>([]);
   const [currentYear] = useState(new Date().getFullYear());
   const [currentMonth] = useState(new Date().getMonth() + 1);
 
@@ -158,8 +156,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     });
     setCurrentAllocations(categoryAmounts);
 
-    const intervals = getReferenceIntervals();
-    const health = calculateHealthScore(accounts, currentYear, currentMonth, categoryAmounts, intervals);
+    const health = calculateHealthScore(accounts, currentYear, currentMonth);
 
     const lastMonthCategory = { cash: 0, stable: 0, invest: 0, insure: 0 };
     lastAccounts.forEach(account => {
@@ -169,7 +166,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
         lastMonthCategory[account.assetCategory as keyof typeof lastMonthCategory] += converted;
       }
     });
-    const lastMonthHealth = calculateHealthScore(lastAccounts, lastYear, lastMonth, lastMonthCategory, intervals);
+    const lastMonthHealth = calculateHealthScore(lastAccounts, lastYear, lastMonth);
     setScoreChange(health.score - lastMonthHealth.score);
     
     setHealthScore(health);

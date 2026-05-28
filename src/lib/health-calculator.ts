@@ -6,12 +6,10 @@ import {
 import {
   getAllAttributions,
   getCurrentYearMonth,
-  getAccountsForMonth,
   getReferenceIntervals,
 } from './storage';
 import {
   CATEGORY_KEYS,
-  CATEGORY_META,
   getCategoryPercentages,
 } from './allocation-config';
 
