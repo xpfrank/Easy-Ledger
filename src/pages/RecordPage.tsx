@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3 } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3, ArrowUp, ArrowDown, GripVertical, ListOrdered, ArrowUpToLine } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,9 @@ import {
   getAllAttributionTagOptions,
   getAllYearlyTagOptions,
   getAccountSnapshotsByMonth,
+  getRecordSortOrder,
+  saveRecordSortOrder,
+  dragReorderAccountForRecord,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -228,6 +231,8 @@ function MonthPicker({
           确定
         </button>
       </div>
+
+
     </div>
   );
 }
@@ -726,6 +731,16 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   // 用 ref 标记"待触发归因弹窗"，避免 state 异步时序问题
   const pendingAttributionOpenRef = useRef(false);
 
+  // 记账页面独立排序状态
+  const [isRecordSortMode, setIsRecordSortMode] = useState(false);
+  const [_recordSortOrder, setRecordSortOrder] = useState<Record<string, number>>({});
+  // 记账页拖拽状态
+  const [recordDraggingId, setRecordDraggingId] = useState<string | null>(null);
+  const [recordDragOverIndex, setRecordDragOverIndex] = useState<number | null>(null);
+  const [recordDragGhostPos, setRecordDragGhostPos] = useState<{ y: number; text: string } | null>(null);
+  const recordDragRef = useRef<{ startY: number; accountId: string; itemHeight: number; startIndex: number } | null>(null);
+  const recordDragOverIndexRef = useRef<number | null>(null);
+
   const themeConfig = THEMES[theme];
   const currencySymbol = getCurrencyConfig(baseCurrency).symbol;
 
@@ -768,7 +783,15 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
     // 使用月度快照隔离机制：获取该月份应显示的账户列表
     const mergedAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
     
-    setAccounts(mergedAccounts);
+    // 记账页面使用独立的 localStorage 排序配置
+    const sortConfig = getRecordSortOrder();
+    const sortedAccounts = [...mergedAccounts].sort((a, b) => {
+      const orderA = sortConfig[a.id] ?? 999999;
+      const orderB = sortConfig[b.id] ?? 999999;
+      return orderA - orderB;
+    });
+    
+    setAccounts(sortedAccounts);
 
     if (recordMode === 'monthly') {
       const newBalances: Record<string, number> = {};
@@ -898,6 +921,47 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
   const cancelEdit = () => {
     setEditingAccount(null);
     setEditValue('');
+  };
+
+  // 处理记账页面账户排序（完全独立，使用 localStorage）
+  const handleRecordReorder = (accountId: string, direction: 'up' | 'down' | 'top') => {
+    const currentIndex = accounts.findIndex(a => a.id === accountId);
+    if (currentIndex === -1) return;
+    
+    let swapIndex: number;
+    if (direction === 'top') {
+      swapIndex = 0;
+    } else {
+      swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    }
+    if (swapIndex < 0 || swapIndex >= accounts.length || swapIndex === currentIndex) return;
+    
+    // 使用 localStorage 存储排序配置，完全独立于账户数据
+    const newOrder = { ...getRecordSortOrder() };
+    
+    // 初始化所有账户的排序权重（如果还没有）
+    accounts.forEach((acc, i) => {
+      if (newOrder[acc.id] === undefined) {
+        newOrder[acc.id] = i * 10;
+      }
+    });
+    
+    const currentOrder = newOrder[accountId];
+    const swapOrder = newOrder[accounts[swapIndex].id];
+    
+    newOrder[accountId] = swapOrder;
+    newOrder[accounts[swapIndex].id] = currentOrder;
+    
+    setRecordSortOrder(newOrder);
+    saveRecordSortOrder(newOrder);
+    
+    // 重新排序账户列表
+    const sortConfig = getRecordSortOrder();
+    setAccounts(prev => [...prev].sort((a, b) => {
+      const orderA = sortConfig[a.id] ?? 999999;
+      const orderB = sortConfig[b.id] ?? 999999;
+      return orderA - orderB;
+    }));
   };
 
   // 触发预览确认弹窗
@@ -1264,6 +1328,19 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
         </div>
 
         <div className="flex items-center gap-2">
+          {recordMode === 'monthly' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`text-white rounded-full px-3 py-1 text-xs font-medium ${
+                isRecordSortMode ? 'bg-white/30' : 'bg-white/15'
+              }`}
+              onClick={() => setIsRecordSortMode(!isRecordSortMode)}
+            >
+              <ListOrdered size={16} className="mr-1" />
+              {isRecordSortMode ? '完成' : '排序'}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -1460,6 +1537,12 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
               </Card>
             ) : (
               <Card className="bg-white shadow-sm overflow-hidden">
+                {isRecordSortMode && (
+                  <div className="px-4 py-2.5 bg-blue-50/80 border-b border-blue-100 flex items-center gap-2 text-xs text-blue-600">
+                    <GripVertical size={14} className="text-blue-400 flex-shrink-0" />
+                    <span>长按 <span className="font-medium">⠿</span> 图标可拖拽排序，点击箭头可快速置顶/置底</span>
+                  </div>
+                )}
                 <div className="divide-y divide-gray-100">
                   {accounts.map((account, index) => {
                     const isCredit   = account.type === 'credit';
@@ -1471,9 +1554,22 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                     return (
                       <div
                         key={account.id}
-                        className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                        data-record-index={index}
+                        className={`p-4 transition-all duration-200 ${
+                          isRecordSortMode
+                            ? recordDraggingId === account.id
+                              ? 'scale-[1.04] shadow-2xl bg-blue-50/80 border border-blue-300 rounded-xl z-10 relative ring-2 ring-blue-200/60'
+                              : recordDraggingId
+                                ? 'opacity-50 cursor-move'
+                                : 'cursor-move bg-gray-50/80 border-l-2 border-transparent hover:border-blue-300 hover:bg-blue-50/40'
+                            : 'hover:bg-gray-50 cursor-pointer'
+                        } ${
+                          isRecordSortMode && recordDragOverIndex === index && recordDraggingId !== account.id
+                            ? 'border-l-[4px] border-l-blue-500 bg-blue-50/60 pl-[13px]'
+                            : ''
+                        }`}
                         style={{ animationDelay: `${index * 50}ms` }}
-                        onClick={() => onPageChange('account-detail', { accountId: account.id })}
+                        onClick={() => !isRecordSortMode && onPageChange('account-detail', { accountId: account.id })}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
@@ -1501,11 +1597,130 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
                                 {isCredit && balance > 0 && (
                                   <span className="text-red-500">· 欠款</span>
                                 )}
+                                {!isRecordSortMode && (
+                                  <span className="text-gray-300">· 点击查看详情</span>
+                                )}
                               </div>
                             </div>
                           </div>
 
-                          {isEditing ? (
+                          {isRecordSortMode ? (
+                            <div className="flex items-center gap-0.5">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={index === 0}
+                                onClick={() => handleRecordReorder(account.id, 'up')}
+                              >
+                                <ArrowUp size={15} className={index === 0 ? 'text-gray-200' : 'text-gray-400'} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={index === accounts.length - 1}
+                                onClick={() => handleRecordReorder(account.id, 'down')}
+                              >
+                                <ArrowDown size={15} className={index === accounts.length - 1 ? 'text-gray-200' : 'text-gray-400'} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={index === 0}
+                                onClick={() => handleRecordReorder(account.id, 'top')}
+                                title="置顶"
+                              >
+                                <ArrowUpToLine size={15} className={index === 0 ? 'text-gray-200' : 'text-blue-500'} />
+                              </Button>
+                              <div
+                                className={`p-1.5 rounded-md transition-colors touch-none select-none cursor-grab active:cursor-grabbing ${
+                                  recordDraggingId === account.id ? 'bg-blue-100' : 'bg-blue-50 hover:bg-blue-100'
+                                }`}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  recordDragRef.current = { startY: e.touches[0].clientY, accountId: account.id, itemHeight: 72, startIndex: index };
+                                  setRecordDraggingId(account.id);
+                                  setRecordDragOverIndex(index);
+                                  recordDragOverIndexRef.current = index;
+                                  setRecordDragGhostPos({ y: e.touches[0].clientY - 30, text: account.name });
+                                  if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                                }}
+                                onTouchMove={(e) => {
+                                  if (!recordDragRef.current) return;
+                                  e.preventDefault();
+                                  const touch = e.touches[0];
+                                  setRecordDragGhostPos({ y: touch.clientY - 30, text: account.name });
+                                  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                                  const row = el?.closest('[data-record-index]');
+                                  if (row) {
+                                    const idx = parseInt(row.getAttribute('data-record-index') || '-1', 10);
+                                    if (idx >= 0) { setRecordDragOverIndex(idx); recordDragOverIndexRef.current = idx; }
+                                  }
+                                }}
+                                onTouchEnd={(e) => {
+                                  e.stopPropagation();
+                                  if (recordDragRef.current && recordDragOverIndexRef.current !== null && recordDragOverIndexRef.current !== recordDragRef.current.startIndex) {
+                                    dragReorderAccountForRecord(recordDragRef.current.accountId, recordDragOverIndexRef.current);
+                                    // 重新加载排序后列表
+                                    const sortConfig = getRecordSortOrder();
+                                    setAccounts(prev => [...prev].sort((a, b) => {
+                                      const oA = sortConfig[a.id] ?? (a.recordSortOrder ?? 999999);
+                                      const oB = sortConfig[b.id] ?? (b.recordSortOrder ?? 999999);
+                                      return oA - oB;
+                                    }));
+                                  }
+                                  setRecordDraggingId(null);
+                                  setRecordDragOverIndex(null);
+                                  recordDragOverIndexRef.current = null;
+                                  setRecordDragGhostPos(null);
+                                  recordDragRef.current = null;
+                                }}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  recordDragRef.current = { startY: e.clientY, accountId: account.id, itemHeight: 72, startIndex: index };
+                                  setRecordDraggingId(account.id);
+                                  setRecordDragOverIndex(index);
+                                  recordDragOverIndexRef.current = index;
+                                  setRecordDragGhostPos({ y: e.clientY - 30, text: account.name });
+                                  if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                                  const handleMove = (me: MouseEvent) => {
+                                    if (!recordDragRef.current) return;
+                                    setRecordDragGhostPos({ y: me.clientY - 30, text: account.name });
+                                    const el = document.elementFromPoint(me.clientX, me.clientY);
+                                    const row = el?.closest('[data-record-index]');
+                                    if (row) {
+                                      const idx = parseInt(row.getAttribute('data-record-index') || '-1', 10);
+                                      if (idx >= 0) { setRecordDragOverIndex(idx); recordDragOverIndexRef.current = idx; }
+                                    }
+                                  };
+                                  const handleUp = () => {
+                                    if (recordDragRef.current && recordDragOverIndexRef.current !== null && recordDragOverIndexRef.current !== recordDragRef.current.startIndex) {
+                                      dragReorderAccountForRecord(recordDragRef.current.accountId, recordDragOverIndexRef.current);
+                                      const sortConfig = getRecordSortOrder();
+                                      setAccounts(prev => [...prev].sort((a, b) => {
+                                        const oA = sortConfig[a.id] ?? (a.recordSortOrder ?? 999999);
+                                        const oB = sortConfig[b.id] ?? (b.recordSortOrder ?? 999999);
+                                        return oA - oB;
+                                      }));
+                                    }
+                                    setRecordDraggingId(null);
+                                    setRecordDragOverIndex(null);
+                                    recordDragOverIndexRef.current = null;
+                                    setRecordDragGhostPos(null);
+                                    recordDragRef.current = null;
+                                    document.removeEventListener('mousemove', handleMove);
+                                    document.removeEventListener('mouseup', handleUp);
+                                  };
+                                  document.addEventListener('mousemove', handleMove);
+                                  document.addEventListener('mouseup', handleUp);
+                                }}
+                              >
+                                <GripVertical size={16} className={recordDraggingId === account.id ? 'text-blue-600' : 'text-blue-400'} />
+                              </div>
+                            </div>
+                          ) : isEditing ? (
                             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                               <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">{currencySymbol}</span>
@@ -2561,6 +2776,36 @@ export function RecordPage({ onPageChange, hideBalance, toggleHideBalance, param
           </Dialog>
         );
       })()}
+
+      {/* 拖拽排序动画样式 */}
+      <style>{`
+        @keyframes drag-ghost-in {
+          from { opacity: 0; transform: translateX(-50%) scale(0.85); }
+          to { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+        @keyframes drop-indicator-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+      `}</style>
+
+      {/* 记账页拖拽幽灵卡片 */}
+      {recordDragGhostPos && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
+          style={{
+            top: recordDragGhostPos.y,
+            animation: 'drag-ghost-in 0.15s ease-out',
+          }}
+        >
+          <div className="bg-white/95 backdrop-blur-sm shadow-[0_12px_40px_rgba(0,0,0,0.18)] rounded-xl px-4 py-3 border border-blue-200/60 flex items-center gap-3 min-w-[200px]">
+            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+              <GripVertical size={16} className="text-blue-500" />
+            </div>
+            <span className="font-medium text-sm text-gray-800">{recordDragGhostPos.text}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -490,21 +490,26 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
 
   return (
     <div className="min-h-screen flex flex-col overflow-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 h-14 flex-shrink-0 shadow-sm" style={{ backgroundColor: themeConfig.primary }}>
+      {/* Header - 与 RecordPage/TrendPage 风格一致 */}
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-9 w-9" onClick={() => onBack ? onBack() : onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-base font-semibold text-white tracking-wide">余额桑基图</h1>
+          <h1 className="text-base font-semibold text-white">余额桑基图</h1>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-white/60 text-xs mr-1">{year}年{month}月</span>
+        <div className="flex items-center gap-2">
+          <button className="flex items-center gap-1.5 text-white bg-white/20 hover:bg-white/30 rounded-full px-3 py-1.5 transition-colors font-bold text-sm">
+            {year}年{month}月
+          </button>
           <Button variant="ghost" size="icon" className="text-white hover:bg-white/20 h-9 w-9" onClick={() => setRefreshKey((k) => k + 1)}>
             <RefreshCw size={17} />
           </Button>
         </div>
       </header>
+
+      {/* 占位元素，避免内容被 fixed header 遮挡 */}
+      <div className="h-14"></div>
 
       {/* Stats bar — one line */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 text-xs" style={{

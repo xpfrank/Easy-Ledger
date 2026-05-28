@@ -15,6 +15,7 @@ import {
   getMonthlyRecord,
   getCustomAccountTypes,
   addCustomAccountType,
+  updateCustomAccountType,
   deleteCustomAccountType,
   getAllAccounts,
 } from '@/lib/storage';
@@ -161,7 +162,7 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
   const [isCustomType, setIsCustomType] = useState(false);
   const [customTypeName, setCustomTypeName] = useState('');
   const [customBehavior, setCustomBehavior] = useState<'asset' | 'liability'>('asset');
-  const [customIcon, setCustomIcon] = useState('circle');
+  const [customIcon, setCustomIcon] = useState('wallet');
   const [savedCustomTypes, setSavedCustomTypes] = useState<CustomAccountType[]>([]);
 
   const [formData, setFormData] = useState<Partial<Account>>({
@@ -240,10 +241,12 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
       if (!label) { alert('请输入自定义类型名称'); return; }
       effectiveData.customTypeLabel = label;
       effectiveData.type = customBehavior === 'liability' ? 'debt' : 'debit';
-      // Register globally if not already saved
+      // Register or update custom type globally
       const existing = getCustomAccountTypes().find(ct => ct.label === label);
       if (!existing) {
         addCustomAccountType({ label, icon: customIcon, behavior: customBehavior });
+      } else if (existing.icon !== customIcon || existing.behavior !== customBehavior) {
+        updateCustomAccountType(existing.id, { icon: customIcon, behavior: customBehavior });
       }
     } else {
       effectiveData.customTypeLabel = undefined;
