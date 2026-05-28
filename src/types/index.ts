@@ -28,6 +28,10 @@ export interface Account {
   customTypeLabel?: string;
   /** 账户币种代码，如 CNY/USD/EUR，默认 CNY */
   currency?: string;
+  /** 记账页面独立排序权重 */
+  recordSortOrder?: number;
+  /** 快速分类：现金/应急 | 稳健储蓄 | 投资增值 | 保险保障 */
+  assetCategory?: 'cash' | 'stable' | 'invest' | 'insure' | null;
 }
 
 // 月度记录
@@ -94,6 +98,24 @@ export interface AppState {
 // 主题类型
 export type ThemeType = 'blue' | 'green' | 'orange' | 'dark' | 'purple';
 
+// 人生阶段
+export type LifeStage = 'student' | 'growth' | 'family' | 'pre-retire';
+
+/** 四类资产参考区间（用户可自定义） */
+export interface CategoryInterval {
+  min: number;
+  max: number;
+}
+
+export interface ReferenceIntervals {
+  cash: CategoryInterval;
+  stable: CategoryInterval;
+  invest: CategoryInterval;
+  insure: CategoryInterval;
+}
+
+export type IntervalSource = 'system' | 'life_stage' | 'template' | 'custom';
+
 // 时间范围
 export type TimeRange = '6' | '12' | 'all';
 
@@ -107,17 +129,15 @@ export interface YearlyGoal {
 // 健康评分
 export interface HealthScore {
   score: number;
-  level: 'A' | 'B+' | 'B' | 'C' | 'D';
+  level: 'S' | 'A' | 'B' | 'C' | 'D';
   configScore: {
     score: number;
-    level: 'A' | 'B+' | 'B' | 'C' | 'D';
-    cashRatio: number;
-    investmentRatio: number;
-    debtRatio: number;
+    level: 'S' | 'A' | 'B' | 'C' | 'D';
+    categoryScores: Record<string, number>;
   };
   volatilityScore: {
     score: number;
-    level: 'A' | 'B+' | 'B' | 'C' | 'D';
+    level: 'S' | 'A' | 'B' | 'C' | 'D';
     standardDeviation: number;
   };
   attributionCompleteness: number;
@@ -132,6 +152,19 @@ export interface AppSettings {
   baseCurrency?: string;
   /** 用户自定义汇率表，key = 币种代码 */
   exchangeRates?: Record<string, { rate: number; updatedAt: number }>;
+  /** 人生阶段 */
+  lifeStage?: LifeStage;
+  lifeStageUpdatedAt?: number;
+  /** 四类资产参考区间 */
+  referenceIntervals?: ReferenceIntervals;
+  /** 区间来源 */
+  intervalSource?: IntervalSource;
+  /** 若来源为人生阶段，记录对应阶段 */
+  intervalLifeStage?: LifeStage;
+  /** 已忽略的健康优化建议 ID */
+  ignoredSuggestions?: string[];
+  /** 月支出预算（用于现金覆盖月数；优先于自动估算） */
+  monthlyExpenseBudget?: number;
 }
 
 // 月度账户配置：记录某月某账户的"存在状态"
@@ -287,7 +320,9 @@ export interface MonthlyAttribution {
   fluctuationLevel: FluctuationLevel;
   tags: AttributionTag[];
   tagAmounts?: Record<string, number>;  // 各标签分配金额
-  currency?: string;  // 保存时的主货币（用于换汇显示）
+  currency?: string;
+  /** 记账页面独立排序权重 */
+  recordSortOrder?: number;  // 保存时的主货币（用于换汇显示）
   note?: string;
   timestamp: number;
 }

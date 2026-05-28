@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, Wallet, Eye, EyeOff, Plus, Handshake, ClipboardList } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, Plus, Handshake, ClipboardList } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/Icon';
 import { YearlyGoalCard } from '@/components/home/YearlyGoalCard';
-import { HealthScoreCard } from '@/components/home/HealthScoreCard';
+import { AssetCockpitCard } from '@/components/home/AssetCockpitCard';
+import { AssetAllocCard } from '@/components/home/AssetAllocCard';
 import { GoalDetailModal } from '@/components/home/GoalDetailModal';
 import { GoalEditModal } from '@/components/home/GoalEditModal';
 import { HealthDetailModal } from '@/components/home/HealthDetailModal';
-import { GoalBadge, HealthBadge } from '@/components/home/BadgeComponents';
+import { LifeStageSheet } from '@/components/home/LifeStageSheet';
+import { ReferenceIntervalSheet } from '@/components/home/ReferenceIntervalSheet';
+import { QuickClassifyFlow } from '@/components/home/QuickClassifyFlow';
+import type { AssetCategoryKey } from '@/lib/allocation-config';
+import { GoalBadge } from '@/components/home/BadgeComponents';
 import type { Account, AccountType, PageRoute, ThemeType, YearlyGoal, HealthScore } from '@/types';
 import {
   getAccountsForMonth,
@@ -18,9 +22,11 @@ import {
   getSettings,
   getYearlyGoal,
   saveYearlyGoal,
-  getAllAttributions,
-  getCustomAccountTypes,
   convertToBaseCurrency,
+  saveHealthHistory,
+  getQCDismissedTotal,
+  setQCDismissedTotal,
+  getReferenceIntervals,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -56,43 +62,9 @@ function formatHiddenAmount(amount: number, hide: boolean): string {
   return formatAmountNoSymbol(amount);
 }
 
-// SVG 环形图辅助函数
-function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
-  const angleRad = ((angleDeg - 90) * Math.PI) / 180;
-  return {
-    x: cx + r * Math.cos(angleRad),
-    y: cy + r * Math.sin(angleRad),
-  };
-}
-
-function describeDonutSegment(
-  cx: number,
-  cy: number,
-  outerR: number,
-  innerR: number,
-  startAngle: number,
-  endAngle: number
-) {
-  const outerStart = polarToCartesian(cx, cy, outerR, endAngle);
-  const outerEnd = polarToCartesian(cx, cy, outerR, startAngle);
-  const innerStart = polarToCartesian(cx, cy, innerR, endAngle);
-  const innerEnd = polarToCartesian(cx, cy, innerR, startAngle);
-  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
-
-  return [
-    `M ${outerStart.x} ${outerStart.y}`,
-    `A ${outerR} ${outerR} 0 ${largeArcFlag} 0 ${outerEnd.x} ${outerEnd.y}`,
-    `L ${innerEnd.x} ${innerEnd.y}`,
-    `A ${innerR} ${innerR} 0 ${largeArcFlag} 1 ${innerStart.x} ${innerStart.y}`,
-    'Z',
-  ].join(' ');
-}
-
 export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance }: HomePageProps) {
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [netWorth, setNetWorth] = useState(0);
-  // const [totalAssets, setTotalAssets] = useState(0);
-  // const [totalLiabilities, setTotalLiabilities] = useState(0);
   const [lastMonthNetWorth, setLastMonthNetWorth] = useState(0);
   const [loanOut, setLoanOut] = useState(0);
   const [debtIn, setDebtIn] = useState(0);
@@ -103,6 +75,12 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   const [showGoalDetail, setShowGoalDetail] = useState(false);
   const [showHealthDetail, setShowHealthDetail] = useState(false);
   const [showGoalEdit, setShowGoalEdit] = useState(false);
+  const [showLifeStageSheet, setShowLifeStageSheet] = useState(false);
+  const [configKey, setConfigKey] = useState(0);
+  const [showIntervalSheet, setShowIntervalSheet] = useState(false);
+  const [intervalFocusCategory, setIntervalFocusCategory] = useState<AssetCategoryKey | undefined>();
+  const [showQCFlow, setShowQCFlow] = useState(false);
+  const [qcReclassify, setQcReclassify] = useState(false);
   const [yearlyGoal, setYearlyGoal] = useState<YearlyGoal | null>(null);
   const [goalProgress, setGoalProgress] = useState<{
     progress: number;
@@ -111,6 +89,15 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     monthlyGrowthRate: number;
   } | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
+  const [scoreChange, setScoreChange] = useState(0);
+  const [allAccounts, setAllAccounts] = useState<Account[]>([]);
+  const [classifiedCount, setClassifiedCount] = useState(0);
+  const [currentAllocations, setCurrentAllocations] = useState<{
+    cash: number;
+    stable: number;
+    invest: number;
+    insure: number;
+  }>({ cash: 0, stable: 0, invest: 0, insure: 0 });
 
   const themeConfig = THEMES[theme];
   const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
@@ -134,6 +121,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
 
   const loadData = () => {
     const accounts = getAccountsForMonth(currentYear, currentMonth).filter(a => !a.isHidden);
+    setAllAccounts(accounts);
 
     const assets = calculateTotalAssets(accounts, currentYear, currentMonth);
     const liabilities = calculateTotalLiabilities(accounts, currentYear, currentMonth);
@@ -160,24 +148,38 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
       setGoalProgress(calculateGoalProgress(worth, goal));
     }
 
-    const health = calculateHealthScore(accounts, currentYear, currentMonth);
-    
-    // 修正归因完整度计算
-    const allAttributions = getAllAttributions();
-    let completedMonths = 0;
-    for (let m = 1; m <= 12; m++) {
-      const attr = allAttributions.find(a => a.year === currentYear && a.month === m);
-      if (attr && attr.tags && attr.tags.length > 0) {
-        completedMonths++;
+    const categoryAmounts = { cash: 0, stable: 0, invest: 0, insure: 0 };
+    accounts.forEach(account => {
+      if (account.assetCategory && account.assetCategory in categoryAmounts) {
+        const balance = getAccountBalanceForMonth(account.id, currentYear, currentMonth);
+        const converted = convertToBaseCurrency(balance, account.currency || 'CNY', currentYear, currentMonth);
+        categoryAmounts[account.assetCategory as keyof typeof categoryAmounts] += converted;
       }
-    }
-    const monthsToCheck = Math.min(currentMonth, 12);
-    const realCompleteness = monthsToCheck > 0 
-      ? Math.round((completedMonths / monthsToCheck) * 100) 
-      : 0;
-    health.attributionCompleteness = realCompleteness;
+    });
+    setCurrentAllocations(categoryAmounts);
+
+    const intervals = getReferenceIntervals();
+    const health = calculateHealthScore(accounts, currentYear, currentMonth, categoryAmounts, intervals);
+
+    const lastMonthCategory = { cash: 0, stable: 0, invest: 0, insure: 0 };
+    lastAccounts.forEach(account => {
+      if (account.assetCategory && account.assetCategory in lastMonthCategory) {
+        const balance = getAccountBalanceForMonth(account.id, lastYear, lastMonth);
+        const converted = convertToBaseCurrency(balance, account.currency || 'CNY', lastYear, lastMonth);
+        lastMonthCategory[account.assetCategory as keyof typeof lastMonthCategory] += converted;
+      }
+    });
+    const lastMonthHealth = calculateHealthScore(lastAccounts, lastYear, lastMonth, lastMonthCategory, intervals);
+    setScoreChange(health.score - lastMonthHealth.score);
     
     setHealthScore(health);
+
+    // 保存健康评分历史
+    saveHealthHistory(currentYear, currentMonth, health.score, health.level);
+
+    // 计算已分类账户数量
+    const classified = accounts.filter(a => a.assetCategory != null).length;
+    setClassifiedCount(classified);
 
     const savedExpandedGroups = getExpandedGroups();
 
@@ -270,56 +272,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     ? (netWorthChange / Math.abs(lastMonthNetWorth)) * 100 
     : 0;
 
-  // ── 资产分布数据计算 ─────────────────────────────
-  const customTypes = getCustomAccountTypes();
-
-  // 颜色映射（按 label，支持自定义分类）
-  const LABEL_COLORS: Record<string, string> = {
-    '现金': '#0ea5e9',
-    '储蓄卡': '#38bdf8',
-    '网络支付': '#10b981',
-    '投资账户': '#f59e0b',
-    '借出': '#8b5cf6',
-  };
-  const DEFAULT_COLORS = ['#0ea5e9', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#64748b'];
-
-  const assetDistribution = accountGroups
-    .filter(g => {
-      // 1. 明确排除负债类内置类型
-      if (g.type === 'credit' || g.type === 'debt') return false;
-
-      // 2. 如果是自定义分类，查 behavior
-      const customType = customTypes.find(ct => ct.label === g.label);
-      if (customType) {
-        return customType.behavior !== 'liability';
-      }
-
-      // 3. 其余内置资产类保留
-      return true;
-    })
-    .map(g => ({
-      type: g.type,
-      label: g.label,
-      amount: g.totalBalance,
-    }))
-    .filter(item => item.amount > 0)
-    .sort((a, b) => b.amount - a.amount);
-
-  const totalAssetAmount = assetDistribution.reduce((sum, item) => sum + item.amount, 0);
-
-  // 智能金额格式化：超过百万显示"万"
-  const formatAmountSmart = (amount: number): string => {
-    if (hideBalance) return '******';
-    if (Math.abs(amount) >= 1000000) {
-      return (amount / 10000).toLocaleString('zh-CN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }) + '万';
-    }
-    return formatAmountNoSymbol(amount);
-  };
-  // ── 资产分布数据计算结束 ─────────────────────────
-
   return (
     <div className="pb-20 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
@@ -340,7 +292,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
       </header>
 
       <div className="p-4 space-y-3">
-        {/* 净资产总览卡片 - 参考图1样式 */}
+        {/* 净资产总览卡片 */}
         <Card
           className="text-white border-0 shadow-lg overflow-hidden relative"
           style={{
@@ -357,12 +309,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                     goal={yearlyGoal}
                     currentNetWorth={netWorth}
                     onClick={() => setShowGoalDetail(true)}
-                  />
-                )}
-                {healthScore && (
-                  <HealthBadge
-                    healthScore={healthScore}
-                    onClick={() => setShowHealthDetail(true)}
                   />
                 )}
                 <button
@@ -385,19 +331,35 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
                 </div>
               </div>
               {/* 较上月 + 共 * 个账户 合并在一行 */}
-              <div className="flex items-center justify-between mt-2">
-                <div className="flex items-center text-xs">
-                  <span className="text-white/70">较上月</span>
-                  <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                    {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
-                  </span>
-                  <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
-                    {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
-                  </span>
+              <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                <div className="flex items-center gap-2 text-xs flex-wrap">
+                  <div className="flex items-center">
+                    <span className="text-white/70">较上月</span>
+                    <span className={`ml-1 font-medium ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
+                      {hideBalance ? '' : (netWorthChange >= 0 ? '+' : '')}{hideBalance ? '******' : formatAmountNoSymbol(netWorthChange)}
+                    </span>
+                    <span className={`ml-1 ${netWorthChange >= 0 ? 'text-white' : 'text-red-200'}`}>
+                      {hideBalance ? '' : `(${netWorthChange >= 0 ? '+' : ''}${netWorthChangePercent.toFixed(1)}%)`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-white/90 font-semibold underline underline-offset-2 decoration-white/50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPageChange('trend');
+                    }}
+                  >
+                    查看趋势
+                  </button>
                 </div>
                 <button
+                  type="button"
                   className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-full border border-white/40 bg-white/15 backdrop-blur-sm active:bg-white/25 transition-all hover:bg-white/20"
-                  onClick={() => onPageChange('balance-sankey')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPageChange('accounts');
+                  }}
                 >
                   <span className="text-white">共 {hideBalance ? '**' : visibleAccountCount} 个账户</span>
                   <ChevronRight size={14} className="text-white" />
@@ -431,9 +393,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
               </div>
             </CardContent>
           </Card>
-        </div>
-
-        {/* 年度目标 & 健康度分析卡片 - 独立区域，借贷统计下方、账户列表上方 */}
+        </div>        {/* 年度目标卡片 */}
         <YearlyGoalCard
           goal={yearlyGoal}
           goalProgress={goalProgress}
@@ -445,152 +405,44 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
           onSetGoal={() => setShowGoalEdit(true)}
         />
 
-        {healthScore && (
-          <HealthScoreCard
-            healthScore={healthScore}
-            primaryColor={themeConfig.primary}
-            onClick={() => setShowHealthDetail(true)}
-          />
-        )}
+        {/* 资产健康驾驶舱卡片 */}
+        <AssetCockpitCard
+          healthScore={healthScore || { score: 0, level: 'D', configScore: { score: 0, level: 'D', categoryScores: {} }, volatilityScore: { score: 0, level: 'D', standardDeviation: 0 }, attributionCompleteness: 0 }}
+          scoreChange={scoreChange}
+          primaryColor={themeConfig.primary}
+          configKey={configKey}
+          isEmpty={allAccounts.length === 0}
+          onClick={() => setShowHealthDetail(true)}
+          onStageClick={() => setShowLifeStageSheet(true)}
+          onIntervalSettingsClick={() => {
+            setIntervalFocusCategory(undefined);
+            setShowIntervalSheet(true);
+          }}
+          onClassifyClick={() => { setQcReclassify(false); setShowQCFlow(true); }}
+          onAddAccount={() => onPageChange('account-edit')}
+          classifiedCount={classifiedCount}
+          totalCount={allAccounts.length}
+          currentAllocations={currentAllocations}
+          hideBalance={hideBalance}
+        />
 
-        {/* 资产分布卡片 */}
-        <div className="space-y-2">
-          <Card className="bg-white overflow-hidden">
-            {/* 标题栏 */}
-            <div className="flex justify-between items-center px-5 pt-4 pb-2">
-              <h3 className="font-bold text-gray-800 text-base">资产分布</h3>
-              <button
-                onClick={() => onPageChange('accounts')}
-                className="px-3 py-1.5 rounded-full text-xs font-medium text-white flex items-center gap-1 active:scale-95 transition-transform"
-                style={{
-                  background: `linear-gradient(135deg, ${themeConfig.primary} 0%, ${themeConfig.gradientTo} 100%)`,
-                  boxShadow: `0 2px 8px ${themeConfig.primary}55`
-                }}
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                管理
-              </button>
-            </div>
 
-            {assetDistribution.length === 0 ? (
-              /* 无账户：空状态 */
-              <CardContent className="p-8 text-center">
-                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                  <Wallet size={28} className="text-gray-400" />
-                </div>
-                <p className="text-gray-500 mb-4">还没有账户，添加一个吧</p>
-                <Button
-                  className="text-white"
-                  style={{ backgroundColor: themeConfig.primary }}
-                  onClick={() => onPageChange('accounts')}
-                >
-                  <Icon name="plus" size={18} className="mr-1" />
-                  添加账户
-                </Button>
-              </CardContent>
-            ) : (
-              /* 有账户：大环形图 + 带进度条的表格 */
-              <CardContent className="p-5 pt-1 pb-4">
-                {/* 环形图 */}
-                <div className="flex justify-center mb-5">
-                  <div className="relative">
-                    <svg width="200" height="200" viewBox="0 0 200 200">
-                      {assetDistribution.map((item, index) => {
-                        const percentage = totalAssetAmount > 0 ? item.amount / totalAssetAmount : 0;
-                        const angle = percentage * 360;
-                        const startAngle = assetDistribution
-                          .slice(0, index)
-                          .reduce((sum, prev) => sum + (totalAssetAmount > 0 ? (prev.amount / totalAssetAmount) * 360 : 0), 0);
-                        const endAngle = startAngle + angle;
-                        const color = LABEL_COLORS[item.label] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
 
-                        if (angle < 0.5) return null;
+        {/* 资产配置结构卡片 */}
+        <AssetAllocCard
+          accounts={allAccounts}
+          categoryAmounts={currentAllocations}
+          currentAllocations={currentAllocations}
+          primaryColor={themeConfig.primary}
+          configKey={configKey}
+          hasClassifiedAccounts={classifiedCount > 0}
+          onClassifyClick={() => { setQcReclassify(false); setShowQCFlow(true); }}
+          onReclassifyClick={() => { setQcReclassify(true); setShowQCFlow(true); }}
+          hideBalance={hideBalance}
+        />
 
-                        return (
-                          <path
-                            key={String(item.type)}
-                            d={describeDonutSegment(100, 100, 84, 56, startAngle, endAngle)}
-                            fill={color}
-                            stroke="white"
-                            strokeWidth="3"
-                          />
-                        );
-                      })}
-                      <text x="100" y="88" textAnchor="middle" className="text-xs fill-gray-400">
-                        总资产
-                      </text>
-                      <text x="100" y="114" textAnchor="middle" className="text-lg font-bold fill-gray-800">
-                        {formatAmountSmart(totalAssetAmount)}
-                      </text>
-                    </svg>
-                  </div>
-                </div>
 
-                {/* 表头 */}
-                <div className="flex items-center px-1 pb-2 border-b border-gray-100 mb-1">
-                  <span className="text-xs text-gray-400 font-medium" style={{ width: '96px' }}>分类</span>
-                  <span className="text-xs text-gray-400 font-medium flex-1 text-center">趋势</span>
-                  <span className="text-xs text-gray-400 font-medium text-right" style={{ width: '90px' }}>金额</span>
-                  <span className="text-xs text-gray-400 font-medium text-right" style={{ width: '48px' }}>占比</span>
-                </div>
 
-                {/* 表格行 */}
-                <div className="space-y-0">
-                  {assetDistribution.map((item, index) => {
-                    const percentage = totalAssetAmount > 0 ? (item.amount / totalAssetAmount) * 100 : 0;
-                    const color = LABEL_COLORS[item.label] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
-                    return (
-                      <div
-                        key={String(item.type)}
-                        className="flex items-center gap-2 py-2 border-b border-gray-50 last:border-b-0"
-                      >
-                        {/* 分类名：96px 宽，5-6个汉字不截断 */}
-                        <div className="flex items-center gap-1.5 flex-shrink-0" style={{ width: '96px' }}>
-                          <span
-                            className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: color }}
-                          />
-                          <span className="text-sm text-gray-700 truncate" title={item.label}>
-                            {item.label}
-                          </span>
-                        </div>
-
-                        {/* 进度条：自适应 */}
-                        <div className="flex-1 min-w-0 px-1">
-                          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                            <div
-                              className="h-full rounded-full"
-                              style={{ width: `${Math.max(percentage, 0.5)}%`, backgroundColor: color }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* 金额：固定宽，右对齐，智能转"万" */}
-                        <span
-                          className="text-sm text-gray-600 font-medium tabular-nums text-right flex-shrink-0"
-                          style={{ width: '90px' }}
-                        >
-                          {formatAmountSmart(item.amount)}
-                        </span>
-
-                        {/* 占比：固定宽，右对齐，带颜色 */}
-                        <span
-                          className="text-sm font-bold tabular-nums text-right flex-shrink-0"
-                          style={{ width: '48px', color }}
-                        >
-                          {percentage.toFixed(1)}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            )}
-          </Card>
-        </div>
       </div>
 
       {/* 年度目标详情弹窗 */}
@@ -625,11 +477,73 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
         <HealthDetailModal
           healthScore={healthScore}
           primaryColor={themeConfig.primary}
+          currentAllocations={currentAllocations}
           onClose={() => setShowHealthDetail(false)}
+          onAdjustIntervals={() => {
+            setShowHealthDetail(false);
+            setIntervalFocusCategory(undefined);
+            setShowIntervalSheet(true);
+          }}
+          onAdjustCategoryInterval={(cat) => {
+            setShowHealthDetail(false);
+            setIntervalFocusCategory(cat);
+            setShowIntervalSheet(true);
+          }}
+          onViewTrend={() => {
+            setShowHealthDetail(false);
+            onPageChange('trend');
+          }}
+          hideBalance={hideBalance}
+          baseCurrencySymbol={currencySymbol}
+        />
+      )}
+
+      {/* 人生阶段选择 Sheet */}
+      {showLifeStageSheet && (
+        <LifeStageSheet
+          primaryColor={themeConfig.primary}
+          onClose={() => setShowLifeStageSheet(false)}
+          onConfirm={() => {
+            setConfigKey((k) => k + 1);
+            loadData();
+          }}
+        />
+      )}
+
+      {showIntervalSheet && (
+        <ReferenceIntervalSheet
+          primaryColor={themeConfig.primary}
+          focusCategory={intervalFocusCategory}
+          onClose={() => {
+            setShowIntervalSheet(false);
+            setIntervalFocusCategory(undefined);
+          }}
+          onSaved={() => {
+            setConfigKey((k) => k + 1);
+            loadData();
+          }}
+        />
+      )}
+
+      {/* Quick Classification Flow */}
+      {showQCFlow && (
+        <QuickClassifyFlow
+          unclassifiedAccounts={allAccounts.filter(a => a.assetCategory == null)}
+          allAccounts={allAccounts}
+          reclassify={qcReclassify}
+          primaryColor={themeConfig.primary}
+          onComplete={() => {
+            setShowQCFlow(false);
+            loadData();
+          }}
+          onDismiss={() => {
+            setShowQCFlow(false);
+            setQCDismissedTotal(allAccounts.length);
+          }}
+          hideBalance={hideBalance}
+          baseCurrencySymbol={currencySymbol}
         />
       )}
     </div>
   );
 }
-
-

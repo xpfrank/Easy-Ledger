@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Plus, Upload, GitBranch, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown, GripVertical, ListOrdered } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, GitBranch, Trash2, Edit3, Eye, EyeOff, Download, FileSpreadsheet, FileJson, ChevronDown, ChevronUp, ArrowUp, ArrowDown, GripVertical, CheckSquare, X, Square, MoreHorizontal, Layers, SortAsc, ListChecks, FolderPlus, ArrowUpToLine } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -25,9 +25,16 @@ import {
   getAllAccounts,
   reorderAccountInGroup,
   dragReorderAccountInGroup,
+  batchDeleteAccountsFromMonth,
+  getGroupOrderConfig,
+  saveGroupOrderConfig,
+  addCustomAccountType,
 } from '@/lib/storage';
 import { ACCOUNT_TYPES } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+// Select removed - using grid-based chip selector instead
 import { THEMES } from '@/types';
 import type { ThemeType } from '@/types';
 
@@ -62,11 +69,36 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [isSortMode, setIsSortMode] = useState(false);
-  // 拖拽相关状态
+  // 账户拖拽相关状态
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const dragRef = useRef<{ startY: number; accountId: string; groupType: string; itemHeight: number; startIndex: number } | null>(null);
+  const dragOverIndexRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 浮动拖拽幽灵（账户 + 分组通用）
+  const [dragGhostPos, setDragGhostPos] = useState<{ y: number; text: string } | null>(null);
+  // 分组拖拽状态
+  const [draggingGroupType, setDraggingGroupType] = useState<string | null>(null);
+  const [dragOverGroupIndex, setDragOverGroupIndex] = useState<number | null>(null);
+  const groupDragRef = useRef<{ startY: number; groupType: string; groupHeight: number; startIndex: number } | null>(null);
+  const groupDragOverIndexRef = useRef<number | null>(null);
+  // groupLongPressRef removed - not needed
+
+  // 批量操作状态
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
+  const [batchActionDialog, setBatchActionDialog] = useState<"type" | "delete" | null>(null);
+  const [newCustomType, setNewCustomType] = useState("");
+  const [selectedCustomType, setSelectedCustomType] = useState("");
+  
+  // 分组排序状态
+  const [isGroupSortMode, setIsGroupSortMode] = useState(false);
+  const [groupOrder, setGroupOrder] = useState<Record<string, number>>({});
+  const [createTypeDialogOpen, setCreateTypeDialogOpen] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+
+  // 顶栏更多菜单
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const themeConfig = THEMES[theme] || THEMES.blue;
 
@@ -80,6 +112,9 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     loadAccounts();
     // 初始化分组展开状态
     const saved = getExpandedGroups();
+    setExpandedGroups(saved);
+    // 加载分组排序配置
+    setGroupOrder(getGroupOrderConfig());
     setExpandedGroups(saved);
   }, []);
 
@@ -107,7 +142,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     const month = now.getMonth() + 1;
     const groupAccounts = groupType.startsWith('custom_')
       ? accounts.filter(a => a.customTypeLabel === groupType.replace('custom_', ''))
-      : accounts.filter(a => a.type === groupType);
+      : accounts.filter(a => a.type === groupType && !a.customTypeLabel); // BUG FIX: exclude custom-typed accounts
     let total = 0;
     for (const account of groupAccounts) {
       const rawBal = currentBalances[account.id] ?? account.balance;
@@ -170,8 +205,12 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     loadAccounts();
   };
 
-  const handleReorder = (accountId: string, direction: 'up' | 'down') => {
-    reorderAccountInGroup(accountId, direction);
+  const handleReorder = (accountId: string, direction: 'up' | 'down' | 'top') => {
+    if (direction === 'top') {
+      dragReorderAccountInGroup(accountId, 0);
+    } else {
+      reorderAccountInGroup(accountId, direction);
+    }
     loadAccounts();
   };
 
@@ -255,7 +294,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     accounts: accounts.filter(a => a.type === type.type && !a.customTypeLabel),
   })).filter(g => g.accounts.length > 0);
 
-  // Custom type groups
+  // Custom type groups — include ALL saved custom types, even empty ones
   const customTypeMap = new Map<string, typeof accounts>();
   for (const acc of accounts) {
     if (acc.customTypeLabel) {
@@ -264,23 +303,190 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     }
   }
   const savedCustomTypes = getCustomAccountTypes();
-  const customGroups = Array.from(customTypeMap.entries()).map(([label, accs]) => {
+  // Merge: types that have accounts + types that are saved but empty
+  const allCustomLabels = new Set([
+    ...Array.from(customTypeMap.keys()),
+    ...savedCustomTypes.map(ct => ct.label),
+  ]);
+  const customGroups = Array.from(allCustomLabels).map((label) => {
     const saved = savedCustomTypes.find(ct => ct.label === label);
     return {
       type: `custom_${label}`,
       label,
       icon: saved?.icon || 'circle',
-      accounts: accs,
+      accounts: customTypeMap.get(label) || [],
     };
   });
 
 
 
-  const groupedAccounts = [...standardGroups, ...customGroups];
+
+  // ========== 批量操作功能 ==========
+  const toggleAccountSelection = (accountId: string) => {
+    const newSelected = new Set(selectedAccounts);
+    if (newSelected.has(accountId)) {
+      newSelected.delete(accountId);
+    } else {
+      newSelected.add(accountId);
+    }
+    setSelectedAccounts(newSelected);
+  };
+
+  const selectAllInGroup = (groupAccounts: Account[]) => {
+    const newSelected = new Set(selectedAccounts);
+    const allSelected = groupAccounts.every(a => newSelected.has(a.id));
+    
+    if (allSelected) {
+      groupAccounts.forEach(a => newSelected.delete(a.id));
+    } else {
+      groupAccounts.forEach(a => newSelected.add(a.id));
+    }
+    setSelectedAccounts(newSelected);
+  };
+
+  const handleBatchTypeChange = () => {
+    if (selectedAccounts.size === 0) return;
+    
+    const accountIds = Array.from(selectedAccounts);
+    let customTypeLabel: string | undefined = undefined;
+    let builtinType: string | undefined = undefined;
+    
+    if (selectedCustomType === "_none_") {
+      customTypeLabel = undefined;
+    } else if (selectedCustomType === "_new_") {
+      if (!newCustomType.trim()) {
+        alert("请输入新分类名称");
+        return;
+      }
+      customTypeLabel = newCustomType;
+    } else if (selectedCustomType.startsWith("_builtin_")) {
+      // 处理内置类型选择
+      builtinType = selectedCustomType.replace("_builtin_", "");
+      customTypeLabel = undefined;
+    } else {
+      customTypeLabel = selectedCustomType;
+    }
+    
+    // 批量更新账户
+    for (const accountId of accountIds) {
+      const account = accounts.find(a => a.id === accountId);
+      if (account) {
+        if (builtinType) {
+          // 切换到内置类型，清除自定义标签
+          updateAccount(accountId, { type: builtinType as any, customTypeLabel: undefined });
+        } else {
+          // 设置自定义类型标签
+          updateAccount(accountId, { customTypeLabel });
+        }
+      }
+    }
+    
+    if (selectedCustomType === "_new_" && newCustomType.trim()) {
+      addCustomAccountType({
+        label: newCustomType,
+        icon: "folder",
+        behavior: "asset",
+      });
+    }
+    
+    loadAccounts();
+    setBatchActionDialog(null);
+    setSelectedAccounts(new Set());
+    setIsBatchMode(false);
+    setNewCustomType("");
+    setSelectedCustomType("");
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedAccounts.size === 0) return;
+    
+    const now = new Date();
+    const accountIds = Array.from(selectedAccounts);
+    batchDeleteAccountsFromMonth(accountIds, now.getFullYear(), now.getMonth() + 1);
+    
+    loadAccounts();
+    setBatchActionDialog(null);
+    setSelectedAccounts(new Set());
+    setIsBatchMode(false);
+  };
+
+  // ========== 分组排序功能 ==========
+  const handleGroupReorderToIndex = (groupType: string, toIndex: number) => {
+    const sortedGroups = getSortedGroups();
+    const currentIndex = sortedGroups.findIndex(g => g.type === groupType);
+    if (currentIndex === -1 || toIndex === currentIndex) return;
+    
+    // 重新排序分组
+    const newGroups = [...sortedGroups];
+    const [moved] = newGroups.splice(currentIndex, 1);
+    newGroups.splice(toIndex, 0, moved);
+    
+    // 更新排序权重
+    const newOrder: Record<string, number> = {};
+    newGroups.forEach((g, i) => {
+      newOrder[g.type] = i * 10;
+    });
+    
+    setGroupOrder(newOrder);
+    saveGroupOrderConfig(newOrder);
+  };
+
+  const handleGroupReorder = (groupType: string, direction: "up" | "down") => {
+    const sortedGroups = getSortedGroups();
+    const currentIndex = sortedGroups.findIndex(g => g.type === groupType);
+    if (currentIndex === -1) return;
+    const swapIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (swapIndex < 0 || swapIndex >= sortedGroups.length) return;
+    const currentOrder = groupOrder[groupType] ?? currentIndex * 10;
+    const swapOrder = groupOrder[sortedGroups[swapIndex].type] ?? swapIndex * 10;
+    const newOrder = { ...groupOrder };
+    newOrder[groupType] = swapOrder;
+    newOrder[sortedGroups[swapIndex].type] = currentOrder;
+    setGroupOrder(newOrder);
+    saveGroupOrderConfig(newOrder);
+  };
+
+  const handleCreateCustomType = () => {
+    if (!newTypeName.trim()) {
+      alert("请输入分类名称");
+      return;
+    }
+    
+    addCustomAccountType({
+      label: newTypeName,
+      icon: "folder",
+      behavior: "asset",
+    });
+    
+    setCreateTypeDialogOpen(false);
+    setNewTypeName("");
+    loadAccounts();
+  };
+
+  // 按排序配置排序分组
+  const getSortedGroups = () => {
+    const allGroups = [...standardGroups, ...customGroups];
+    return allGroups.sort((a, b) => {
+      const orderA = groupOrder[a.type] ?? (ACCOUNT_TYPES.findIndex(t => t.type === a.type) * 10);
+      const orderB = groupOrder[b.type] ?? (ACCOUNT_TYPES.findIndex(t => t.type === b.type) * 10);
+      return orderA - orderB;
+    });
+  };
+  const groupedAccounts = getSortedGroups(); // Fix: use sorted groups for rendering
+
+  // 退出所有编辑模式
+  const exitEditMode = () => {
+    setIsBatchMode(false);
+    setIsSortMode(false);
+    setIsGroupSortMode(false);
+    setSelectedAccounts(new Set());
+  };
+
+  const isAnyEditMode = isBatchMode || isSortMode || isGroupSortMode;
 
   return (
-    <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
-      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
+    <div className={`${isAnyEditMode ? 'pb-32' : 'pb-24'} bg-gray-50 min-h-screen overflow-x-hidden`}>
+      {/* 标题栏 - 精简为2个操作按钮 */}
       <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
@@ -289,17 +495,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
           <h1 className="text-lg font-semibold text-white">账户管理</h1>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`text-white rounded-full px-3 py-1 text-xs font-medium ${
-              isSortMode ? 'bg-white/30' : 'bg-white/15'
-            }`}
-            onClick={() => setIsSortMode(!isSortMode)}
-          >
-            <ListOrdered size={16} className="mr-1" />
-            {isSortMode ? '完成' : '排序'}
-          </Button>
+          {/* 资产流向 - 高频入口常驻 */}
           <Button
             variant="ghost"
             size="sm"
@@ -309,16 +505,79 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
             <GitBranch size={16} className="mr-1" />
             资产流向
           </Button>
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => setImportDialogOpen(true)}>
-            <Upload size={20} />
-          </Button>
+          {/* ··· 更多菜单 */}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white"
+              onClick={() => setShowMoreMenu(v => !v)}
+            >
+              <MoreHorizontal size={20} />
+            </Button>
+            {showMoreMenu && (
+              <>
+                {/* 点击遮罩关闭菜单 */}
+                <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                <div className="absolute right-0 top-10 z-50 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden w-44">
+                  <button
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setIsGroupSortMode(true);
+                      setIsSortMode(false);
+                      setIsBatchMode(false);
+                    }}
+                  >
+                    <Layers size={16} className="text-gray-400" />
+                    分类排序
+                  </button>
+                  <button
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setIsSortMode(true);
+                      setIsGroupSortMode(false);
+                      setIsBatchMode(false);
+                    }}
+                  >
+                    <SortAsc size={16} className="text-gray-400" />
+                    账户排序
+                  </button>
+                  <button
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setIsBatchMode(true);
+                      setIsSortMode(false);
+                      setIsGroupSortMode(false);
+                    }}
+                  >
+                    <ListChecks size={16} className="text-gray-400" />
+                    批量操作
+                  </button>
+                  <div className="border-t border-gray-100" />
+                  <button
+                    className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+                    onClick={() => {
+                      setShowMoreMenu(false);
+                      setImportDialogOpen(true);
+                    }}
+                  >
+                    <Upload size={16} className="text-gray-400" />
+                    导入数据
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
       {/* 占位元素，防止内容被固定标题栏遮挡 */}
       <div className="h-14"></div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-3">
         {groupedAccounts.length === 0 ? (
           <Card className="bg-white">
             <CardContent className="p-8 text-center">
@@ -334,20 +593,58 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
             </CardContent>
           </Card>
         ) : (
-          groupedAccounts.map((group) => {
+          <>
+            {(isSortMode || isGroupSortMode) && (
+              <div className="px-4 py-2.5 bg-blue-50/80 border border-blue-100 rounded-xl flex items-center gap-2 text-xs text-blue-600">
+                <GripVertical size={14} className="text-blue-400 flex-shrink-0" />
+                <span>长按 <span className="font-medium">⠿</span> 图标可拖拽排序，点击箭头可快速置顶/置底</span>
+              </div>
+            )}
+            {groupedAccounts.map((group, groupIndex) => {
             const isExpanded = expandedGroups[group.type] !== undefined ? expandedGroups[group.type] : true;
+            const groupAccounts = group.accounts;
+            const selectedCount = groupAccounts.filter(a => selectedAccounts.has(a.id)).length;
+            const isAllSelected = groupAccounts.length > 0 && selectedCount === groupAccounts.length;
+            
             return (
-            <div key={group.type} className="space-y-2">
-              <h2 className="text-sm font-medium text-gray-500 px-1">
-                {group.label}
-              </h2>
-              <Card className="bg-white overflow-hidden">
+            <div key={group.type} data-group-index={groupIndex} className={`transition-all duration-200 ${
+              draggingGroupType === group.type
+                ? 'scale-[1.02] shadow-xl rounded-2xl z-10 relative ring-2 ring-blue-200/60'
+                : draggingGroupType
+                  ? 'opacity-50'
+                  : ''
+            } ${draggingGroupType && draggingGroupType !== group.type && dragOverGroupIndex === groupIndex
+              ? 'border-l-[4px] border-l-blue-500 bg-blue-50/30 ml-1'
+              : ''
+            }`}>
+              <Card className={`bg-white overflow-hidden transition-all duration-200 ${
+                draggingGroupType === group.type ? 'border-blue-300 border' : ''
+              }`}>
                 {/* 分组标题栏 - 可点击展开/收起 */}
                 <div
-                  className="flex items-center justify-between p-3.5 bg-white cursor-pointer select-none border-b border-gray-100 hover:bg-gray-50"
-                  onClick={() => toggleGroup(group.type)}
+                  className="flex items-center justify-between px-3 py-2.5 bg-white cursor-pointer select-none border-b border-gray-100 hover:bg-gray-50"
+                  onClick={() => !isBatchMode && toggleGroup(group.type)}
                 >
                   <div className="flex items-center gap-2.5">
+                    {isBatchMode && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selectAllInGroup(groupAccounts);
+                        }}
+                        className="p-1"
+                      >
+                        {isAllSelected ? (
+                          <CheckSquare size={18} className="text-blue-600" />
+                        ) : selectedCount > 0 ? (
+                          <div className="w-[18px] h-[18px] rounded bg-blue-600 flex items-center justify-center">
+                            <div className="w-2 h-0.5 bg-white"></div>
+                          </div>
+                        ) : (
+                          <Square size={18} className="text-gray-400" />
+                        )}
+                      </button>
+                    )}
                     <div 
                       className="w-7 h-7 rounded-lg flex items-center justify-center bg-white shadow-sm"
                       style={{ 
@@ -363,47 +660,195 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                     <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full shadow-sm">{group.accounts.length}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium ${
-                      group.type === 'credit' && getGroupTotal(group.type) < 0 ? 'text-green-600' : 
-                      group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
-                    }`}>
-                      {group.type === 'credit' ? (getGroupTotal(group.type) > 0 ? '欠款' : '溢缴') : ''}
+                    {isGroupSortMode ? (
+                      <div className="flex items-center gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={groupIndex === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleGroupReorder(group.type, 'up');
+                          }}
+                        >
+                          <ArrowUp size={14} className={groupIndex === 0 ? 'text-gray-200' : 'text-gray-400'} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={groupIndex === groupedAccounts.length - 1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleGroupReorder(group.type, 'down');
+                          }}
+                        >
+                          <ArrowDown size={14} className={groupIndex === groupedAccounts.length - 1 ? 'text-gray-200' : 'text-gray-400'} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={groupIndex === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleGroupReorderToIndex(group.type, 0);
+                          }}
+                          title="置顶"
+                        >
+                          <ArrowUpToLine size={14} className={groupIndex === 0 ? 'text-gray-200' : 'text-blue-500'} />
+                        </Button>
+                        <div
+                          className={`touch-none select-none cursor-grab active:cursor-grabbing p-1.5 rounded-md transition-colors ${
+                            draggingGroupType === group.type ? 'bg-blue-50' : 'hover:bg-gray-100'
+                          }`}
+                          onTouchStart={(e) => {
+                            e.stopPropagation();
+                            groupDragRef.current = { startY: e.touches[0].clientY, groupType: group.type, groupHeight: 60, startIndex: groupIndex };
+                            setDraggingGroupType(group.type);
+                            setDragOverGroupIndex(groupIndex);
+                            groupDragOverIndexRef.current = groupIndex;
+                            setDragGhostPos({ y: e.touches[0].clientY - 30, text: group.label });
+                            if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                          }}
+                          onTouchMove={(e) => {
+                            if (!groupDragRef.current) return;
+                            e.preventDefault();
+                            const touch = e.touches[0];
+                            setDragGhostPos({ y: touch.clientY - 30, text: group.label });
+                            const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                            const groupEl = el?.closest('[data-group-index]');
+                            if (groupEl) {
+                              const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
+                              if (idx >= 0) { setDragOverGroupIndex(idx); groupDragOverIndexRef.current = idx; }
+                            }
+                          }}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
+                              handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
+                            }
+                            setDraggingGroupType(null);
+                            setDragOverGroupIndex(null);
+                            groupDragOverIndexRef.current = null;
+                            setDragGhostPos(null);
+                            groupDragRef.current = null;
+                          }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            groupDragRef.current = { startY: e.clientY, groupType: group.type, groupHeight: 60, startIndex: groupIndex };
+                            setDraggingGroupType(group.type);
+                            setDragOverGroupIndex(groupIndex);
+                            groupDragOverIndexRef.current = groupIndex;
+                            setDragGhostPos({ y: e.clientY - 30, text: group.label });
+                            if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                            const handleMove = (me: MouseEvent) => {
+                              if (!groupDragRef.current) return;
+                              setDragGhostPos({ y: me.clientY - 30, text: group.label });
+                              const el = document.elementFromPoint(me.clientX, me.clientY);
+                              const groupEl = el?.closest('[data-group-index]');
+                              if (groupEl) {
+                                const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
+                                if (idx >= 0) { setDragOverGroupIndex(idx); groupDragOverIndexRef.current = idx; }
+                              }
+                            };
+                            const handleUp = () => {
+                              if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
+                                handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
+                              }
+                              setDraggingGroupType(null);
+                              setDragOverGroupIndex(null);
+                              groupDragOverIndexRef.current = null;
+                              setDragGhostPos(null);
+                              groupDragRef.current = null;
+                              document.removeEventListener('mousemove', handleMove);
+                              document.removeEventListener('mouseup', handleUp);
+                            };
+                            document.addEventListener('mousemove', handleMove);
+                            document.addEventListener('mouseup', handleUp);
+                          }}
+                        >
+                          <GripVertical
+                            size={16}
+                            className={draggingGroupType === group.type ? 'text-blue-500' : 'text-gray-300'}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <span className={`text-sm font-medium ${
+                          group.type === 'credit' && getGroupTotal(group.type) < 0 ? 'text-green-600' : 
+                          group.type === 'credit' || group.type === 'debt' ? 'text-red-500' : ''
+                        }`}>
+                          {group.type === 'credit' ? (getGroupTotal(group.type) > 0 ? '欠款' : '溢缴') : ''}
   {getCurrencyConfig(baseCurrency).symbol}{formatHiddenAmount(group.type === 'credit' || group.type === 'debt' ? Math.abs(getGroupTotal(group.type)) : getGroupTotal(group.type), hideBalance)}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleGroup(group.type);
-                      }}
-                      className="p-1.5 rounded-full bg-white hover:bg-gray-100 transition-colors text-gray-500 shadow-sm"
-                    >
-                      {isExpanded ? (
-                        <ChevronUp size={16} />
-                      ) : (
-                        <ChevronDown size={16} />
-                      )}
-                    </button>
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleGroup(group.type);
+                          }}
+                          className="p-1.5 rounded-full bg-white hover:bg-gray-100 transition-colors text-gray-500 shadow-sm"
+                        >
+                          {isExpanded ? (
+                            <ChevronUp size={16} />
+                          ) : (
+                            <ChevronDown size={16} />
+                          )}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
                 
                 {/* 账户列表 */}
                 {isExpanded && (
                 <div className="divide-y divide-gray-100">
-                  {group.accounts.map((account) => (
+                  {group.accounts.map((account) => {
+                    const isDragging = draggingId === account.id;
+                    const isDropTarget = isSortMode && dragOverIndex !== null && draggingId &&
+                      draggingId !== account.id &&
+                      group.accounts.indexOf(account) === dragOverIndex;
+                    const anyDragging = !!draggingId;
+
+                    return (
                     <div
                       key={account.id}
-                      className={`p-3 hover:bg-gray-50 cursor-pointer transition-all duration-200 ${
-                        draggingId === account.id ? 'opacity-50 bg-blue-50 scale-[0.98]' : ''
-                      } ${
-                        isSortMode && dragOverIndex !== null && draggingId && draggingId !== account.id &&
-                        group.accounts.indexOf(account) === dragOverIndex
-                          ? 'border-t-2 border-blue-400' : ''
-                      }`}
-                      onClick={() => !isSortMode && onPageChange('account-detail', { accountId: account.id })}
+                      data-account-index={group.accounts.indexOf(account)}
+                      className={`px-3 py-2 cursor-pointer transition-all duration-200 ${
+                        isDragging
+                          ? 'relative z-10 scale-[1.04] shadow-2xl bg-white border border-blue-300 rounded-xl -mx-0.5 ring-2 ring-blue-200/60'
+                          : anyDragging
+                            ? 'opacity-50'
+                            : 'hover:bg-gray-50'
+                      } ${isDropTarget ? 'border-l-[4px] border-l-blue-500 bg-blue-50/60 pl-[11px]' : ''}`}
+                      onClick={() => {
+                        if (isBatchMode) {
+                          toggleAccountSelection(account.id);
+                        } else if (!isSortMode) {
+                          onPageChange('account-detail', { accountId: account.id });
+                        }
+                      }}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
-<div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                          {isBatchMode && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleAccountSelection(account.id);
+                              }}
+                              className="p-1"
+                            >
+                              {selectedAccounts.has(account.id) ? (
+                                <CheckSquare size={18} className="text-blue-600" />
+                              ) : (
+                                <Square size={18} className="text-gray-400" />
+                              )}
+                            </button>
+                          )}
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
                             account.type === 'credit' || account.type === 'debt'
                               ? 'bg-red-50'
                               : ''
@@ -426,7 +871,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                             </div>
                           </div>
                         </div>
-<div className="flex items-center gap-1">
+<div className="flex items-center gap-0.5">
                           {isSortMode ? (
                             <>
                               <Button
@@ -459,35 +904,60 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                     : 'text-gray-400'
                                 } />
                               </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={group.accounts.indexOf(account) === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReorder(account.id, 'top');
+                                }}
+                                title="置顶"
+                              >
+                                <ArrowUpToLine size={15} className={
+                                  group.accounts.indexOf(account) === 0 ? 'text-gray-200' : 'text-blue-500'
+                                } />
+                              </Button>
                               <div
-                                className="touch-none select-none cursor-grab active:cursor-grabbing p-1"
+                                className={`touch-none select-none cursor-grab active:cursor-grabbing p-1.5 rounded-md transition-colors ${
+                                  draggingId === account.id ? 'bg-blue-50' : 'hover:bg-gray-100'
+                                }`}
                                 onTouchStart={(e) => {
                                   e.stopPropagation();
                                   const idx = group.accounts.indexOf(account);
                                   dragRef.current = { startY: e.touches[0].clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
                                   setDraggingId(account.id);
                                   setDragOverIndex(idx);
-                                  longPressTimerRef.current = setTimeout(() => {
-                                    // long press activated
-                                  }, 300);
+                                  dragOverIndexRef.current = idx;
+                                  setDragGhostPos({ y: e.touches[0].clientY - 30, text: account.name });
+                                  if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                                  longPressTimerRef.current = setTimeout(() => {}, 300);
                                 }}
                                 onTouchMove={(e) => {
                                   if (!dragRef.current) return;
                                   e.preventDefault();
-                                  const delta = e.touches[0].clientY - dragRef.current.startY;
-                                  const offset = Math.round(delta / dragRef.current.itemHeight);
-                                  const newIndex = Math.max(0, Math.min(dragRef.current.startIndex + offset, group.accounts.length - 1));
-                                  setDragOverIndex(newIndex);
+                                  const touch = e.touches[0];
+                                  setDragGhostPos({ y: touch.clientY - 30, text: account.name });
+                                  // 用 elementFromPoint 精确命中目标行
+                                  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                                  const row = el?.closest('[data-account-index]');
+                                  if (row) {
+                                    const idx = parseInt(row.getAttribute('data-account-index') || '-1', 10);
+                                    if (idx >= 0) { setDragOverIndex(idx); dragOverIndexRef.current = idx; }
+                                  }
                                 }}
                                 onTouchEnd={(e) => {
                                   e.stopPropagation();
                                   if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-                                  if (dragRef.current && dragOverIndex !== null && dragOverIndex !== dragRef.current.startIndex) {
-                                    dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndex);
+                                  if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
+                                    dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
                                     loadAccounts();
                                   }
                                   setDraggingId(null);
                                   setDragOverIndex(null);
+                                  dragOverIndexRef.current = null;
+                                  setDragGhostPos(null);
                                   dragRef.current = null;
                                 }}
                                 onMouseDown={(e) => {
@@ -496,20 +966,28 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   dragRef.current = { startY: e.clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
                                   setDraggingId(account.id);
                                   setDragOverIndex(idx);
+                                  dragOverIndexRef.current = idx;
+                                  setDragGhostPos({ y: e.clientY - 30, text: account.name });
+                                  if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                                   const handleMove = (me: MouseEvent) => {
                                     if (!dragRef.current) return;
-                                    const delta = me.clientY - dragRef.current.startY;
-                                    const offset = Math.round(delta / dragRef.current.itemHeight);
-                                    const newIndex = Math.max(0, Math.min(dragRef.current.startIndex + offset, group.accounts.length - 1));
-                                    setDragOverIndex(newIndex);
+                                    setDragGhostPos({ y: me.clientY - 30, text: account.name });
+                                    const el = document.elementFromPoint(me.clientX, me.clientY);
+                                    const row = el?.closest('[data-account-index]');
+                                    if (row) {
+                                      const idx2 = parseInt(row.getAttribute('data-account-index') || '-1', 10);
+                                      if (idx2 >= 0) { setDragOverIndex(idx2); dragOverIndexRef.current = idx2; }
+                                    }
                                   };
                                   const handleUp = () => {
-                                    if (dragRef.current && dragOverIndex !== null && dragOverIndex !== dragRef.current.startIndex) {
-                                      dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndex);
+                                    if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
+                                      dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
                                       loadAccounts();
                                     }
                                     setDraggingId(null);
                                     setDragOverIndex(null);
+                                    dragOverIndexRef.current = null;
+                                    setDragGhostPos(null);
                                     dragRef.current = null;
                                     document.removeEventListener('mousemove', handleMove);
                                     document.removeEventListener('mouseup', handleUp);
@@ -518,7 +996,10 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   document.addEventListener('mouseup', handleUp);
                                 }}
                               >
-                                <GripVertical size={16} className="text-gray-400" />
+                                <GripVertical
+                                  size={16}
+                                  className={draggingId === account.id ? 'text-blue-500' : 'text-gray-300'}
+                                />
                               </div>
                             </>
                           ) : (
@@ -594,27 +1075,104 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
                 )}
               </Card>
             </div>
             );
-          })
+          })}
+          </>
         )}
       </div>
 
-      {/* 添加按钮 */}
-      <div className="fixed bottom-6 left-4 right-4">
-        <Button 
-          className="w-full h-12 text-white"
-          style={{ backgroundColor: themeConfig.primary }}
-          onClick={() => onPageChange('account-edit')}
-        >
-          <Plus size={20} className="mr-2" />
-          添加账户
-        </Button>
-      </div>
+      {/* 底部操作区 */}
+      {isAnyEditMode ? (
+        /* 编辑模式底部操作栏 */
+        <div className="fixed bottom-0 left-0 right-0 z-50 max-w-md mx-auto bg-white border-t border-gray-200 shadow-lg">
+          {/* 批量模式：已选操作 */}
+          {isBatchMode && selectedAccounts.size > 0 && (
+            <div className="flex items-center justify-between px-4 py-2 bg-blue-50 border-b border-blue-100">
+              <span className="text-sm text-blue-700 font-medium">
+                已选 {selectedAccounts.size} 个账户
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => setBatchActionDialog('type')}>
+                  调整分类
+                </Button>
+                <Button size="sm" variant="destructive" className="text-xs h-7" onClick={() => setBatchActionDialog('delete')}>
+                  删除
+                </Button>
+              </div>
+            </div>
+          )}
+          {/* 分类排序模式：新建分类 */}
+          {isGroupSortMode && (
+            <div className="px-4 py-2 bg-amber-50 border-b border-amber-100">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full h-8 text-xs border-amber-200 text-amber-700 hover:bg-amber-50"
+                onClick={() => setCreateTypeDialogOpen(true)}
+              >
+                <FolderPlus size={14} className="mr-1.5" />
+                新建空分类
+              </Button>
+            </div>
+          )}
+          {/* 模式切换标签 + 完成按钮 */}
+          <div className="flex items-center px-2 py-2 gap-1">
+            <button
+              className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-xs transition-colors ${
+                isGroupSortMode ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'
+              }`}
+              onClick={() => { setIsGroupSortMode(true); setIsSortMode(false); setIsBatchMode(false); setSelectedAccounts(new Set()); }}
+            >
+              <Layers size={16} />
+              分类排序
+            </button>
+            <button
+              className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-xs transition-colors ${
+                isSortMode ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'
+              }`}
+              onClick={() => { setIsSortMode(true); setIsGroupSortMode(false); setIsBatchMode(false); setSelectedAccounts(new Set()); }}
+            >
+              <SortAsc size={16} />
+              账户排序
+            </button>
+            <button
+              className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-lg text-xs transition-colors ${
+                isBatchMode ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'
+              }`}
+              onClick={() => { setIsBatchMode(true); setIsSortMode(false); setIsGroupSortMode(false); }}
+            >
+              <ListChecks size={16} />
+              批量操作
+            </button>
+            <button
+              className="flex flex-col items-center gap-0.5 py-1.5 px-3 rounded-lg text-xs font-medium text-white"
+              style={{ backgroundColor: themeConfig.primary }}
+              onClick={exitEditMode}
+            >
+              <X size={16} />
+              完成
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* 普通模式：添加账户按钮 */
+        <div className="fixed bottom-6 left-4 right-4">
+          <Button
+            className="w-full h-12 text-white"
+            style={{ backgroundColor: themeConfig.primary }}
+            onClick={() => onPageChange('account-edit')}
+          >
+            <Plus size={20} className="mr-2" />
+            添加账户
+          </Button>
+        </div>
+      )}
 
       {/* 删除确认对话框 */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -651,6 +1209,179 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
           <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} className="w-full mt-2">
             取消
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量操作对话框 - 调整分类 */}
+      <Dialog open={batchActionDialog === 'type'} onOpenChange={() => setBatchActionDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>批量调整分类</DialogTitle>
+            <DialogDescription>
+              将选中的 {selectedAccounts.size} 个账户移动到指定分类
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+            {/* 内置类型网格 */}
+            <div>
+              <Label className="text-xs text-gray-500 mb-2 block">内置类型</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setSelectedCustomType('_none_')}
+                  className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border-2 transition-all active:scale-95 ${
+                    selectedCustomType === '_none_' 
+                      ? 'border-blue-500 bg-blue-50 text-blue-600' 
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  <X size={16} className="mb-0.5" />
+                  <span className="text-[11px] font-medium">移出分类</span>
+                </button>
+                {ACCOUNT_TYPES.map(at => (
+                  <button
+                    key={at.type}
+                    onClick={() => setSelectedCustomType(`_builtin_${at.type}`)}
+                    className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border-2 transition-all active:scale-95 ${
+                      selectedCustomType === `_builtin_${at.type}`
+                        ? 'border-blue-500 bg-blue-50 text-blue-600'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    <Icon name={at.icon} size={16} className="mb-0.5" />
+                    <span className="text-[11px] font-medium">{at.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 自定义类型网格 */}
+            {getCustomAccountTypes().length > 0 && (
+              <div>
+                <Label className="text-xs text-gray-500 mb-2 block">自定义类型</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {getCustomAccountTypes().map(ct => (
+                    <button
+                      key={ct.id}
+                      onClick={() => setSelectedCustomType(ct.label)}
+                      className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border-2 transition-all active:scale-95 ${
+                        selectedCustomType === ct.label
+                          ? 'border-blue-500 bg-blue-50 text-blue-600'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <Icon name={ct.icon || 'folder'} size={16} className="mb-0.5" />
+                      <span className="text-[11px] font-medium truncate max-w-full px-0.5">{ct.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 新建自定义分类 */}
+            <div>
+              <button
+                onClick={() => setSelectedCustomType(selectedCustomType === '_new_' ? '' : '_new_')}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border-2 border-dashed transition-all active:scale-95 ${
+                  selectedCustomType === '_new_'
+                    ? 'border-blue-500 bg-blue-50 text-blue-600'
+                    : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400'
+                }`}
+              >
+                <Plus size={16} />
+                <span className="text-sm font-medium">新建自定义分类</span>
+              </button>
+              
+              {selectedCustomType === '_new_' && (
+                <div className="mt-2 space-y-2">
+                  <Input
+                    value={newCustomType}
+                    onChange={(e) => setNewCustomType(e.target.value)}
+                    placeholder="输入新分类名称"
+                    className="h-10"
+                    autoFocus
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchActionDialog(null)}>
+              取消
+            </Button>
+            <Button 
+              onClick={handleBatchTypeChange}
+              disabled={!selectedCustomType || (selectedCustomType === '_new_' && !newCustomType.trim())}
+              style={{ backgroundColor: themeConfig.primary }}
+              className="text-white"
+            >
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量操作对话框 - 删除确认 */}
+      <Dialog open={batchActionDialog === 'delete'} onOpenChange={() => setBatchActionDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认批量删除</DialogTitle>
+            <DialogDescription>
+              确定要删除选中的 {selectedAccounts.size} 个账户的本月记录吗？
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <p className="text-sm text-gray-500">
+              此操作只会删除这些账户在当前月份的记录，不会影响历史数据。
+            </p>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchActionDialog(null)}>
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleBatchDelete}>
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 创建空分类对话框 */}
+      <Dialog open={createTypeDialogOpen} onOpenChange={setCreateTypeDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新建空分类</DialogTitle>
+            <DialogDescription>
+              创建一个空的自定义分类，稍后可以将账户归入此分类
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>分类名称</Label>
+              <Input
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                placeholder="例如：投资账户、家庭公用"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateTypeDialogOpen(false)}>
+              取消
+            </Button>
+            <Button 
+              onClick={handleCreateCustomType}
+              style={{ backgroundColor: themeConfig.primary }}
+              className="text-white"
+            >
+              创建
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -768,6 +1499,36 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 拖拽排序动画样式 */}
+      <style>{`
+        @keyframes drag-ghost-in {
+          from { opacity: 0; transform: translateX(-50%) scale(0.85); }
+          to { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+        @keyframes drop-indicator-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+      `}</style>
+
+      {/* 拖拽幽灵卡片 */}
+      {dragGhostPos && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 z-[100] pointer-events-none"
+          style={{
+            top: dragGhostPos.y,
+            animation: 'drag-ghost-in 0.15s ease-out',
+          }}
+        >
+          <div className="bg-white/95 backdrop-blur-sm shadow-[0_12px_40px_rgba(0,0,0,0.18)] rounded-xl px-4 py-3 border border-blue-200/60 flex items-center gap-3 min-w-[200px]">
+            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+              <GripVertical size={16} className="text-blue-500" />
+            </div>
+            <span className="font-medium text-sm text-gray-800">{dragGhostPos.text}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

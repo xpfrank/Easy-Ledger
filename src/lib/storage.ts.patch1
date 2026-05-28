@@ -1,0 +1,12 @@
+// Add this function after addCustomAccountType in storage.ts
+
+export function updateCustomAccountType(id: string, updates: Partial<Omit<CustomAccountType, 'id'>>): CustomAccountType | null {
+  const data = loadData();
+  const index = data.customAccountTypes?.findIndex(ct => ct.id === id) ?? -1;
+  if (index === -1) return null;
+  
+  if (!data.customAccountTypes) data.customAccountTypes = [];
+  data.customAccountTypes[index] = { ...data.customAccountTypes[index], ...updates };
+  saveData(data);
+  return data.customAccountTypes[index];
+}

@@ -1,6 +1,13 @@
-import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption, YearlyGoal, CustomAccountType, ExchangeRateSnapshot, } from '@/types';
+import type { Account, MonthlyRecord, AppState, AppSettings, RecordLog, MonthlyAttribution, AttributionTag, FluctuationLevel, YearlyAttribution, YearlyAttributionTag, AccountSnapshot, MonthlyAccountConfig, AccountType, CustomAttributionTag, TagOption, YearlyGoal, CustomAccountType, ExchangeRateSnapshot, ReferenceIntervals, IntervalSource, LifeStage } from '@/types';
 
 import { getCurrencyConfig, DEFAULT_EXCHANGE_RATES } from '@/types';
+import {
+  SYSTEM_DEFAULT_INTERVALS,
+  intervalsFromLifeStage,
+  generateIntervalsFromAllocations,
+  normalizeIntervals,
+  type CategoryAmounts,
+} from './allocation-config';
 
 const STORAGE_KEY = 'simple-ledger-data';
 const EXPANDED_GROUPS_KEY = 'simple-ledger-expanded-groups';
@@ -246,6 +253,216 @@ export function clearYearlyGoal(): void {
   saveData(data);
 }
 
+// ── Quick Classification (快速分类) ─────────────
+const QC_DISMISSED_KEY = 'qc_dismissed_at_total';
+
+/** 获取上次忽略时的账户总数；-1 表示从未忽略 */
+export function getQCDismissedTotal(): number {
+  const raw = localStorage.getItem(QC_DISMISSED_KEY);
+  return raw ? parseInt(raw, 10) : -1;
+}
+
+/** 记录当前账户总数（用于判断是否有新增未分类账户） */
+export function setQCDismissedTotal(total: number): void {
+  localStorage.setItem(QC_DISMISSED_KEY, String(total));
+}
+
+/** 兼容旧接口 */
+export function getQCDismissed(): boolean {
+  return false;
+}
+
+export function setQCDismissed(_val: boolean): void {
+  // 保留兼容
+}
+
+export function saveAccountAssetCategory(accountId: string, category: Account['assetCategory']): void {
+  const data = loadData();
+  const updated = data.accounts.map(a => a.id === accountId ? { ...a, assetCategory: category } : a);
+  data.accounts = updated;
+  saveData(data);
+}
+
+// ── 人生阶段 ─────────────────────────────────
+export function getLifeStage(): string {
+  const data = loadData();
+  return data.settings.lifeStage || 'growth';
+}
+
+export function saveLifeStage(stage: string): void {
+  const data = loadData();
+  data.settings = { ...data.settings, lifeStage: stage as any, lifeStageUpdatedAt: Date.now() };
+  saveData(data);
+}
+
+// ── 参考区间配置 ─────────────────────────────
+export function getReferenceIntervals(): ReferenceIntervals {
+  ensureReferenceIntervalsMigrated();
+  const settings = getSettings();
+  return settings.referenceIntervals || { ...SYSTEM_DEFAULT_INTERVALS };
+}
+
+export function saveReferenceIntervals(
+  intervals: ReferenceIntervals,
+  source: IntervalSource,
+  lifeStage?: LifeStage
+): void {
+  const data = loadData();
+  data.settings = {
+    ...data.settings,
+    referenceIntervals: normalizeIntervals(intervals),
+    intervalSource: source,
+    intervalLifeStage: lifeStage,
+  };
+  saveData(data);
+}
+
+export function applyLifeStageIntervals(stage: LifeStage): void {
+  const intervals = intervalsFromLifeStage(stage);
+  saveLifeStage(stage);
+  saveReferenceIntervals(intervals, 'life_stage', stage);
+}
+
+export function getIntervalSource(): IntervalSource {
+  return getSettings().intervalSource || 'system';
+}
+
+export function getIgnoredSuggestions(): string[] {
+  return getSettings().ignoredSuggestions || [];
+}
+
+export function ignoreSuggestion(suggestionId: string): void {
+  const data = loadData();
+  const existing = data.settings.ignoredSuggestions || [];
+  if (!existing.includes(suggestionId)) {
+    data.settings = { ...data.settings, ignoredSuggestions: [...existing, suggestionId] };
+    saveData(data);
+  }
+}
+
+export function clearIgnoredSuggestion(suggestionId: string): void {
+  const data = loadData();
+  data.settings = {
+    ...data.settings,
+    ignoredSuggestions: (data.settings.ignoredSuggestions || []).filter((id) => id !== suggestionId),
+  };
+  saveData(data);
+}
+
+export function getMonthlyExpenseBudget(): number | undefined {
+  return getSettings().monthlyExpenseBudget;
+}
+
+export function saveMonthlyExpenseBudget(amount: number | undefined): void {
+  const data = loadData();
+  if (amount === undefined || amount <= 0) {
+    const { monthlyExpenseBudget: _, ...rest } = data.settings;
+    data.settings = rest as typeof data.settings;
+  } else {
+    data.settings = { ...data.settings, monthlyExpenseBudget: amount };
+  }
+  saveData(data);
+}
+
+/** 从近 6 个月归因估算月支出（支出类标签的绝对变动） */
+export function estimateMonthlyExpense(): number | null {
+  const budget = getMonthlyExpenseBudget();
+  if (budget && budget > 0) return budget;
+
+  const attributions = getAllAttributions()
+    .sort((a, b) => (a.year !== b.year ? b.year - a.year : b.month - a.month))
+    .slice(0, 6);
+
+  if (attributions.length === 0) return null;
+
+  const expenseTags = new Set(['daily', 'large_expense', 'loan_repayment']);
+  let totalExpense = 0;
+  let months = 0;
+
+  for (const attr of attributions) {
+    let monthExpense = 0;
+    if (attr.tagAmounts && Object.keys(attr.tagAmounts).length > 0) {
+      for (const [tag, amt] of Object.entries(attr.tagAmounts)) {
+        if (expenseTags.has(tag) && amt < 0) monthExpense += Math.abs(amt);
+      }
+    } else if (attr.change < 0) {
+      monthExpense = Math.abs(attr.change);
+    }
+    if (monthExpense > 0) {
+      totalExpense += monthExpense;
+      months++;
+    }
+  }
+
+  if (months === 0) return null;
+  return Math.round(totalExpense / months);
+}
+
+function ensureReferenceIntervalsMigrated(): void {
+  const data = loadData();
+  if (data.settings.referenceIntervals) return;
+
+  const amounts: CategoryAmounts = { cash: 0, stable: 0, invest: 0, insure: 0 };
+  const { year, month } = getCurrentYearMonth();
+  const accounts = getAccountsForMonth(year, month).filter((a) => !a.isHidden);
+  for (const account of accounts) {
+    if (account.assetCategory && account.assetCategory in amounts) {
+      const balance = getAccountBalanceForMonth(account.id, year, month);
+      const converted = convertToBaseCurrency(balance, account.currency || 'CNY', year, month);
+      amounts[account.assetCategory as keyof CategoryAmounts] += converted;
+    }
+  }
+
+  const hasAlloc = Object.values(amounts).some((v) => v > 0);
+  const stage = (data.settings.lifeStage || 'growth') as LifeStage;
+  const intervals = hasAlloc
+    ? generateIntervalsFromAllocations(amounts)
+    : intervalsFromLifeStage(stage);
+
+  data.settings = {
+    ...data.settings,
+    referenceIntervals: intervals,
+    intervalSource: hasAlloc ? 'custom' : 'life_stage',
+    intervalLifeStage: stage,
+  };
+  saveData(data);
+}
+
+// ── 健康评分历史 ───────────────────────────────
+const HEALTH_HISTORY_KEY = 'simple-ledger-health-history';
+
+export function saveHealthHistory(year: number, month: number, score: number, level: string): void {
+  try {
+    const history = getHealthHistory();
+    const existing = history.findIndex(h => h.year === year && h.month === month);
+    const entry = { year, month, score, level: level as any, timestamp: Date.now() };
+    if (existing >= 0) {
+      history[existing] = entry;
+    } else {
+      history.push(entry);
+    }
+    if (history.length > 24) history.shift();
+    localStorage.setItem(HEALTH_HISTORY_KEY, JSON.stringify(history));
+  } catch {}
+}
+
+export function getHealthHistory(): Array<{ year: number; month: number; score: number; level: 'S' | 'A' | 'B' | 'C' | 'D'; timestamp: number }> {
+  try {
+    const raw = localStorage.getItem(HEALTH_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+export function getLastMonthHealthScore(): { score: number; level: 'S' | 'A' | 'B' | 'C' | 'D' } | null {
+  const history = getHealthHistory();
+  if (history.length === 0) return null;
+  const sorted = [...history].sort((a, b) => {
+    if (a.year !== b.year) return b.year - a.year;
+    return b.month - a.month;
+  });
+  return { score: sorted[0].score, level: sorted[0].level };
+}
+
 // ── 自定义账户类型 ─────────────────────────────
 export function getCustomAccountTypes(): CustomAccountType[] {
   const data = loadData();
@@ -259,6 +476,17 @@ export function addCustomAccountType(ct: Omit<CustomAccountType, 'id'>): CustomA
   data.customAccountTypes.push(newCt);
   saveData(data);
   return newCt;
+}
+
+export function updateCustomAccountType(id: string, updates: Partial<Omit<CustomAccountType, 'id'>>): CustomAccountType | null {
+  const data = loadData();
+  const index = data.customAccountTypes?.findIndex(ct => ct.id === id) ?? -1;
+  if (index === -1) return null;
+  
+  if (!data.customAccountTypes) data.customAccountTypes = [];
+  data.customAccountTypes[index] = { ...data.customAccountTypes[index], ...updates };
+  saveData(data);
+  return data.customAccountTypes[index];
 }
 
 export function deleteCustomAccountType(id: string): void {
@@ -628,6 +856,8 @@ export function addAccount(account: Omit<Account, 'id'>): Account {
     firstActiveMonth: currentMonth,
   });
   
+  setQCDismissedTotal(-1); // Reset so QC prompt re-appears for new accounts
+
   if (newAccount.balance !== 0) {
     data.records.push({
       id: generateId(),
@@ -2612,4 +2842,238 @@ export interface FullBackup {
   customAttributionTags: TagOption[];
   settings: AppSettings;
   exchangeRateHistory: ExchangeRateSnapshot[];
+}
+// ========== 批量操作功能 ==========
+
+/**
+ * 批量更新账户分类
+ * @param accountIds 账户ID列表
+ * @param customTypeLabel 新的自定义分类名称，undefined表示移除自定义分类
+ */
+export function batchUpdateAccountType(accountIds: string[], customTypeLabel: string | undefined): void {
+  const data = loadData();
+  for (const accountId of accountIds) {
+    const account = data.accounts.find(a => a.id === accountId);
+    if (account) {
+      account.customTypeLabel = customTypeLabel;
+    }
+  }
+  saveData(data);
+}
+
+/**
+ * 批量更新账户属性
+ * @param accountIds 账户ID列表
+ * @param updates 要更新的属性
+ */
+export function batchUpdateAccounts(accountIds: string[], updates: Partial<Account>): void {
+  const data = loadData();
+  for (const accountId of accountIds) {
+    const account = data.accounts.find(a => a.id === accountId);
+    if (account) {
+      Object.assign(account, updates);
+    }
+  }
+  saveData(data);
+}
+
+/**
+ * 批量删除账户（仅删除指定月份的记录）
+ * @param accountIds 账户ID列表
+ * @param year 年份
+ * @param month 月份
+ */
+export function batchDeleteAccountsFromMonth(accountIds: string[], year: number, month: number): void {
+  const data = loadData();
+  for (const accountId of accountIds) {
+    data.records = data.records.filter(r => !(r.accountId === accountId && r.year === year && r.month === month));
+    const account = data.accounts.find(a => a.id === accountId);
+    if (account) {
+      data.logs.push({
+        id: generateId(),
+        accountId,
+        accountName: account.name,
+        year,
+        month,
+        oldBalance: 0,
+        newBalance: 0,
+        timestamp: Date.now(),
+        operationType: 'account_delete',
+      });
+    }
+  }
+  saveData(data);
+}
+
+// ========== 分组排序功能 ==========
+
+const GROUP_ORDER_KEY = 'simple-ledger-group-order';
+
+/**
+ * 获取分组排序配置
+ * 返回一个Map，key为分组类型（如'debit', 'custom_xxx'），value为排序权重
+ */
+export function getGroupOrderConfig(): Record<string, number> {
+  try {
+    const data = localStorage.getItem(GROUP_ORDER_KEY);
+    if (data) {
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Failed to load group order:', error);
+  }
+  // 默认排序：标准类型按ACCOUNT_TYPES顺序，自定义类型在后
+  const defaultOrder: Record<string, number> = {};
+  const ACCOUNT_TYPES = [
+    { type: "cash", label: "现金", icon: "banknote" },
+    { type: "debit", label: "储蓄卡", icon: "credit-card" },
+    { type: "credit", label: "信用卡", icon: "credit-card" },
+    { type: "digital", label: "网络支付", icon: "wallet" },
+    { type: "investment", label: "投资账户", icon: "trending-up" },
+    { type: "loan", label: "借出", icon: "handshake" },
+    { type: "debt", label: "借入", icon: "clipboard" },
+  ];
+  ACCOUNT_TYPES.forEach((t, i) => {
+    defaultOrder[t.type] = i * 10;
+  });
+  return defaultOrder;
+}
+
+/**
+ * 保存分组排序配置
+ */
+export function saveGroupOrderConfig(config: Record<string, number>): void {
+  try {
+    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(config));
+  } catch (error) {
+    console.error('Failed to save group order:', error);
+  }
+}
+
+/**
+ * 更新单个分组的排序权重
+ */
+export function updateGroupOrder(groupType: string, order: number): void {
+  const config = getGroupOrderConfig();
+  config[groupType] = order;
+  saveGroupOrderConfig(config);
+}
+
+/**
+ * 交换两个分组的排序位置
+ */
+export function swapGroupOrder(groupTypeA: string, groupTypeB: string): void {
+  const config = getGroupOrderConfig();
+  const orderA = config[groupTypeA] ?? 999;
+  const orderB = config[groupTypeB] ?? 999;
+  config[groupTypeA] = orderB;
+  config[groupTypeB] = orderA;
+  saveGroupOrderConfig(config);
+}
+
+// ========== 记账页面独立排序 ==========
+
+const RECORD_SORT_ORDER_KEY = 'simple-ledger-record-sort-order';
+
+/**
+ * 获取记账页面的账户排序配置
+ */
+export function getRecordSortOrder(): Record<string, number> {
+  try {
+    const data = localStorage.getItem(RECORD_SORT_ORDER_KEY);
+    if (data) {
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Failed to load record sort order:', error);
+  }
+  return {};
+}
+
+/**
+ * 保存记账页面的账户排序配置
+ */
+export function saveRecordSortOrder(config: Record<string, number>): void {
+  try {
+    localStorage.setItem(RECORD_SORT_ORDER_KEY, JSON.stringify(config));
+  } catch (error) {
+    console.error('Failed to save record sort order:', error);
+  }
+}
+
+/**
+ * 更新账户在记账页面的排序权重
+ */
+export function updateRecordSortOrder(accountId: string, order: number): void {
+  const config = getRecordSortOrder();
+  config[accountId] = order;
+  saveRecordSortOrder(config);
+}
+
+/**
+ * 获取用于记账页面的账户列表（按独立排序）
+ */
+export function getAccountsForRecordPage(year: number, month: number): Account[] {
+  const accounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
+  const sortConfig = getRecordSortOrder();
+  
+  // 如果有独立的排序配置，使用它；否则使用默认排序
+  return accounts.sort((a, b) => {
+    const orderA = sortConfig[a.id] ?? 999999;
+    const orderB = sortConfig[b.id] ?? 999999;
+    return orderA - orderB;
+  });
+}
+
+/**
+ * 拖拽排序记账页面的账户
+ */
+export function dragReorderAccountForRecord(accountId: string, toIndex: number): void {
+  const data = loadData();
+  const accounts = data.accounts.filter(a => !a.isHidden);
+  
+  const fromIndex = accounts.findIndex(a => a.id === accountId);
+  if (fromIndex === -1 || fromIndex === toIndex) return;
+  if (toIndex < 0 || toIndex >= accounts.length) return;
+
+  // 从原位置移除，插入到目标位置
+  const [moved] = accounts.splice(fromIndex, 1);
+  accounts.splice(toIndex, 0, moved);
+
+  // 使用独立的 localStorage 存储记账页面排序，不修改账户数据
+  const sortConfig: Record<string, number> = {};
+  accounts.forEach((acc, i) => {
+    sortConfig[acc.id] = i;
+  });
+  saveRecordSortOrder(sortConfig);
+}
+
+/**
+ * 计算排除新增账户后的净资产变化率（纯波动）
+ * 新增账户定义：本月存在但上月不存在的账户
+ */
+export function getCleanChangePercent(year: number, month: number): number {
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+
+  const currentAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
+  const prevAccounts = getAccountsForMonth(prevYear, prevMonth).filter(a => !a.isHidden);
+
+  if (prevAccounts.length === 0) return 0;
+
+  const prevIds = new Set(prevAccounts.map(a => a.id));
+  const newAccountIds = new Set(currentAccounts.filter(a => !prevIds.has(a.id)).map(a => a.id));
+
+  // 当月净资产（排除新增账户）
+  const currentNetWorth = currentAccounts
+    .filter(a => !newAccountIds.has(a.id))
+    .reduce((sum, a) => sum + getAccountBalanceForMonth(a.id, year, month), 0);
+
+  // 上月净资产（只统计也存在于当月的老账户）
+  const prevNetWorth = prevAccounts
+    .filter(a => !newAccountIds.has(a.id))
+    .reduce((sum, a) => sum + getAccountBalanceForMonth(a.id, prevYear, prevMonth), 0);
+
+  if (prevNetWorth === 0) return 0;
+  return ((currentNetWorth - prevNetWorth) / Math.abs(prevNetWorth)) * 100;
 }

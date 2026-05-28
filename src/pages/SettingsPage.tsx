@@ -426,14 +426,14 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
   );
 
   return (
-    <div className="pb-6 bg-gray-50 min-h-screen overflow-x-hidden">
-      {/* 标题栏 - 使用 fixed 定位确保始终可见 */}
-      <header className="bg-white px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+    <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
+      {/* 标题栏 */}
+      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
-          <h1 className="text-lg font-semibold">设置</h1>
+          <h1 className="text-lg font-semibold text-white">设置</h1>
         </div>
       </header>
 

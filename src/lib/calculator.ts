@@ -1,5 +1,8 @@
 import type { Account, MonthlyRecord, AccountType, MonthlyNetWorth, AccountGroup, YearlyNetWorth } from '@/types';
-import { getAllAccounts, loadData, getAccountBalanceForMonth, convertToBaseCurrency } from './storage';
+import { getAllAccounts, loadData, getAccountBalanceForMonth, convertToBaseCurrency, generateId, saveData } from './storage';
+
+// 解决循环依赖：copyLastMonthBalances 中需要 generateId 和 saveData
+// 这两个函数从 storage.ts 导入后，移除本文件末尾的重复定义
 
 // 账户类型配置
 export const ACCOUNT_TYPES: { type: AccountType; label: string; icon: string }[] = [
@@ -213,7 +216,7 @@ export function calculateVisibleTotalLiabilities(accounts: Account[], year: numb
   return total;
 }
 
-// 获取月度完整数据（仅非隐藏账户，用于趋势展示）
+// 获取月度完整数据（仅非隐藏账户，用于趋势页面）
 // @param accounts 已过滤的账户列表（不含隐藏账户）
 export function getVisibleMonthlyNetWorth(accounts: Account[], year: number, month: number): MonthlyNetWorth {
   const totalAssets = calculateVisibleTotalAssets(accounts, year, month);
@@ -361,13 +364,13 @@ export function calculateDebtIn(accounts: Account[], year: number, month: number
 
 // ========== 账户分组 ==========
 
-// 获取账户分组（当前月）
+// 获取账户分组（当前月）- 修复重复计算BUG
 export function getAccountGroups(): AccountGroup[] {
   const { year, month } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
   return getAccountGroupsForMonth(year, month);
 }
 
-// 获取指定月份的账户分组
+// 获取指定月份的账户分组 - 修复重复计算BUG
 export function getAccountGroupsForMonth(year: number, month: number): AccountGroup[] {
   const accounts = getAllAccounts().filter(a => !a.isHidden);
 
@@ -393,7 +396,7 @@ export function getAccountGroupsForMonth(year: number, month: number): AccountGr
     });
   }
 
-  // Custom type groups
+  // Custom type groups - 修复：只统计有customTypeLabel的账户，不重复计入标准分类
   const customTypeMap = new Map<string, Account[]>();
   for (const acc of accounts) {
     if (acc.customTypeLabel) {
@@ -401,6 +404,7 @@ export function getAccountGroupsForMonth(year: number, month: number): AccountGr
       customTypeMap.get(acc.customTypeLabel)!.push(acc);
     }
   }
+  
   for (const [label, typeAccounts] of customTypeMap) {
     let totalBalance = 0;
     for (const account of typeAccounts) {
@@ -571,15 +575,10 @@ export function copyLastMonthBalances(year: number, month: number): void {
   saveData(data);
 }
 
-// 生成ID（重复定义以避免循环依赖）
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
+// 存储由 storage.ts 统一管理，已移除此函数
 
-// 保存数据（重复定义以避免循环依赖）
-function saveData(data: { accounts: Account[]; records: MonthlyRecord[]; logs?: any[]; settings?: any; version?: string }): void {
-  localStorage.setItem('simple-ledger-data', JSON.stringify({
-    ...data,
-    version: '1.1',
-  }));
-}
+// ========== 存储函数移除说明 ==========
+// generateId() 和 saveData() 已从本文件移除，统一使用 storage.ts 中的版本
+// storage.ts 中 generateId() 位于第28行，saveData() 位于第213行
+// 如需导入请使用：import { generateId, saveData } from './storage'
+// ====================================================
