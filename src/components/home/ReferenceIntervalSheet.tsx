@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import type { ReferenceIntervals, IntervalSource, LifeStage } from '@/types';
+import type { ReferenceIntervals, LifeStage } from '@/types';
 import {
   CATEGORY_KEYS,
   CATEGORY_META,
