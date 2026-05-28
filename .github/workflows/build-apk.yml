@@ -56,34 +56,43 @@ jobs:
           -keypass ${{ secrets.KEY_PASSWORD || 'easyledger123' }} \
           -dname "CN=EasyLedger, OU=Dev, O=EasyLedger, L=Beijing, ST=Beijing, C=CN"
         
-    - name: Build Release APK
+    - name: Build Unsigned Release APK
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleRelease --no-daemon \
-          -Pandroid.injected.signing.store.file=$(pwd)/../release.keystore \
-          -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD || 'easyledger123' }} \
-          -Pandroid.injected.signing.key.alias=easyledger \
-          -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD || 'easyledger123' }}
+        ./gradlew assembleRelease --no-daemon
         
     - name: Zipalign APK
       run: |
-        ${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)/zipalign -v 4 \
-          android/app/build/outputs/apk/release/app-release.apk \
+        BUILD_TOOLS=${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)
+        ${BUILD_TOOLS}/zipalign -v 4 \
+          android/app/build/outputs/apk/release/app-release-unsigned.apk \
+          android/app/build/outputs/apk/release/app-release-aligned.apk
+        
+    - name: Sign APK with apksigner
+      run: |
+        BUILD_TOOLS=${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)
+        ${BUILD_TOOLS}/apksigner sign \
+          --ks release.keystore \
+          --ks-key-alias easyledger \
+          --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD || 'easyledger123' }} \
+          --key-pass pass:${{ secrets.KEY_PASSWORD || 'easyledger123' }} \
+          --out android/app/build/outputs/apk/release/app-release-signed.apk \
           android/app/build/outputs/apk/release/app-release-aligned.apk
         
     - name: Verify APK
       run: |
-        ${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)/apksigner verify \
-          android/app/build/outputs/apk/release/app-release-aligned.apk
+        BUILD_TOOLS=${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)
+        ${BUILD_TOOLS}/apksigner verify -v \
+          android/app/build/outputs/apk/release/app-release-signed.apk
         echo "APK 签名验证通过"
-        ls -lh android/app/build/outputs/apk/release/app-release-aligned.apk
+        ls -lh android/app/build/outputs/apk/release/app-release-signed.apk
         
     - name: Upload APK to Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: EasyLedger-Release-APK
-        path: android/app/build/outputs/apk/release/app-release-aligned.apk
+        path: android/app/build/outputs/apk/release/app-release-signed.apk
         
     - name: Create Release
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -95,9 +104,9 @@ jobs:
           自动构建的正式版本
           
           ## 安装方法
-          1. 下载 `app-release-aligned.apk`
+          1. 下载 `app-release-signed.apk`
           2. 传到安卓手机安装
           3. 如果提示未知来源，请允许安装
-        files: android/app/build/outputs/apk/release/app-release-aligned.apk
+        files: android/app/build/outputs/apk/release/app-release-signed.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
