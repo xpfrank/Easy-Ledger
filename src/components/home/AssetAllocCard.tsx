@@ -44,9 +44,7 @@ const CATEGORY_ICONS: Record<string, typeof Droplets> = {
 export function AssetAllocCard({
   accounts,
   categoryAmounts,
-  // currentAllocations,
   primaryColor,
-  // configKey = 0,
   hasClassifiedAccounts = false,
   onClassifyClick,
   onReclassifyClick,

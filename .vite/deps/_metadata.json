@@ -1,0 +1,46 @@
+{
+  "hash": "5fed7baa",
+  "configHash": "57290c24",
+  "lockfileHash": "227c6a3c",
+  "browserHash": "8a57b0dc",
+  "optimized": {
+    "react/jsx-dev-runtime": {
+      "src": "../../node_modules/react/jsx-dev-runtime.js",
+      "file": "react_jsx-dev-runtime.js",
+      "fileHash": "b74879ef",
+      "needsInterop": true
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "959bf038",
+      "needsInterop": true
+    },
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "99d43139",
+      "needsInterop": true
+    },
+    "@capacitor/app": {
+      "src": "../../node_modules/@capacitor/app/dist/esm/index.js",
+      "file": "@capacitor_app.js",
+      "fileHash": "ecb04443",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-2OCYFWFE": {
+      "file": "chunk-2OCYFWFE.js"
+    },
+    "web-Q4TDMFHQ": {
+      "file": "web-Q4TDMFHQ.js"
+    },
+    "chunk-6O6EI6JH": {
+      "file": "chunk-6O6EI6JH.js"
+    },
+    "chunk-BUSYA2B4": {
+      "file": "chunk-BUSYA2B4.js"
+    }
+  }
+}

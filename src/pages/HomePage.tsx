@@ -67,6 +67,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   const [loanOut, setLoanOut] = useState(0);
   const [debtIn, setDebtIn] = useState(0);
   const [, setAccountGroups] = useState<AccountGroup[]>([]);
+  const [configKey, setConfigKey] = useState(0);
   const [currentYear] = useState(new Date().getFullYear());
   const [currentMonth] = useState(new Date().getMonth() + 1);
 
@@ -74,7 +75,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   const [showHealthDetail, setShowHealthDetail] = useState(false);
   const [showGoalEdit, setShowGoalEdit] = useState(false);
   const [showLifeStageSheet, setShowLifeStageSheet] = useState(false);
-  const [configKey, setConfigKey] = useState(0);
   const [showIntervalSheet, setShowIntervalSheet] = useState(false);
   const [intervalFocusCategory, setIntervalFocusCategory] = useState<AssetCategoryKey | undefined>();
   const [showQCFlow, setShowQCFlow] = useState(false);
