@@ -215,6 +215,7 @@ export function calculateGoalProgress(
 } {
   const progress = Math.min(100, (currentNetWorth / goal.targetAmount) * 100);
 
+  // 优先使用归因记录计算月均增长
   const attributions = getAllAttributions()
     .sort((a, b) => a.year !== b.year ? b.year - a.year : b.month - a.month)
     .slice(0, 12);
@@ -223,6 +224,35 @@ export function calculateGoalProgress(
   if (attributions.length > 0) {
     const totalChange = attributions.reduce((sum, a) => sum + a.change, 0);
     monthlyGrowthRate = totalChange / attributions.length;
+  }
+
+  // 兜底：无归因记录时，从实际净资产月度变化推算
+  if (monthlyGrowthRate === 0) {
+    const { year: curYear, month: curMonth } = getCurrentYearMonth();
+    const changes: number[] = [];
+
+    // 取最近 6 个月的净资产变化
+    for (let i = 0; i < 6; i++) {
+      let m = curMonth - i;
+      let y = curYear;
+      if (m <= 0) { m += 12; y--; }
+      const prevM = m === 1 ? 12 : m - 1;
+      const prevY = m === 1 ? y - 1 : y;
+
+      try {
+        const nw = calculateNetWorthForMonth(y, m);
+        const prevNw = calculateNetWorthForMonth(prevY, prevM);
+        if (prevNw !== 0) {
+          changes.push(nw - prevNw);
+        }
+      } catch {
+        // 月份无数据，跳过
+      }
+    }
+
+    if (changes.length > 0) {
+      monthlyGrowthRate = changes.reduce((s, c) => s + c, 0) / changes.length;
+    }
   }
 
   const remainingAmount = goal.targetAmount - currentNetWorth;

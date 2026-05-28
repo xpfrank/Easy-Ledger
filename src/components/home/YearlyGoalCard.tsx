@@ -1,4 +1,4 @@
-import { Target, TrendingUp, Calendar } from 'lucide-react';
+import { Target, TrendingUp, Calendar, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { YearlyGoal } from '@/types';
 import { formatAmountNoSymbol, getBaseCurrency } from '@/lib/storage';
@@ -85,8 +85,7 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
 
   return (
     <Card 
-      className="bg-white cursor-pointer hover:shadow-md transition-all active:scale-[0.98] overflow-hidden" 
-      onClick={onClick}
+      className="bg-white hover:shadow-md transition-all overflow-hidden"
     >
       <CardContent className="px-4 py-4">
         {/* 顶部标题 */}
@@ -98,6 +97,14 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
             <span className="font-bold text-sm text-gray-800" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
               {goal.year}年度目标
             </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+              className="flex items-center gap-0.5 text-[11px] font-medium transition-colors active:opacity-70"
+              style={{ color: primaryColor }}
+            >
+              查看详情
+              <ChevronRight size={12} />
+            </button>
           </div>
           {/* 目标金额 - 使用主题色 */}
           <span className="text-[10.5px] px-2.5 py-1 rounded-full font-bold"
@@ -109,7 +116,7 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
         {/* 完成度百分比 + 预计达成时间（同一行） */}
         <div className="flex items-baseline justify-between mb-3">
           <div>
-            <span className="text-[38px] font-bold leading-[1] tracking-[-1.5px] block mb-1" 
+            <span className="text-[26px] font-extrabold leading-[1] block mb-1" 
               style={{ color: primaryColor, fontFamily: "'DM Sans', system-ui, sans-serif" }}>
               {hideBalance ? '**%' : `${progress.toFixed(1)}%`}
             </span>
@@ -168,6 +175,7 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
             </div>
           </div>
         </div>
+
       </CardContent>
     </Card>
   );

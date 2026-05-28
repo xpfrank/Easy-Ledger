@@ -7,7 +7,9 @@ import {
   ignoreSuggestion,
   estimateMonthlyExpense,
   getAllAttributions,
+  getAccountsForMonth,
 } from '@/lib/storage';
+import { calculateNetWorth } from '@/lib/calculator';
 import {
   CATEGORY_KEYS,
   CATEGORY_META,
@@ -85,7 +87,7 @@ function MiniVolatilityBar({ primaryColor }: { primaryColor: string }) {
   if (recent.length < 2) {
     return (
       <div className="flex items-center justify-center h-6">
-        <span className="text-[9px] text-gray-400">数据不足</span>
+        <span className="text-[11px] text-gray-400">数据不足</span>
       </div>
     );
   }
@@ -175,15 +177,20 @@ export function HealthDetailModal({
   const volatilityColor = sd <= 2 ? '#0f7a48' : sd <= 5 ? '#0b6eb5' : sd <= 10 ? '#8a5e00' : '#c57a00';
   const volatilityBg = sd <= 2 ? '#e8faf2' : sd <= 5 ? '#e8f5ff' : sd <= 10 ? '#fff8e6' : '#fff3e6';
 
-  const volatilityMax = useMemo(() => {
-    const attributions = getAllAttributions();
-    if (attributions.length < 2) return 15;
-    const rates = attributions.map(a => Math.abs(a.changePercent));
-    const maxRate = Math.max(...rates, sd, 1);
-    return Math.max(Math.ceil(maxRate * 1.3), 15);
-  }, [sd]);
+  const barColor = sd <= 20 ? '#22c55e' : sd <= 40 ? '#3b82f6' : sd <= 60 ? '#eab308' : sd <= 80 ? '#f97316' : '#ef4444';
 
   const hasEnoughData = getAllAttributions().length >= 2;
+
+  const changePct = useMemo(() => {
+    const now = new Date();
+    const curY = now.getFullYear();
+    const curM = now.getMonth() + 1;
+    const prevM = curM === 1 ? 12 : curM - 1;
+    const prevY = curM === 1 ? curY - 1 : curY;
+    const curNW = calculateNetWorth(getAccountsForMonth(curY, curM).filter(a => !a.isHidden), curY, curM);
+    const prevNW = calculateNetWorth(getAccountsForMonth(prevY, prevM).filter(a => !a.isHidden), prevY, prevM);
+    return prevNW !== 0 ? ((curNW - prevNW) / Math.abs(prevNW)) * 100 : 0;
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center" onClick={onClose}>
@@ -207,7 +214,7 @@ export function HealthDetailModal({
               <X size={16} className="text-gray-500" />
             </button>
           </div>
-          <p className="text-[10px] text-gray-400 mt-0.5">基于你设定的参考区间计算，不代表标准答案</p>
+          <p className="text-[12px] text-gray-400 mt-0.5">基于你设定的参考区间计算，不代表标准答案</p>
         </div>
 
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-2 space-y-2">
@@ -218,7 +225,7 @@ export function HealthDetailModal({
                 {hideBalance ? '**' : healthScore.score}
               </div>
               <div className="flex items-center gap-0.5 mt-0.5">
-                <span className="text-[9px] text-gray-500">综合分</span>
+                <span className="text-[11px] text-gray-500">综合分</span>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setShowFormula(!showFormula); }}
@@ -233,11 +240,11 @@ export function HealthDetailModal({
             <div className="flex-1 space-y-1">
               {scoreWeights.map((w) => (
                 <div key={w.label} className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-gray-500 w-12 shrink-0">{w.label}</span>
+                  <span className="text-[11px] text-gray-500 w-12 shrink-0">{w.label}</span>
                   <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: `${w.score}%`, backgroundColor: primaryColor }} />
                   </div>
-                  <span className="text-[9px] font-bold w-5 text-right shrink-0">{hideBalance ? '**' : w.score}</span>
+                  <span className="text-[11px] font-bold w-5 text-right shrink-0">{hideBalance ? '**' : w.score}</span>
                 </div>
               ))}
 
@@ -245,7 +252,7 @@ export function HealthDetailModal({
           </div>
 
           {/* ── 一句话结论 ── */}
-          <p className="text-[12px] text-gray-600 font-medium px-0.5">{conclusionText}</p>
+          <p className="text-[13px] text-gray-600 font-medium px-0.5">{conclusionText}</p>
 
           {/* ── 异常项 ── */}
           {anomalyRows.length > 0 && (
@@ -257,35 +264,35 @@ export function HealthDetailModal({
                   <div key={row.key} className="rounded-xl border border-gray-100 p-2.5 bg-white">
                     <div className="flex items-center gap-1.5 mb-1">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: row.color }} />
-                      <span className="text-[12px] font-bold text-gray-800 flex-1">{row.label}</span>
+                      <span className="text-[13px] font-bold text-gray-800 flex-1">{row.label}</span>
                       {/* 百分比胶囊 */}
                       <span
-                        className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                        className="text-[12px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ backgroundColor: `${row.color}12`, color: row.color }}
                       >
                         {hideBalance ? '***' : `${row.pct}%`}
                       </span>
                       {/* 状态标签：不同颜色 */}
                       <span
-                        className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                        className="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ backgroundColor: style.bg, color: style.color }}
                       >
                         {NEUTRAL_STATUS_LABEL[row.status]}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 mb-1">
-                      <span className="text-[9px] text-gray-400 shrink-0">{hideBalance ? '区间 ***' : `区间 ${row.min}–${row.max}%`}</span>
+                      <span className="text-[11px] text-gray-400 shrink-0">{hideBalance ? '区间 ***' : `区间 ${row.min}–${row.max}%`}</span>
                       <div className="flex-1">
                         <ProgressBarWithRange value={row.pct} min={row.min} max={row.max} color={row.color} />
                       </div>
                     </div>
                     {sug && (
-                      <p className="text-[11px] text-gray-500 leading-relaxed">· {sug.text}</p>
+                      <p className="text-[13px] text-gray-500 leading-relaxed">· {sug.text}</p>
                     )}
                     {onAdjustCategoryInterval && (
                       <button
                         type="button"
-                        className="text-[10px] font-bold mt-0.5"
+                        className="text-[12px] font-bold mt-0.5"
                         style={{ color: primaryColor }}
                         onClick={() => onAdjustCategoryInterval(row.key)}
                       >
@@ -304,7 +311,7 @@ export function HealthDetailModal({
               <button
                 type="button"
                 onClick={() => setShowNormal(!showNormal)}
-                className="flex items-center gap-1 text-[11px] text-gray-400 font-medium"
+                className="flex items-center gap-1 text-[13px] text-gray-400 font-medium"
               >
                 <ChevronDown size={13} className={`transition-transform ${showNormal ? 'rotate-180' : ''}`} />
                 正常项（{normalRows.length}）
@@ -315,9 +322,9 @@ export function HealthDetailModal({
                     <div key={row.key} className="rounded-lg bg-gray-50 px-2.5 py-1.5">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: row.color }} />
-                        <span className="text-[11px] font-semibold text-gray-700 flex-1">{row.label}</span>
+                        <span className="text-[13px] font-semibold text-gray-700 flex-1">{row.label}</span>
                         <span
-                          className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                          className="text-[12px] font-bold px-1.5 py-0.5 rounded-full"
                           style={{ backgroundColor: `${row.color}12`, color: row.color }}
                         >
                           {hideBalance ? '***' : `${row.pct}%`}
@@ -335,9 +342,9 @@ export function HealthDetailModal({
           <div className="rounded-xl border border-gray-100 p-2.5 bg-white">
             <div className="flex items-center gap-1.5 mb-1.5">
               <BarChart2 size={13} style={{ color: primaryColor }} />
-              <span className="text-[12px] font-bold text-gray-800">波动控制</span>
+              <span className="text-[13px] font-bold text-gray-800">波动控制</span>
               <span
-                className="text-[9px] font-semibold px-1.5 py-[1px] rounded-full ml-auto"
+                className="text-[11px] font-semibold px-1.5 py-[1px] rounded-full ml-auto"
                 style={{ backgroundColor: volatilityBg, color: volatilityColor }}
               >
                 {volatilityLevel}
@@ -348,44 +355,42 @@ export function HealthDetailModal({
               <div className="flex items-center gap-2">
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[9px] text-gray-400">标准差</span>
-                    <span className="text-[13px] font-extrabold" style={{ color: primaryColor }}>{hideBalance ? '***' : `${sd}%`}</span>
+                    <span className="text-[11px] text-gray-400">标准差</span>
+                    <span className="text-[14px] font-extrabold" style={{ color: primaryColor }}>{hideBalance ? '***' : `${sd}%`}</span>
                   </div>
                   <div className="relative h-[5px] bg-gray-100 rounded-full">
                     <div
                       className="absolute top-[-2px] bottom-[-2px] w-[3px] rounded-full"
                       style={{
-                        left: `${Math.min((sd / volatilityMax) * 100, 100)}%`,
-                        backgroundColor: primaryColor,
+                        left: `${Math.min(sd, 100)}%`,
+                        backgroundColor: barColor,
                       }}
                     />
-                    {[2, 5, 10, 20].filter(m => m < volatilityMax).map(m => (
-                      <div key={m} className="absolute top-[-2px] bottom-[-2px] w-[1px] bg-gray-300" style={{ left: `${(m / volatilityMax) * 100}%` }} />
+                    {[20, 40, 60, 80].map(m => (
+                      <div key={m} className="absolute top-[-2px] bottom-[-2px] w-[1px] bg-gray-300" style={{ left: `${m}%` }} />
                     ))}
                   </div>
                   <div className="flex justify-between mt-0.5">
-                    <span className="text-[7px] text-gray-300">0</span>
-                    {[2, 5, 10, 20].filter(m => m < volatilityMax).map(m => (
-                      <span key={m} className="text-[7px] text-gray-300">{m}%</span>
+                    {[0, 20, 40, 60, 80, 100].map(m => (
+                      <span key={m} className="text-[9px] text-gray-300">{m}%</span>
                     ))}
-                    <span className="text-[7px] text-gray-300">{volatilityMax}%</span>
                   </div>
                 </div>
                 <div className="w-[70px] shrink-0">
                   <MiniVolatilityBar primaryColor={primaryColor} />
-                  <p className="text-[7px] text-gray-300 text-center mt-0.5">近12月趋势</p>
+                  <p className="text-[9px] text-gray-300 text-center mt-0.5">近12月趋势</p>
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-center py-2">
-                <span className="text-[10px] text-gray-400">记录更多月份后展示</span>
+                <span className="text-[12px] text-gray-400">记录更多月份后展示</span>
               </div>
             )}
 
             {onViewTrend && (
               <button
                 type="button"
-                className="text-[10px] font-bold mt-1"
+                className="text-[12px] font-bold mt-1"
                 style={{ color: primaryColor }}
                 onClick={onViewTrend}
               >
@@ -404,7 +409,7 @@ export function HealthDetailModal({
             <button
               type="button"
               onClick={onAdjustIntervals}
-              className="w-full py-2 rounded-xl text-[13px] font-bold border-2"
+              className="w-full py-2 rounded-xl text-[14px] font-bold border-2"
               style={{ borderColor: primaryColor, color: primaryColor }}
             >
               调整参考区间
@@ -412,7 +417,7 @@ export function HealthDetailModal({
           )}
           <button
             onClick={onClose}
-            className="w-full py-2 rounded-xl text-[13px] font-bold text-white"
+            className="w-full py-2 rounded-xl text-[14px] font-bold text-white"
             style={{ background: `linear-gradient(135deg, ${primaryColor}, #0b6eb5)` }}
           >
             知道了
@@ -426,32 +431,32 @@ export function HealthDetailModal({
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xs p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[14px] font-bold text-gray-800">综合分计算方式</span>
+              <span className="text-[13px] font-bold text-gray-800">综合分计算方式</span>
               <button onClick={() => setShowFormula(false)} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
                 <X size={12} className="text-gray-500" />
               </button>
             </div>
-            <p className="text-[13px] font-bold text-gray-700 mb-3 text-center" style={{ color: primaryColor }}>
+            <p className="text-[14px] font-bold text-gray-700 mb-3 text-center" style={{ color: primaryColor }}>
               综合分 = 配置×40% + 波动×30% + 归因×30%
             </p>
             <div className="space-y-2.5">
               <div className="rounded-lg bg-gray-50 p-2.5">
-                <p className="text-[11px] font-bold text-gray-700 mb-0.5">配置结构（满分100，权重40%）</p>
-                <p className="text-[10px] text-gray-500 leading-relaxed">四类资产各25分：在参考区间内得100分，偏离按 (偏离百分点×4) 扣分，最低0分。总分 = 四类平均。</p>
+                <p className="text-[13px] font-bold text-gray-700 mb-0.5">配置结构（满分100，权重40%）</p>
+                <p className="text-[12px] text-gray-500 leading-relaxed">四类资产各25分：在参考区间内得100分，偏离按 (偏离百分点×4) 扣分，最低0分。总分 = 四类平均。</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-2.5">
-                <p className="text-[11px] font-bold text-gray-700 mb-0.5">波动控制（满分100，权重30%）</p>
-                <p className="text-[10px] text-gray-500 leading-relaxed">σ≤2%→100分，2–5%→80–100分，5–10%→60–80分，10–20%→40–60分，&gt;20%→20分</p>
+                <p className="text-[13px] font-bold text-gray-700 mb-0.5">波动控制（满分100，权重30%）</p>
+                <p className="text-[12px] text-gray-500 leading-relaxed">σ≤2%→100分，2–5%→80–100分，5–10%→60–80分，10–20%→40–60分，&gt;20%→20分</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-2.5">
-                <p className="text-[11px] font-bold text-gray-700 mb-0.5">归因完整（满分100，权重30%）</p>
-                <p className="text-[10px] text-gray-500 leading-relaxed">已归因月份÷应归因月份(1月~当月)×100，每年1月重置</p>
+                <p className="text-[13px] font-bold text-gray-700 mb-0.5">归因完整（满分100，权重30%）</p>
+                <p className="text-[12px] text-gray-500 leading-relaxed">已归因月份÷应归因月份(1月~当月)×100，每年1月重置</p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setShowFormula(false)}
-              className="w-full py-2 rounded-xl text-[12px] font-bold text-white mt-4"
+              className="w-full py-2 rounded-xl text-[13px] font-bold text-white mt-4"
               style={{ background: `linear-gradient(135deg, ${primaryColor}, #0b6eb5)` }}
             >
               知道了
