@@ -13,6 +13,7 @@ import { saveFileToDevice } from '@/lib/platform';
 
 interface SettingsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
 }
 
 const CollapsibleSection = ({
@@ -102,7 +103,7 @@ const DataCard = ({ icon, title, desc }: { icon: string; title: string; desc: st
   </div>
 );
 
-export function SettingsPage({ onPageChange }: SettingsPageProps) {
+export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showAboutDialog, setShowAboutDialog] = useState(false);
@@ -430,7 +431,7 @@ export function SettingsPage({ onPageChange }: SettingsPageProps) {
       {/* 标题栏 */}
       <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('home')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-lg font-semibold text-white">设置</h1>

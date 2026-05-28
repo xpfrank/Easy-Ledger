@@ -179,20 +179,21 @@ function App() {
       case 'account-flow':
         return <AccountFlowPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'record':
-        return <RecordPage onPageChange={handlePageChange} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} params={pageParams} />;
+        return <RecordPage onPageChange={handlePageChange} onBack={handleBack} hideBalance={hideBalance} toggleHideBalance={toggleHideBalance} params={pageParams} />;
       case 'record-logs':
         return (
           <RecordLogsPage
             onPageChange={handlePageChange}
+            onBack={handleBack}
             year={pageParams?.year || new Date().getFullYear()}
             month={pageParams?.month}
             mode={pageParams?.mode || 'monthly'}
           />
         );
       case 'trend':
-        return <TrendPage onPageChange={handlePageChange} />;
+        return <TrendPage onPageChange={handlePageChange} onBack={handleBack} />;
       case 'settings':
-        return <SettingsPage onPageChange={handlePageChange} />;
+        return <SettingsPage onPageChange={handlePageChange} onBack={handleBack} />;
       case 'balance-sankey':
         return <BalanceSankeyPage onPageChange={handlePageChange} hideBalance={hideBalance} onBack={handleBack} />;
       default:

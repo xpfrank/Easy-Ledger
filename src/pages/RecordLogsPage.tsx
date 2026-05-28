@@ -32,6 +32,7 @@ import YearlyAttributionDetail from '@/components/attribution/YearlyAttributionD
 
 interface RecordLogsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
+  onBack?: () => void;
   year: number;
   month?: number;
   mode: RecordMode;
@@ -58,7 +59,7 @@ type ViewMode = 'monthly' | 'yearly';
 type MonthlySubView = 'balance' | 'attribution';
 type YearlySubView = 'balance' | 'timeline' | 'yearly_attribution';
 
-export function RecordLogsPage({ onPageChange, year: initialYear, month: initialMonth, mode: initialMode }: RecordLogsPageProps) {
+export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month: initialMonth, mode: initialMode }: RecordLogsPageProps) {
   const accounts = getAllAccounts();
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -764,7 +765,7 @@ export function RecordLogsPage({ onPageChange, year: initialYear, month: initial
     <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => onPageChange('record')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('record')}>
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-lg font-bold text-white">记账记录</h1>

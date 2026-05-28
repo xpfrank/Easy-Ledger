@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.ledger.app',
-  appName: '记账本',
+  appName: '余额快照',
   webDir: 'dist',
   server: {
     androidScheme: 'https'

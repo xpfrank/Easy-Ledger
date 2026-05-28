@@ -86,27 +86,28 @@ jobs:
         ${BUILD_TOOLS}/apksigner verify -v \
           android/app/build/outputs/apk/release/app-release-signed.apk
         echo "APK 签名验证通过"
-        ls -lh android/app/build/outputs/apk/release/app-release-signed.apk
+        cp android/app/build/outputs/apk/release/app-release-signed.apk android/app/build/outputs/apk/release/Easy-Ledger.apk
+        ls -lh android/app/build/outputs/apk/release/Easy-Ledger.apk
         
     - name: Upload APK to Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: EasyLedger-Release-APK
-        path: android/app/build/outputs/apk/release/app-release-signed.apk
+        name: Easy-Ledger-Release-APK
+        path: android/app/build/outputs/apk/release/Easy-Ledger.apk
         
     - name: Create Release
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ github.run_number }}
-        name: EasyLedger v${{ github.run_number }}
+        name: 余额快照 v${{ github.run_number }}
         body: |
           自动构建的正式版本
           
           ## 安装方法
-          1. 下载 `app-release-signed.apk`
+          1. 下载 `Easy-Ledger.apk`
           2. 传到安卓手机安装
           3. 如果提示未知来源，请允许安装
-        files: android/app/build/outputs/apk/release/app-release-signed.apk
+        files: android/app/build/outputs/apk/release/Easy-Ledger.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
