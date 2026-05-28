@@ -23,6 +23,8 @@ jobs:
       
     - name: Build web app
       run: npm run build
+      env:
+        NODE_OPTIONS: '--max-old-space-size=4096'
       
     - name: Set up JDK 21
       uses: actions/setup-java@v4
@@ -33,17 +35,6 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       
-    - name: Check and Setup Android
-      run: |
-        if [ -d "android" ] && [ -f "android/build.gradle" ]; then
-          echo "Android 项目已存在，直接使用"
-          npx cap sync android
-        else
-          echo "Android 项目不存在，创建新项目"
-          npx cap init "极简记账" "com.ledger.app" --web-dir dist
-          npx cap add android
-        fi
-        
     - name: Sync Capacitor Android
       run: npx cap sync android
         
@@ -52,31 +43,61 @@ jobs:
         sed -i 's/compileSdkVersion = .*/compileSdkVersion = 35/' android/variables.gradle
         sed -i 's/targetSdkVersion = .*/targetSdkVersion = 35/' android/variables.gradle
         
-    - name: Build Debug APK
+    - name: Generate Keystore
+      run: |
+        keytool -genkeypair \
+          -v \
+          -keystore release.keystore \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -alias easyledger \
+          -storepass ${{ secrets.KEYSTORE_PASSWORD || 'easyledger123' }} \
+          -keypass ${{ secrets.KEY_PASSWORD || 'easyledger123' }} \
+          -dname "CN=EasyLedger, OU=Dev, O=EasyLedger, L=Beijing, ST=Beijing, C=CN"
+        
+    - name: Build Release APK
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleDebug --no-daemon
+        ./gradlew assembleRelease --no-daemon \
+          -Pandroid.injected.signing.store.file=$(pwd)/../release.keystore \
+          -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD || 'easyledger123' }} \
+          -Pandroid.injected.signing.key.alias=easyledger \
+          -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD || 'easyledger123' }}
+        
+    - name: Zipalign APK
+      run: |
+        ${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)/zipalign -v 4 \
+          android/app/build/outputs/apk/release/app-release.apk \
+          android/app/build/outputs/apk/release/app-release-aligned.apk
+        
+    - name: Verify APK
+      run: |
+        ${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)/apksigner verify \
+          android/app/build/outputs/apk/release/app-release-aligned.apk
+        echo "APK 签名验证通过"
+        ls -lh android/app/build/outputs/apk/release/app-release-aligned.apk
         
     - name: Upload APK to Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: 极简记账-Debug-APK
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        name: EasyLedger-Release-APK
+        path: android/app/build/outputs/apk/release/app-release-aligned.apk
         
     - name: Create Release
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ github.run_number }}
-        name: 极简记账 v${{ github.run_number }}
+        name: EasyLedger v${{ github.run_number }}
         body: |
-          自动构建的测试版本
+          自动构建的正式版本
           
           ## 安装方法
-          1. 下载 `app-debug.apk`
+          1. 下载 `app-release-aligned.apk`
           2. 传到安卓手机安装
           3. 如果提示未知来源，请允许安装
-        files: android/app/build/outputs/apk/debug/app-debug.apk
+        files: android/app/build/outputs/apk/release/app-release-aligned.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
