@@ -25,7 +25,6 @@ import {
   convertToBaseCurrency,
   saveHealthHistory,
   setQCDismissedTotal,
-  getReferenceIntervals,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -67,6 +66,8 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   const [lastMonthNetWorth, setLastMonthNetWorth] = useState(0);
   const [loanOut, setLoanOut] = useState(0);
   const [debtIn, setDebtIn] = useState(0);
+  const [, setAccountGroups] = useState<AccountGroup[]>([]);
+  const [configKey, setConfigKey] = useState(0);
   const [currentYear] = useState(new Date().getFullYear());
   const [currentMonth] = useState(new Date().getMonth() + 1);
 
@@ -155,7 +156,6 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     });
     setCurrentAllocations(categoryAmounts);
 
-    const intervals = getReferenceIntervals();
     const health = calculateHealthScore(accounts, currentYear, currentMonth);
 
     const lastMonthCategory = { cash: 0, stable: 0, invest: 0, insure: 0 };

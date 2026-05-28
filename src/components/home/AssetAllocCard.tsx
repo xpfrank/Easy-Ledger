@@ -11,9 +11,6 @@ import {
 
 } from '@/lib/allocation-config';
 
-function maskAmount(amount: number, hide: boolean): string {
-  return hide ? '******' : amount.toFixed(2);
-}
 
 interface AssetAllocCardProps {
   accounts: Account[];
@@ -23,7 +20,14 @@ interface AssetAllocCardProps {
     invest: number;
     insure: number;
   };
+  currentAllocations?: {
+    cash: number;
+    stable: number;
+    invest: number;
+    insure: number;
+  };
   primaryColor: string;
+  configKey?: number;
   hasClassifiedAccounts?: boolean;
   onClassifyClick?: () => void;
   onReclassifyClick?: () => void;

@@ -4,12 +4,9 @@ import type { HealthScore } from '@/types';
 import {
   getReferenceIntervals,
   getIgnoredSuggestions,
-  ignoreSuggestion,
   estimateMonthlyExpense,
   getAllAttributions,
-  getAccountsForMonth,
 } from '@/lib/storage';
-import { calculateNetWorth } from '@/lib/calculator';
 import {
   CATEGORY_KEYS,
   CATEGORY_META,
@@ -131,7 +128,7 @@ export function HealthDetailModal({
   hideBalance = false,
 }: HealthDetailModalProps) {
   const intervals = getReferenceIntervals();
-  const [ignored, setIgnored] = useState(getIgnoredSuggestions());
+  const [ignored] = useState(getIgnoredSuggestions());
   const [showNormal, setShowNormal] = useState(false);
   const [showFormula, setShowFormula] = useState(false);
   const monthlyExpense = estimateMonthlyExpense();
@@ -180,17 +177,6 @@ export function HealthDetailModal({
   const barColor = sd <= 20 ? '#22c55e' : sd <= 40 ? '#3b82f6' : sd <= 60 ? '#eab308' : sd <= 80 ? '#f97316' : '#ef4444';
 
   const hasEnoughData = getAllAttributions().length >= 2;
-
-  const changePct = useMemo(() => {
-    const now = new Date();
-    const curY = now.getFullYear();
-    const curM = now.getMonth() + 1;
-    const prevM = curM === 1 ? 12 : curM - 1;
-    const prevY = curM === 1 ? curY - 1 : curY;
-    const curNW = calculateNetWorth(getAccountsForMonth(curY, curM).filter(a => !a.isHidden), curY, curM);
-    const prevNW = calculateNetWorth(getAccountsForMonth(prevY, prevM).filter(a => !a.isHidden), prevY, prevM);
-    return prevNW !== 0 ? ((curNW - prevNW) / Math.abs(prevNW)) * 100 : 0;
-  }, []);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center" onClick={onClose}>

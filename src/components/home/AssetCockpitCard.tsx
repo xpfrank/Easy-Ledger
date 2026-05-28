@@ -3,7 +3,7 @@ import { ChevronRight, Settings2, Droplets, Landmark, TrendingUp, Shield, Activi
 import { Card, CardContent } from '@/components/ui/card';
 import { calculateNetWorth } from '@/lib/calculator';
 import type { HealthScore } from '@/types';
-import { getLifeStage, getReferenceIntervals, getAllAttributions, getAllYearlyAttributions, getAccountsForMonth, formatAmountNoSymbol } from '@/lib/storage';
+import { getLifeStage, getReferenceIntervals, getAllAttributions, getAllYearlyAttributions, getAccountsForMonth } from '@/lib/storage';
 import {
   CATEGORY_KEYS,
   CATEGORY_META,
@@ -55,10 +55,12 @@ function CockpitMiniBar({ primaryColor }: { primaryColor: string }) {
   );
 }
 
+
 interface AssetCockpitCardProps {
   healthScore: HealthScore;
   scoreChange: number;
   primaryColor: string;
+  configKey?: number;
   onClick?: () => void;
   onStageClick?: () => void;
   onIntervalSettingsClick?: () => void;
@@ -127,6 +129,7 @@ export function AssetCockpitCard({
   healthScore,
   scoreChange,
   primaryColor,
+  configKey = 0,
   onClick,
   onStageClick,
   onIntervalSettingsClick,
@@ -143,8 +146,6 @@ export function AssetCockpitCard({
   const intervals = getReferenceIntervals();
   const [attrTab, setAttrTab] = useState<'monthly' | 'yearly'>('monthly');
   const [showFormula, setShowFormula] = useState(false);
-  const allAttributions = getAllAttributions();
-
   const nextLevelScore = useMemo(() => {
     const levels = [
       { level: 'A' as const, min: 90 },
