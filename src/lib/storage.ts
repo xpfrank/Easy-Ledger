@@ -3057,8 +3057,13 @@ export function getAccountsForRecordPage(year: number, month: number): Account[]
  */
 export function dragReorderAccountForRecord(accountId: string, toIndex: number): void {
   const data = loadData();
-  const accounts = data.accounts.filter(a => !a.isHidden);
-  
+  const sortConfig = getRecordSortOrder();
+
+  // 按当前 recordSortOrder 排序（与 UI 展示顺序保持一致）
+  const accounts = data.accounts
+    .filter(a => !a.isHidden)
+    .sort((a, b) => (sortConfig[a.id] ?? 999999) - (sortConfig[b.id] ?? 999999));
+
   const fromIndex = accounts.findIndex(a => a.id === accountId);
   if (fromIndex === -1 || fromIndex === toIndex) return;
   if (toIndex < 0 || toIndex >= accounts.length) return;
@@ -3068,11 +3073,11 @@ export function dragReorderAccountForRecord(accountId: string, toIndex: number):
   accounts.splice(toIndex, 0, moved);
 
   // 使用独立的 localStorage 存储记账页面排序，不修改账户数据
-  const sortConfig: Record<string, number> = {};
+  const newSortConfig: Record<string, number> = {};
   accounts.forEach((acc, i) => {
-    sortConfig[acc.id] = i;
+    newSortConfig[acc.id] = i;
   });
-  saveRecordSortOrder(sortConfig);
+  saveRecordSortOrder(newSortConfig);
 }
 
 /**
@@ -3080,10 +3085,15 @@ export function dragReorderAccountForRecord(accountId: string, toIndex: number):
  */
 export function moveAccountToTopForRecord(accountId: string): void {
   const data = loadData();
-  const accounts = data.accounts.filter(a => !a.isHidden);
-  
+  const sortConfig = getRecordSortOrder();
+
+  // 按当前 recordSortOrder 排序（与 UI 展示顺序保持一致）
+  const accounts = data.accounts
+    .filter(a => !a.isHidden)
+    .sort((a, b) => (sortConfig[a.id] ?? 999999) - (sortConfig[b.id] ?? 999999));
+
   const fromIndex = accounts.findIndex(a => a.id === accountId);
-  if (fromIndex === -1 || fromIndex === 0) return;
+  if (fromIndex === -1 || fromIndex === 0) return; // 已经在顶部
 
   // 从原位置移除
   const [moved] = accounts.splice(fromIndex, 1);
@@ -3091,11 +3101,11 @@ export function moveAccountToTopForRecord(accountId: string): void {
   accounts.unshift(moved);
 
   // 更新排序配置
-  const sortConfig: Record<string, number> = {};
+  const newSortConfig: Record<string, number> = {};
   accounts.forEach((acc, i) => {
-    sortConfig[acc.id] = i;
+    newSortConfig[acc.id] = i;
   });
-  saveRecordSortOrder(sortConfig);
+  saveRecordSortOrder(newSortConfig);
 }
 
 /**
