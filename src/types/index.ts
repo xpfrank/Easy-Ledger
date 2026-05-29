@@ -30,8 +30,8 @@ export interface Account {
   currency?: string;
   /** 记账页面独立排序权重 */
   recordSortOrder?: number;
-  /** 快速分类：现金/应急 | 稳健储蓄 | 投资增值 | 保险保障 */
-  assetCategory?: 'cash' | 'stable' | 'invest' | 'insure' | null;
+  /** 快速分类：现金/应急 | 稳健储蓄 | 投资增值 | 保险保障 | 已跳过 */
+  assetCategory?: 'cash' | 'stable' | 'invest' | 'insure' | 'skipped' | null;
 }
 
 // 月度记录

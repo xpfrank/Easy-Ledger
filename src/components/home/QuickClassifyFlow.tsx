@@ -135,6 +135,8 @@ function ReclassifyMode({
                       <cat.IconComp size={14} style={{ color: cat.color }} />
                       <span className="text-[11px] font-semibold" style={{ color: cat.color }}>{cat.label}</span>
                     </div>
+                  ) : acc.assetCategory === 'skipped' ? (
+                    <span className="text-[11px] text-gray-400 font-semibold shrink-0">已跳过</span>
                   ) : (
                     <span className="text-[11px] text-amber-600 font-semibold shrink-0">未分类</span>
                   )}
@@ -171,10 +173,15 @@ function SingleAccountEditor({
   onDone: () => void;
   hideBalance?: boolean;
 }) {
-  const currentCat = account.assetCategory || null;
+  const currentCat = account.assetCategory && account.assetCategory !== 'skipped' ? account.assetCategory : null;
 
   const handleSelect = (category: 'cash' | 'stable' | 'invest' | 'insure') => {
     saveAccountAssetCategory(account.id, category);
+    onDone();
+  };
+
+  const handleRemoveClassification = () => {
+    saveAccountAssetCategory(account.id, 'skipped');
     onDone();
   };
 
@@ -240,6 +247,18 @@ function SingleAccountEditor({
               );
             })}
           </div>
+
+          {currentCat && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <button
+                onClick={handleRemoveClassification}
+                className="w-full flex items-center justify-center gap-1.5 text-[12px] text-gray-500 font-medium px-3 py-2 rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300 active:scale-[0.97] transition-all"
+              >
+                <X size={13} />
+                取消分类，设为跳过
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -277,7 +296,7 @@ function ClassifyMode({
   const total = accounts.length;
   const currentAccount = accounts[currentIndex];
   const progress = (currentIndex + 1) / total;
-  const previousSelection = selectionsRef.current[currentIndex] || currentAccount?.assetCategory || null;
+  const previousSelection = selectionsRef.current[currentIndex] || (currentAccount?.assetCategory && currentAccount.assetCategory !== 'skipped' ? currentAccount.assetCategory : null);
 
   useEffect(() => {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
@@ -307,9 +326,13 @@ function ClassifyMode({
 
   const handleSkip = useCallback(() => {
     if (saving) return;
-    if (currentIndex + 1 >= total) onDismiss();
-    else setCurrentIndex(prev => prev + 1);
-  }, [currentIndex, total, saving, onDismiss]);
+    saveAccountAssetCategory(currentAccount.id, 'skipped');
+    if (currentIndex + 1 >= total) {
+      setShowDoneOverlay(true);
+    } else {
+      setCurrentIndex(prev => prev + 1);
+    }
+  }, [currentIndex, currentAccount, total, saving]);
 
   if (!currentAccount) return null;
 
@@ -348,7 +371,7 @@ function ClassifyMode({
               </div>
             </div>
             <div className="text-xl font-bold text-gray-800 mb-2">分类完成</div>
-            <div className="text-sm text-gray-500 text-center mb-1">{total} 个账户已归类</div>
+            <div className="text-sm text-gray-500 text-center mb-1">{total} 个账户已处理</div>
             <div className="text-xs text-gray-400 text-center mb-6">现在可以查看完整的资产配置分析了</div>
             <div style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}>
               <button
@@ -391,12 +414,17 @@ function ClassifyMode({
                   <div className="px-2 py-1 rounded-lg text-[10px] font-bold" style={{ backgroundColor: `${CATEGORY_MAP[previousSelection].color}15`, color: CATEGORY_MAP[previousSelection].color }}>
                     {CATEGORY_MAP[previousSelection].label}
                   </div>
+                ) : currentAccount?.assetCategory === 'skipped' ? (
+                  <div className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-gray-50 text-gray-500">已跳过</div>
                 ) : (
                   <div className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-700">未分类</div>
                 )}
               </div>
               {previousSelection && CATEGORY_MAP[previousSelection] && (
                 <div className="text-[10px] text-gray-400 mt-2">上次选择：{CATEGORY_MAP[previousSelection].label} · 选择其他分类可覆盖</div>
+              )}
+              {currentAccount?.assetCategory === 'skipped' && (
+                <div className="text-[10px] text-gray-400 mt-2">此账户已跳过 · 选择分类可取消跳过</div>
               )}
               <div className="text-[11px] text-gray-400 text-center mt-2">请为这个账户选择一个分类类型</div>
             </div>
@@ -431,7 +459,13 @@ function ClassifyMode({
             </div>
 
             <div className="flex items-center justify-center gap-2 mt-3">
-              <button onClick={handleSkip} disabled={saving} className="text-[12px] text-gray-400 font-medium hover:text-gray-600 transition-colors">跳过此账户</button>
+              <button
+                onClick={handleSkip}
+                disabled={saving}
+                className="text-[12px] text-gray-500 font-medium px-3 py-1 rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300 active:scale-[0.97] transition-all disabled:opacity-40"
+              >
+                跳过此账户
+              </button>
               <span className="text-gray-300">·</span>
               <span className="text-[11px] text-gray-400">剩余 {total - currentIndex - 1} 个账户未分类</span>
             </div>
