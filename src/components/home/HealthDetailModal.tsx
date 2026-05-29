@@ -82,11 +82,7 @@ function MiniVolatilityBar({ primaryColor }: { primaryColor: string }) {
   const recent = sorted.slice(-12);
 
   if (recent.length < 2) {
-    return (
-      <div className="flex items-center justify-center h-6">
-        <span className="text-[11px] text-gray-400">数据不足</span>
-      </div>
-    );
+    return <span className="text-[10px] text-gray-300">—</span>;
   }
 
   const rates = recent.map((a) => a.changePercent);
@@ -175,8 +171,6 @@ export function HealthDetailModal({
   const volatilityBg = sd <= 2 ? '#e8faf2' : sd <= 5 ? '#e8f5ff' : sd <= 10 ? '#fff8e6' : '#fff3e6';
 
   const barColor = sd <= 20 ? '#22c55e' : sd <= 40 ? '#3b82f6' : sd <= 60 ? '#eab308' : sd <= 80 ? '#f97316' : '#ef4444';
-
-  const hasEnoughData = getAllAttributions().length >= 2;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center" onClick={onClose}>
@@ -337,41 +331,35 @@ export function HealthDetailModal({
               </span>
             </div>
 
-            {hasEnoughData ? (
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[11px] text-gray-400">标准差</span>
-                    <span className="text-[14px] font-extrabold" style={{ color: primaryColor }}>{hideBalance ? '***' : `${sd}%`}</span>
-                  </div>
-                  <div className="relative h-[5px] bg-gray-100 rounded-full">
-                    <div
-                      className="absolute top-[-2px] bottom-[-2px] w-[3px] rounded-full"
-                      style={{
-                        left: `${Math.min(sd, 100)}%`,
-                        backgroundColor: barColor,
-                      }}
-                    />
-                    {[20, 40, 60, 80].map(m => (
-                      <div key={m} className="absolute top-[-2px] bottom-[-2px] w-[1px] bg-gray-300" style={{ left: `${m}%` }} />
-                    ))}
-                  </div>
-                  <div className="flex justify-between mt-0.5">
-                    {[0, 20, 40, 60, 80, 100].map(m => (
-                      <span key={m} className="text-[9px] text-gray-300">{m}%</span>
-                    ))}
-                  </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-[11px] text-gray-400">标准差</span>
+                  <span className="text-[14px] font-extrabold" style={{ color: primaryColor }}>{hideBalance ? '***' : `${sd}%`}</span>
                 </div>
-                <div className="w-[70px] shrink-0">
-                  <MiniVolatilityBar primaryColor={primaryColor} />
-                  <p className="text-[9px] text-gray-300 text-center mt-0.5">近12月趋势</p>
+                <div className="relative h-[5px] bg-gray-100 rounded-full">
+                  <div
+                    className="absolute top-[-2px] bottom-[-2px] w-[3px] rounded-full"
+                    style={{
+                      left: `${Math.min(sd, 100)}%`,
+                      backgroundColor: barColor,
+                    }}
+                  />
+                  {[20, 40, 60, 80].map(m => (
+                    <div key={m} className="absolute top-[-2px] bottom-[-2px] w-[1px] bg-gray-300" style={{ left: `${m}%` }} />
+                  ))}
+                </div>
+                <div className="flex justify-between mt-0.5">
+                  {[0, 20, 40, 60, 80, 100].map(m => (
+                    <span key={m} className="text-[9px] text-gray-300">{m}%</span>
+                  ))}
                 </div>
               </div>
-            ) : (
-              <div className="flex items-center justify-center py-2">
-                <span className="text-[12px] text-gray-400">记录更多月份后展示</span>
+              <div className="w-[70px] shrink-0">
+                <MiniVolatilityBar primaryColor={primaryColor} />
+                <p className="text-[9px] text-gray-300 text-center mt-0.5">近12月趋势</p>
               </div>
-            )}
+            </div>
 
             {onViewTrend && (
               <button

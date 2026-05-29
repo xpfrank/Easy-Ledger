@@ -43,6 +43,7 @@ function calculateConfigScore(accounts: Account[], year: number, month: number):
       case 'stable': allocations.stable += balance; break;
       case 'invest': allocations.invest += balance; break;
       case 'insure': allocations.insure += balance; break;
+      case 'skipped': break; // 已跳过的账户不计入健康评分
       default: allocations.cash += balance; break; // 未分类算现金
     }
   }
