@@ -110,19 +110,6 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
   // 顶栏更多菜单
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
-  // ===== 拖拽手柄 ref 管理（原生 touch 事件绑定）=====
-  const dragHandleRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const setDragHandleRef = (accountId: string) => (el: HTMLDivElement | null) => {
-    if (el) dragHandleRefs.current.set(accountId, el);
-    else dragHandleRefs.current.delete(accountId);
-  };
-
-  const groupDragHandleRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const setGroupDragHandleRef = (groupType: string) => (el: HTMLDivElement | null) => {
-    if (el) groupDragHandleRefs.current.set(groupType, el);
-    else groupDragHandleRefs.current.delete(groupType);
-  };
-
   const themeConfig = THEMES[theme] || THEMES.blue;
 
   useEffect(() => {
@@ -139,6 +126,31 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     // 加载分组排序配置
     setGroupOrder(getGroupOrderConfig());
     setExpandedGroups(saved);
+  }, []);
+
+  // ── 非 passive 触摸事件注册 ──────────────────────────────────────────────
+  // React 合成事件在现代 WebView 里默认是 passive，preventDefault() 会被忽略。
+  // 必须用原生 addEventListener({ passive: false }) 才能阻止拖拽时页面滚动。
+  useEffect(() => {
+    const onTouchStart = (e: TouchEvent) => {
+      const grip = (e.target as HTMLElement).closest('[data-grip]');
+      if (!grip) return;
+      // 阻止默认行为（防止触发页面滚动）并标记拖拽正在进行
+      // 具体的状态更新逻辑仍由 React onTouchStart 处理，这里只负责 passive 阻断
+      e.preventDefault();
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      // 只要有任何拖拽在进行，就阻止页面滚动
+      if (dragRef.current || groupDragRef.current) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchstart', onTouchStart, { passive: false });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchmove', onTouchMove);
+    };
   }, []);
 
   const loadAccounts = () => {
@@ -295,184 +307,6 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     }
     return Math.max(0, Math.min(groupAccountCount - 1, bestIdx));
   };
-
-  // ===== 原生 touch 事件绑定：账户拖拽手柄 =====
-  useEffect(() => {
-    if (!isSortMode) return; // 仅在排序模式下绑定
-
-    const handles = Array.from(dragHandleRefs.current.entries());
-    const listeners: Array<{ el: HTMLDivElement; type: string; fn: EventListener }> = [];
-
-    handles.forEach(([accountId, el]) => {
-      // 找到该账户在组内的索引
-      const group = groupedAccounts.find(g => g.accounts.some(a => a.id === accountId));
-      if (!group) return;
-      const account = group.accounts.find(a => a.id === accountId);
-      if (!account) return;
-      const idx = group.accounts.indexOf(account);
-
-      const onTouchStart = (e: TouchEvent) => {
-        e.preventDefault();
-        const touch = e.touches[0];
-        dragRef.current = {
-          startY: touch.clientY,
-          accountId,
-          groupType: group.type,
-          itemHeight: 72,
-          startIndex: idx,
-        };
-        dragClientYRef.current = touch.clientY;
-        setDraggingId(accountId);
-        setDragOverIndex(idx);
-        dragOverIndexRef.current = idx;
-        if (ghostRef.current) {
-          ghostRef.current.style.top = (touch.clientY - 30) + 'px';
-          ghostRef.current.style.display = 'block';
-          if (ghostTextRef.current) ghostTextRef.current.textContent = account.name;
-        }
-        if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
-        startAutoScroll();
-      };
-
-      const onTouchMove = (e: TouchEvent) => {
-        e.preventDefault(); // ✅ 现在生效了！
-        if (!dragRef.current) return;
-        const touch = e.touches[0];
-        dragClientYRef.current = touch.clientY;
-        if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
-        if (rafRef.current) return;
-        rafRef.current = requestAnimationFrame(() => {
-          rafRef.current = 0;
-          const newIdx = calcDragOverIndex(touch.clientY, group.accounts.length);
-          if (newIdx !== dragOverIndexRef.current) {
-            dragOverIndexRef.current = newIdx;
-            setDragOverIndex(newIdx);
-          }
-        });
-      };
-
-      const onTouchEnd = (e: TouchEvent) => {
-        e.preventDefault();
-        stopAutoScroll();
-        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
-        if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
-          dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
-          loadAccounts();
-        }
-        if (ghostRef.current) ghostRef.current.style.display = 'none';
-        setDraggingId(null);
-        setDragOverIndex(null);
-        dragOverIndexRef.current = null;
-        dragRef.current = null;
-      };
-
-      el.addEventListener('touchstart', onTouchStart, { passive: false });
-      el.addEventListener('touchmove', onTouchMove, { passive: false });
-      el.addEventListener('touchend', onTouchEnd, { passive: false });
-
-      listeners.push({ el, type: 'touchstart', fn: onTouchStart as EventListener });
-      listeners.push({ el, type: 'touchmove', fn: onTouchMove as EventListener });
-      listeners.push({ el, type: 'touchend', fn: onTouchEnd as EventListener });
-    });
-
-    return () => {
-      listeners.forEach(({ el, type, fn }) => {
-        el.removeEventListener(type, fn);
-      });
-    };
-  }, [isSortMode, groupedAccounts]);
-
-  // ===== 原生 touch 事件绑定：分组拖拽手柄 =====
-  useEffect(() => {
-    if (!isGroupSortMode) return;
-
-    const handles = Array.from(groupDragHandleRefs.current.entries());
-    const listeners: Array<{ el: HTMLDivElement; type: string; fn: EventListener }> = [];
-
-    handles.forEach(([groupType, el]) => {
-      const idx = groupedAccounts.findIndex(g => g.type === groupType);
-      if (idx === -1) return;
-
-      const onTouchStart = (e: TouchEvent) => {
-        e.preventDefault();
-        const touch = e.touches[0];
-        groupDragRef.current = {
-          startY: touch.clientY,
-          groupType,
-          groupHeight: 60,
-          startIndex: idx,
-        };
-        dragClientYRef.current = touch.clientY;
-        setDraggingGroupType(groupType);
-        setDragOverGroupIndex(idx);
-        groupDragOverIndexRef.current = idx;
-        if (ghostRef.current) {
-          ghostRef.current.style.top = (touch.clientY - 30) + 'px';
-          ghostRef.current.style.display = 'block';
-          const group = groupedAccounts.find(g => g.type === groupType);
-          if (ghostTextRef.current && group) ghostTextRef.current.textContent = group.label;
-        }
-        if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
-        startAutoScroll();
-      };
-
-      const onTouchMove = (e: TouchEvent) => {
-        e.preventDefault();
-        if (!groupDragRef.current) return;
-        const touch = e.touches[0];
-        if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
-        dragClientYRef.current = touch.clientY;
-        if (rafRef.current) return;
-        rafRef.current = requestAnimationFrame(() => {
-          rafRef.current = 0;
-          const rows = document.querySelectorAll('[data-group-index]');
-          let bestIdx = groupDragOverIndexRef.current ?? 0;
-          let bestDist = Infinity;
-          rows.forEach((row) => {
-            const rect = row.getBoundingClientRect();
-            const dist = Math.abs(touch.clientY - (rect.top + rect.height / 2));
-            if (dist < bestDist) {
-              bestDist = dist;
-              const i = parseInt(row.getAttribute('data-group-index') || '-1', 10);
-              if (i >= 0) bestIdx = i;
-            }
-          });
-          if (bestIdx !== groupDragOverIndexRef.current) {
-            groupDragOverIndexRef.current = bestIdx;
-            setDragOverGroupIndex(bestIdx);
-          }
-        });
-      };
-
-      const onTouchEnd = (e: TouchEvent) => {
-        e.preventDefault();
-        stopAutoScroll();
-        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
-        if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
-          handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
-        }
-        if (ghostRef.current) ghostRef.current.style.display = 'none';
-        setDraggingGroupType(null);
-        setDragOverGroupIndex(null);
-        groupDragOverIndexRef.current = null;
-        groupDragRef.current = null;
-      };
-
-      el.addEventListener('touchstart', onTouchStart, { passive: false });
-      el.addEventListener('touchmove', onTouchMove, { passive: false });
-      el.addEventListener('touchend', onTouchEnd, { passive: false });
-
-      listeners.push({ el, type: 'touchstart', fn: onTouchStart as EventListener });
-      listeners.push({ el, type: 'touchmove', fn: onTouchMove as EventListener });
-      listeners.push({ el, type: 'touchend', fn: onTouchEnd as EventListener });
-    });
-
-    return () => {
-      listeners.forEach(({ el, type, fn }) => {
-        el.removeEventListener(type, fn);
-      });
-    };
-  }, [isGroupSortMode, groupedAccounts]);
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -960,10 +794,55 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                           <ArrowUpToLine size={14} className={groupIndex === 0 ? 'text-gray-200' : 'text-blue-500'} />
                         </Button>
                         <div
-                          ref={setGroupDragHandleRef(group.type)}
+                          data-grip="group"
                           className={`touch-none select-none cursor-grab active:cursor-grabbing p-1.5 rounded-md transition-colors ${
                             draggingGroupType === group.type ? 'bg-blue-50' : 'hover:bg-gray-100'
                           }`}
+                          onTouchStart={(e) => {
+                            e.stopPropagation();
+                            groupDragRef.current = { startY: e.touches[0].clientY, groupType: group.type, groupHeight: 60, startIndex: groupIndex };
+                            dragClientYRef.current = e.touches[0].clientY;
+                            setDraggingGroupType(group.type);
+                            setDragOverGroupIndex(groupIndex);
+                            groupDragOverIndexRef.current = groupIndex;
+                            if (ghostRef.current) { ghostRef.current.style.top = (e.touches[0].clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = group.label; }
+                            if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                            startAutoScroll();
+                          }}
+                          onTouchMove={(e) => {
+                            if (!groupDragRef.current) return;
+                            // preventDefault 由原生 listener 处理（passive: false）
+                            const touch = e.touches[0];
+                            if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
+                            dragClientYRef.current = touch.clientY;
+                            if (rafRef.current) return;
+                            rafRef.current = requestAnimationFrame(() => {
+                              rafRef.current = 0;
+                              // 按最近中心点找目标分组
+                              const rows = document.querySelectorAll('[data-group-index]');
+                              let bestIdx = groupDragOverIndexRef.current ?? 0;
+                              let bestDist = Infinity;
+                              rows.forEach((row) => {
+                                const rect = row.getBoundingClientRect();
+                                const dist = Math.abs(touch.clientY - (rect.top + rect.height / 2));
+                                if (dist < bestDist) { bestDist = dist; const i = parseInt(row.getAttribute('data-group-index') || '-1', 10); if (i >= 0) bestIdx = i; }
+                              });
+                              if (bestIdx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = bestIdx; setDragOverGroupIndex(bestIdx); }
+                            });
+                          }}
+                          onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            stopAutoScroll();
+                            if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+                            if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
+                              handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
+                            }
+                            if (ghostRef.current) ghostRef.current.style.display = 'none';
+                            setDraggingGroupType(null);
+                            setDragOverGroupIndex(null);
+                            groupDragOverIndexRef.current = null;
+                            groupDragRef.current = null;
+                          }}
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             groupDragRef.current = { startY: e.clientY, groupType: group.type, groupHeight: 60, startIndex: groupIndex };
@@ -1161,10 +1040,52 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                 } />
                               </Button>
                               <div
-                                ref={setDragHandleRef(account.id)}
+                                data-grip="account"
                                 className={`touch-none select-none cursor-grab active:cursor-grabbing p-1.5 rounded-md transition-colors ${
                                   draggingId === account.id ? 'bg-blue-50' : 'hover:bg-gray-100'
                                 }`}
+                                onTouchStart={(e) => {
+                                  e.stopPropagation();
+                                  const idx = group.accounts.indexOf(account);
+                                  dragRef.current = { startY: e.touches[0].clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
+                                  dragClientYRef.current = e.touches[0].clientY;
+                                  setDraggingId(account.id);
+                                  setDragOverIndex(idx);
+                                  dragOverIndexRef.current = idx;
+                                  if (ghostRef.current) { ghostRef.current.style.top = (e.touches[0].clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = account.name; }
+                                  if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                                  longPressTimerRef.current = setTimeout(() => {}, 300);
+                                  startAutoScroll();
+                                }}
+                                onTouchMove={(e) => {
+                                  if (!dragRef.current) return;
+                                  // preventDefault 由原生 listener 处理（passive: false）
+                                  const touch = e.touches[0];
+                                  dragClientYRef.current = touch.clientY;
+                                  if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
+                                  // 位置检测：坐标计算，不依赖 elementFromPoint
+                                  if (rafRef.current) return;
+                                  rafRef.current = requestAnimationFrame(() => {
+                                    rafRef.current = 0;
+                                    const idx = calcDragOverIndex(touch.clientY, group.accounts.length);
+                                    if (idx !== dragOverIndexRef.current) { dragOverIndexRef.current = idx; setDragOverIndex(idx); }
+                                  });
+                                }}
+                                onTouchEnd={(e) => {
+                                  e.stopPropagation();
+                                  stopAutoScroll();
+                                  if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
+                                  if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+                                  if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
+                                    dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
+                                    loadAccounts();
+                                  }
+                                  if (ghostRef.current) ghostRef.current.style.display = 'none';
+                                  setDraggingId(null);
+                                  setDragOverIndex(null);
+                                  dragOverIndexRef.current = null;
+                                  dragRef.current = null;
+                                }}
                                 onMouseDown={(e) => {
                                   e.stopPropagation();
                                   const idx = group.accounts.indexOf(account);
