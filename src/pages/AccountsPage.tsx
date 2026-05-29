@@ -275,9 +275,6 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
     // 即使行在视口外，也用边界推断
     const firstRow = rows[0].getBoundingClientRect();
     const lastRow = rows[rows.length - 1].getBoundingClientRect();
-    const rowH = rows.length > 1
-      ? (lastRow.top - firstRow.top) / (rows.length - 1)
-      : firstRow.height || 72;
     if (clientY < firstRow.top) {
       bestIdx = 0;
     } else if (clientY > lastRow.bottom) {
