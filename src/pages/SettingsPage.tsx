@@ -71,16 +71,25 @@ const CollapsibleSection = ({
   );
 };
 
-const FeatureItem = ({ emoji, title, desc }: { emoji: string; title: string; desc: string }) => (
-  <div className="flex items-start gap-3 p-2.5 bg-gray-50 rounded-xl">
+const FeatureItem = ({ emoji, title, desc, onClick }: { emoji: string; title: string; desc: string; onClick?: () => void }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`w-full flex items-start gap-3 p-2.5 bg-gray-50 rounded-xl text-left transition-all ${onClick ? 'hover:bg-gray-100 active:scale-[0.98] cursor-pointer' : 'cursor-default'}`}
+  >
     <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
       {emoji}
     </div>
-    <div>
+    <div className="flex-1 min-w-0">
       <h4 className="text-[13px] font-semibold text-gray-800 mb-0.5">{title}</h4>
       <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
     </div>
-  </div>
+    {onClick && (
+      <svg className="w-4 h-4 text-gray-300 flex-shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="9 18 15 12 9 6" />
+      </svg>
+    )}
+  </button>
 );
 
 const FlowStep = ({ num, children, isLast }: { num: number; children: React.ReactNode; isLast?: boolean }) => (
@@ -625,7 +634,7 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
               </div>
               <div>
                 <div className="font-medium text-sm text-gray-800">应用版本</div>
-                <div className="text-xs text-gray-400 mt-0.5">当前版本 2.0.1</div>
+                <div className="text-xs text-gray-400 mt-0.5">当前版本 2.1.2</div>
               </div>
             </div>
           </Card>
@@ -1341,16 +1350,25 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
               </div>
               <div className="space-y-2.5">
                 {[
-                  '进入「账户管理」添加你的银行卡、支付宝等账户',
-                  '在「月度记账」中选择月份，录入各账户余额',
-                  '查看「资产趋势」和「记账记录」，追踪净资产变化',
-                ].map((text, i) => (
-                  <div key={i} className="flex items-start gap-2.5 text-[13px] text-white/90 leading-relaxed">
+                  { text: '进入「账户管理」添加你的银行卡、支付宝等账户', action: () => { setShowAboutDialog(false); onPageChange('account-edit'); } },
+                  { text: '点击「快速分类」把账户归入现金/稳健/投资/保障四类，建立你的资产配置结构', action: () => { setShowAboutDialog(false); onPageChange('home', { triggerQC: true }); } },
+                  { text: '在「月度记账」里选月份，录入各账户余额（可一键复制上月）', action: () => { setShowAboutDialog(false); onPageChange('record'); } },
+                  { text: '回到首页看「资产驾驶舱」，追踪净资产变化、波动情况和归因完成度', action: () => { setShowAboutDialog(false); onPageChange('home'); } },
+                ].map((step, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={step.action}
+                    className="w-full flex items-start gap-2.5 text-[13px] text-white/90 leading-relaxed text-left hover:bg-white/10 rounded-lg p-1.5 -m-1.5 transition-colors active:scale-[0.98]"
+                  >
                     <span className="w-[22px] h-[22px] rounded-full bg-white/20 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-px">
                       {i + 1}
                     </span>
-                    {text}
-                  </div>
+                    <span className="flex-1">{step.text}</span>
+                    <svg className="w-4 h-4 text-white/50 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </button>
                 ))}
               </div>
             </div>
@@ -1358,32 +1376,37 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
             {/* 核心功能 */}
             <CollapsibleSection icon="🎯" iconBg="#dbeafe" title="核心功能" defaultOpen>
               <div className="space-y-2">
-                <FeatureItem emoji="💳" title="资产管理" desc="统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户，支持自定义排序" />
-                <FeatureItem emoji="📝" title="月度记账" desc="按月录入账户余额，实时追踪个人净资产变化趋势" />
-                <FeatureItem emoji="📈" title="资产趋势" desc="可视化折线图展示净资产变化，支持月度/年度双视图" />
-                <FeatureItem emoji="🏷️" title="月度归因" desc="记录每月资产变动原因（工资、奖金、投资等），支持自定义标签与金额拆分" />
-                <FeatureItem emoji="📋" title="记账日志" desc="自动记录每一次余额修改，操作全程可追溯" />
-                <FeatureItem emoji="🎯" title="年度目标" desc="设置年度净资产增长目标，实时查看达成进度与完成率" />
-                <FeatureItem emoji="❤️" title="资产健康度" desc="多维度评估资产配置合理性，包含现金比例、投资占比、债务风险等评分" />
-                <FeatureItem emoji="🌊" title="余额桑基图" desc="可视化展示资产流向结构，支持缩放、拖拽、点击穿透查看详情" />
-                <FeatureItem emoji="💱" title="多币种记账" desc="支持15种主流货币，为每个账户独立设置币种，自动按汇率折算为主货币显示" />
+                <FeatureItem emoji="💳" title="资产管理" desc="统一管理现金、银行卡、信用卡、支付宝、微信、投资等各类账户" onClick={() => { setShowAboutDialog(false); onPageChange('account-edit'); }} />
+                <FeatureItem emoji="🏷️" title="账户分类" desc="快速分类引导 + 随时调整归类，信用卡等非资产账户可标记跳过" onClick={() => { setShowAboutDialog(false); onPageChange('home', { triggerQC: true }); }} />
+                <FeatureItem emoji="🏦" title="资产配置结构" desc="四类资产（现金/稳健/投资/保障）占比一目了然" onClick={() => { setShowAboutDialog(false); onPageChange('home'); }} />
+                <FeatureItem emoji="🚁" title="资产驾驶舱" desc="首页核心看板：配置结构、波动控制、归因记录、健康评分" onClick={() => { setShowAboutDialog(false); onPageChange('home'); }} />
+                <FeatureItem emoji="📝" title="月度记账" desc="按月录入余额，自动计算净资产，支持多币种折算" onClick={() => { setShowAboutDialog(false); onPageChange('record'); }} />
+                <FeatureItem emoji="📈" title="资产趋势" desc="折线图看净资产走势，支持月度/年度切换，点击节点看当月详情" onClick={() => { setShowAboutDialog(false); onPageChange('trend'); }} />
+                <FeatureItem emoji="🏷️" title="月度归因" desc="记录每月变动原因（工资、奖金、投资等），支持自定义标签" onClick={() => { setShowAboutDialog(false); onPageChange('record'); }} />
+                <FeatureItem emoji="🎯" title="年度目标" desc="设定全年净资产目标，实时看达成进度" />
+                <FeatureItem emoji="🌊" title="余额桑基图" desc="可视化资产流向，支持缩放、穿透查看" />
+                <FeatureItem emoji="💱" title="多币种记账" desc="15种货币独立设置，自动按汇率折算" />
               </div>
             </CollapsibleSection>
 
-            {/* 账户类型 */}
-            <CollapsibleSection icon="🏦" iconBg="#fef3c7" title="账户类型说明">
+            {/* 账户与分类 */}
+            <CollapsibleSection icon="🏦" iconBg="#fef3c7" title="账户与分类">
               <div className="space-y-2">
                 <div className="flex items-center gap-2.5 p-2.5 bg-green-50 rounded-xl">
                   <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-green-200 text-green-800 flex-shrink-0">资产类</span>
-                  <span className="text-xs text-gray-600 leading-relaxed">现金、储蓄卡、网络支付、投资 — 余额直接计入总资产</span>
+                  <span className="text-xs text-gray-600 leading-relaxed">现金/银行卡/支付宝/投资 — 余额计入总资产，需归类到四类配置</span>
                 </div>
                 <div className="flex items-center gap-2.5 p-2.5 bg-red-50 rounded-xl">
                   <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-red-200 text-red-800 flex-shrink-0">负债类</span>
-                  <span className="text-xs text-gray-600 leading-relaxed">信用卡、借入 — 余额为欠款金额，计入负资产</span>
+                  <span className="text-xs text-gray-600 leading-relaxed">信用卡/借入 — 余额为欠款，计入负资产，可设为「无需分类」</span>
                 </div>
                 <div className="flex items-center gap-2.5 p-2.5 bg-amber-50 rounded-xl">
                   <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-200 text-amber-800 flex-shrink-0">债权类</span>
                   <span className="text-xs text-gray-600 leading-relaxed">借出 — 独立统计，不计入净资产</span>
+                </div>
+                <div className="flex items-center gap-2.5 p-2.5 bg-gray-50 rounded-xl">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-gray-200 text-gray-700 flex-shrink-0">拖拽排序</span>
+                  <span className="text-xs text-gray-600 leading-relaxed">在账户管理页长按任意账户，即可调整展示顺序</span>
                 </div>
               </div>
             </CollapsibleSection>
@@ -1392,20 +1415,30 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
             <CollapsibleSection icon="🔄" iconBg="#fce7f3" title="记账流程">
               <div className="space-y-0 pt-1">
                 <FlowStep num={1}>在<strong className="text-gray-800 font-semibold">「账户管理」</strong>中添加你的各类账户</FlowStep>
-                <FlowStep num={2}>进入<strong className="text-gray-800 font-semibold">「月度记账」</strong>，选择对应月份录入各账户余额</FlowStep>
-                <FlowStep num={3}>支持<strong className="text-gray-800 font-semibold">「复制上月余额」</strong>快速录入，也可单独修改单个账户</FlowStep>
-                <FlowStep num={4}>资产发生较大变化时，可添加<strong className="text-gray-800 font-semibold">月度归因说明</strong></FlowStep>
-                <FlowStep num={5} isLast>修改后自动保存，历史记录可在<strong className="text-gray-800 font-semibold">「记账记录」</strong>中查看</FlowStep>
+                <FlowStep num={2}>完成<strong className="text-gray-800 font-semibold">「快速分类」</strong>，把账户归入对应资产类型</FlowStep>
+                <FlowStep num={3}>进入<strong className="text-gray-800 font-semibold">「月度记账」</strong>选月份录入各账户余额</FlowStep>
+                <FlowStep num={4}>资产变化较大时，添加<strong className="text-gray-800 font-semibold">「月度归因」</strong>说明变动原因</FlowStep>
+                <FlowStep num={5} isLast>在<strong className="text-gray-800 font-semibold">「资产驾驶舱」</strong>查看配置结构与健康度</FlowStep>
               </div>
             </CollapsibleSection>
 
             {/* 资产趋势 */}
             <CollapsibleSection icon="📊" iconBg="#e0e7ff" title="资产趋势">
               <div className="space-y-2">
-                <FeatureItem emoji="📉" title="净资产变化折线图" desc="直观展示财务状况，支持高低点自动标注" />
-                <FeatureItem emoji="🔍" title="归因筛选" desc="按标签筛选，快速定位特定变动月份" />
-                <FeatureItem emoji="👆" title="数据点交互" desc="点击数据点查看当月账户快照和归因详情" />
-                <FeatureItem emoji="🔀" title="双视图切换" desc="支持月度趋势和年度趋势两种视图模式" />
+                <FeatureItem emoji="📉" title="净资产变化折线图" desc="直观展示财务状况，支持高低点自动标注" onClick={() => { setShowAboutDialog(false); onPageChange('trend'); }} />
+                <FeatureItem emoji="🔍" title="归因筛选" desc="按标签筛选，快速定位特定变动月份" onClick={() => { setShowAboutDialog(false); onPageChange('trend'); }} />
+                <FeatureItem emoji="👆" title="数据点交互" desc="点击数据点查看当月账户快照和归因详情" onClick={() => { setShowAboutDialog(false); onPageChange('trend'); }} />
+                <FeatureItem emoji="🔀" title="双视图切换" desc="支持月度趋势和年度趋势两种视图模式" onClick={() => { setShowAboutDialog(false); onPageChange('trend'); }} />
+              </div>
+            </CollapsibleSection>
+
+            {/* 资产驾驶舱 */}
+            <CollapsibleSection icon="🚁" iconBg="#dbeafe" title="资产驾驶舱">
+              <div className="space-y-2">
+                <FeatureItem emoji="🏦" title="配置结构" desc="看你的现金、稳健、投资、保障四类占比是否在参考区间内" onClick={() => { setShowAboutDialog(false); onPageChange('home'); }} />
+                <FeatureItem emoji="📊" title="波动控制" desc="展示本月波动率和标准差，了解资产稳定性" onClick={() => { setShowAboutDialog(false); onPageChange('home'); }} />
+                <FeatureItem emoji="📋" title="归因记录" desc="追踪每月归因完成情况，漏记月份一眼看到" onClick={() => { setShowAboutDialog(false); onPageChange('home'); }} />
+                <FeatureItem emoji="❤️" title="健康分析" desc="点击查看详细评分与调整建议" onClick={() => { setShowAboutDialog(false); onPageChange('home'); }} />
               </div>
             </CollapsibleSection>
 
@@ -1456,7 +1489,7 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
             {/* 底部品牌 */}
             <div className="text-center pt-3 border-t border-gray-100">
               <div className="text-[13px] font-semibold text-gray-700 mb-0.5">Easy Ledger</div>
-              <div className="text-xs text-gray-400">当前版本 2.0.1 · 出品人 Frank</div>
+              <div className="text-xs text-gray-400">当前版本 2.1.2 · 出品人 Frank</div>
             </div>
           </div>
         </DialogContent>
