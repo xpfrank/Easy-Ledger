@@ -78,8 +78,11 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 自动滚动配置
   const accountsListRef = useRef<HTMLDivElement>(null);
-  const AUTO_SCROLL_MARGIN = 60;
-  const AUTO_SCROLL_SPEED = 8;
+  const AUTO_SCROLL_MARGIN = 80;
+  const AUTO_SCROLL_SPEED = 6;
+  // 自动滚动：独立 RAF loop，与位置检测分离
+  const autoScrollRafRef = useRef<number>(0);
+  const dragClientYRef = useRef<number>(0); // 拖拽过程中手指/鼠标当前Y坐标（实时更新）
   // 分组拖拽状态
   const [draggingGroupType, setDraggingGroupType] = useState<string | null>(null);
   const [dragOverGroupIndex, setDragOverGroupIndex] = useState<number | null>(null);
@@ -219,6 +222,68 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
       reorderAccountInGroup(accountId, direction);
     }
     loadAccounts();
+  };
+
+  // ── 拖拽自动滚动辅助 ──────────────────────────────────────────────────────
+  // 启动独立的自动滚动 RAF loop（与位置检测 RAF 完全分离）
+  // 依赖 dragClientYRef 实时获取手指/鼠标当前位置
+  const startAutoScroll = () => {
+    if (autoScrollRafRef.current) return; // 已在运行
+    const loop = () => {
+      // 账户或分组任一拖拽活跃时继续
+      if (!dragRef.current && !groupDragRef.current) { autoScrollRafRef.current = 0; return; }
+      const y = dragClientYRef.current;
+      const vh = window.innerHeight;
+      if (y < AUTO_SCROLL_MARGIN) {
+        // 靠近顶部：向上滚动，越靠近边缘速度越快
+        const intensity = 1 - y / AUTO_SCROLL_MARGIN;
+        window.scrollBy(0, -(AUTO_SCROLL_SPEED + AUTO_SCROLL_SPEED * intensity * 2));
+      } else if (y > vh - AUTO_SCROLL_MARGIN) {
+        const intensity = 1 - (vh - y) / AUTO_SCROLL_MARGIN;
+        window.scrollBy(0, AUTO_SCROLL_SPEED + AUTO_SCROLL_SPEED * intensity * 2);
+      }
+      autoScrollRafRef.current = requestAnimationFrame(loop);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(loop);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollRafRef.current) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = 0;
+    }
+  };
+
+  // 根据手指/鼠标当前Y坐标（相对于视口）计算目标 index
+  // 不依赖 elementFromPoint，完全基于列表容器位置和行高计算
+  const calcDragOverIndex = (clientY: number, groupAccountCount: number): number => {
+    const rows = document.querySelectorAll('[data-account-index]');
+    if (rows.length === 0) return dragOverIndexRef.current ?? 0;
+    // 找到最近的行（按中心点距离）
+    let bestIdx = dragOverIndexRef.current ?? 0;
+    let bestDist = Infinity;
+    rows.forEach((row) => {
+      const rect = row.getBoundingClientRect();
+      const centerY = rect.top + rect.height / 2;
+      const dist = Math.abs(clientY - centerY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        const idx = parseInt(row.getAttribute('data-account-index') || '-1', 10);
+        if (idx >= 0) bestIdx = idx;
+      }
+    });
+    // 即使行在视口外，也用边界推断
+    const firstRow = rows[0].getBoundingClientRect();
+    const lastRow = rows[rows.length - 1].getBoundingClientRect();
+    const rowH = rows.length > 1
+      ? (lastRow.top - firstRow.top) / (rows.length - 1)
+      : firstRow.height || 72;
+    if (clientY < firstRow.top) {
+      bestIdx = 0;
+    } else if (clientY > lastRow.bottom) {
+      bestIdx = groupAccountCount - 1;
+    }
+    return Math.max(0, Math.min(groupAccountCount - 1, bestIdx));
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -713,30 +778,38 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                           onTouchStart={(e) => {
                             e.stopPropagation();
                             groupDragRef.current = { startY: e.touches[0].clientY, groupType: group.type, groupHeight: 60, startIndex: groupIndex };
+                            dragClientYRef.current = e.touches[0].clientY;
                             setDraggingGroupType(group.type);
                             setDragOverGroupIndex(groupIndex);
                             groupDragOverIndexRef.current = groupIndex;
                             if (ghostRef.current) { ghostRef.current.style.top = (e.touches[0].clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = group.label; }
                             if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                            startAutoScroll();
                           }}
                           onTouchMove={(e) => {
                             if (!groupDragRef.current) return;
                             e.preventDefault();
                             const touch = e.touches[0];
                             if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
+                            dragClientYRef.current = touch.clientY;
                             if (rafRef.current) return;
                             rafRef.current = requestAnimationFrame(() => {
                               rafRef.current = 0;
-                              const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                              const groupEl = el?.closest('[data-group-index]');
-                              if (groupEl) {
-                                const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
-                                if (idx >= 0 && idx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = idx; setDragOverGroupIndex(idx); }
-                              }
+                              // 按最近中心点找目标分组
+                              const rows = document.querySelectorAll('[data-group-index]');
+                              let bestIdx = groupDragOverIndexRef.current ?? 0;
+                              let bestDist = Infinity;
+                              rows.forEach((row) => {
+                                const rect = row.getBoundingClientRect();
+                                const dist = Math.abs(touch.clientY - (rect.top + rect.height / 2));
+                                if (dist < bestDist) { bestDist = dist; const i = parseInt(row.getAttribute('data-group-index') || '-1', 10); if (i >= 0) bestIdx = i; }
+                              });
+                              if (bestIdx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = bestIdx; setDragOverGroupIndex(bestIdx); }
                             });
                           }}
                           onTouchEnd={(e) => {
                             e.stopPropagation();
+                            stopAutoScroll();
                             if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                             if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
                               handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
@@ -750,26 +823,33 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             groupDragRef.current = { startY: e.clientY, groupType: group.type, groupHeight: 60, startIndex: groupIndex };
+                            dragClientYRef.current = e.clientY;
                             setDraggingGroupType(group.type);
                             setDragOverGroupIndex(groupIndex);
                             groupDragOverIndexRef.current = groupIndex;
                             if (ghostRef.current) { ghostRef.current.style.top = (e.clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = group.label; }
                             if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                            startAutoScroll();
                             const handleMove = (me: MouseEvent) => {
                               if (!groupDragRef.current) return;
+                              dragClientYRef.current = me.clientY;
                               if (ghostRef.current) ghostRef.current.style.top = (me.clientY - 30) + 'px';
                               if (rafRef.current) return;
                               rafRef.current = requestAnimationFrame(() => {
                                 rafRef.current = 0;
-                                const el = document.elementFromPoint(me.clientX, me.clientY);
-                                const groupEl = el?.closest('[data-group-index]');
-                                if (groupEl) {
-                                  const idx = parseInt(groupEl.getAttribute('data-group-index') || '-1', 10);
-                                  if (idx >= 0 && idx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = idx; setDragOverGroupIndex(idx); }
-                                }
+                                const rows = document.querySelectorAll('[data-group-index]');
+                                let bestIdx = groupDragOverIndexRef.current ?? 0;
+                                let bestDist = Infinity;
+                                rows.forEach((row) => {
+                                  const rect = row.getBoundingClientRect();
+                                  const dist = Math.abs(me.clientY - (rect.top + rect.height / 2));
+                                  if (dist < bestDist) { bestDist = dist; const i = parseInt(row.getAttribute('data-group-index') || '-1', 10); if (i >= 0) bestIdx = i; }
+                                });
+                                if (bestIdx !== groupDragOverIndexRef.current) { groupDragOverIndexRef.current = bestIdx; setDragOverGroupIndex(bestIdx); }
                               });
                             };
                             const handleUp = () => {
+                              stopAutoScroll();
                               if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                               if (groupDragRef.current && groupDragOverIndexRef.current !== null && groupDragOverIndexRef.current !== groupDragRef.current.startIndex) {
                                 handleGroupReorderToIndex(groupDragRef.current.groupType, groupDragOverIndexRef.current);
@@ -944,43 +1024,32 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   e.stopPropagation();
                                   const idx = group.accounts.indexOf(account);
                                   dragRef.current = { startY: e.touches[0].clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
+                                  dragClientYRef.current = e.touches[0].clientY;
                                   setDraggingId(account.id);
                                   setDragOverIndex(idx);
                                   dragOverIndexRef.current = idx;
                                   if (ghostRef.current) { ghostRef.current.style.top = (e.touches[0].clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = account.name; }
                                   if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
                                   longPressTimerRef.current = setTimeout(() => {}, 300);
+                                  startAutoScroll();
                                 }}
                                 onTouchMove={(e) => {
                                   if (!dragRef.current) return;
                                   e.preventDefault();
                                   const touch = e.touches[0];
+                                  dragClientYRef.current = touch.clientY;
                                   if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
-                                  
-                                  // 自动滚动
-                                  if (accountsListRef.current) {
-                                    const rect = accountsListRef.current.getBoundingClientRect();
-                                    const scrollTop = accountsListRef.current.scrollTop;
-                                    if (touch.clientY < rect.top + AUTO_SCROLL_MARGIN) {
-                                      accountsListRef.current.scrollTop = scrollTop - AUTO_SCROLL_SPEED;
-                                    } else if (touch.clientY > rect.bottom - AUTO_SCROLL_MARGIN) {
-                                      accountsListRef.current.scrollTop = scrollTop + AUTO_SCROLL_SPEED;
-                                    }
-                                  }
-                                  
+                                  // 位置检测：坐标计算，不依赖 elementFromPoint
                                   if (rafRef.current) return;
                                   rafRef.current = requestAnimationFrame(() => {
                                     rafRef.current = 0;
-                                    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                                    const row = el?.closest('[data-account-index]');
-                                    if (row) {
-                                      const idx = parseInt(row.getAttribute('data-account-index') || '-1', 10);
-                                      if (idx >= 0 && idx !== dragOverIndexRef.current) { dragOverIndexRef.current = idx; setDragOverIndex(idx); }
-                                    }
+                                    const idx = calcDragOverIndex(touch.clientY, group.accounts.length);
+                                    if (idx !== dragOverIndexRef.current) { dragOverIndexRef.current = idx; setDragOverIndex(idx); }
                                   });
                                 }}
                                 onTouchEnd={(e) => {
                                   e.stopPropagation();
+                                  stopAutoScroll();
                                   if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                                   if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
                                   if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
@@ -997,38 +1066,26 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   e.stopPropagation();
                                   const idx = group.accounts.indexOf(account);
                                   dragRef.current = { startY: e.clientY, accountId: account.id, groupType: group.type, itemHeight: 72, startIndex: idx };
+                                  dragClientYRef.current = e.clientY;
                                   setDraggingId(account.id);
                                   setDragOverIndex(idx);
                                   dragOverIndexRef.current = idx;
                                   if (ghostRef.current) { ghostRef.current.style.top = (e.clientY - 30) + 'px'; ghostRef.current.style.display = 'block'; if (ghostTextRef.current) ghostTextRef.current.textContent = account.name; }
                                   if (navigator.vibrate) navigator.vibrate([10, 20, 30]);
+                                  startAutoScroll();
                                   const handleMove = (me: MouseEvent) => {
                                     if (!dragRef.current) return;
+                                    dragClientYRef.current = me.clientY;
                                     if (ghostRef.current) ghostRef.current.style.top = (me.clientY - 30) + 'px';
-                                    
-                                    // 自动滚动
-                                    if (accountsListRef.current) {
-                                      const rect = accountsListRef.current.getBoundingClientRect();
-                                      const scrollTop = accountsListRef.current.scrollTop;
-                                      if (me.clientY < rect.top + AUTO_SCROLL_MARGIN) {
-                                        accountsListRef.current.scrollTop = scrollTop - AUTO_SCROLL_SPEED;
-                                      } else if (me.clientY > rect.bottom - AUTO_SCROLL_MARGIN) {
-                                        accountsListRef.current.scrollTop = scrollTop + AUTO_SCROLL_SPEED;
-                                      }
-                                    }
-                                    
                                     if (rafRef.current) return;
                                     rafRef.current = requestAnimationFrame(() => {
                                       rafRef.current = 0;
-                                      const el = document.elementFromPoint(me.clientX, me.clientY);
-                                      const row = el?.closest('[data-account-index]');
-                                      if (row) {
-                                        const idx2 = parseInt(row.getAttribute('data-account-index') || '-1', 10);
-                                        if (idx2 >= 0 && idx2 !== dragOverIndexRef.current) { dragOverIndexRef.current = idx2; setDragOverIndex(idx2); }
-                                      }
+                                      const idx2 = calcDragOverIndex(me.clientY, group.accounts.length);
+                                      if (idx2 !== dragOverIndexRef.current) { dragOverIndexRef.current = idx2; setDragOverIndex(idx2); }
                                     });
                                   };
                                   const handleUp = () => {
+                                    stopAutoScroll();
                                     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = 0; }
                                     if (dragRef.current && dragOverIndexRef.current !== null && dragOverIndexRef.current !== dragRef.current.startIndex) {
                                       dragReorderAccountInGroup(dragRef.current.accountId, dragOverIndexRef.current);
