@@ -436,8 +436,8 @@ function YearlyDashboard({
             </span>
           </div>
 
-          {/* 金额字号改大：text-3xl → text-4xl */}
-          <div className="text-4xl font-bold tracking-tight mb-4">
+          {/* 金额字号与首页保持一致：text-3xl */}
+          <div className="text-3xl font-bold tracking-tight mb-4">
             {hideBalance ? `${currencySymbol} ******` : `${currencySymbol}${fmt(netWorth)}`}
           </div>
 
@@ -1500,8 +1500,8 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                   </span>
                 </div>
 
-                {/* 金额字号改大：text-2xl → text-4xl */}
-                <div className="text-4xl font-bold mb-3 tracking-tight">{currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}</div>
+                {/* 金额字号与首页保持一致：text-3xl */}
+                <div className="text-3xl font-bold mb-3 tracking-tight">{currencySymbol}{formatHiddenAmount(netWorth, hideBalance)}</div>
 
                 <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-2 gap-3">
                   <div className="bg-white/10 rounded-lg p-2 backdrop-blur-sm">
