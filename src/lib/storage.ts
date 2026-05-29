@@ -1068,6 +1068,33 @@ export function dragReorderAccountInGroup(
   saveData(data);
 }
 
+/**
+ * 将账户置顶：插入到组内第一位，其余账户顺延
+ * 与 dragReorderAccountInGroup 的区别：dragReorder 是"移动到指定位置"，置顶是"插入到最前"
+ */
+export function moveAccountToTopInGroup(accountId: string): void {
+  const data = loadData();
+  const target = data.accounts.find(a => a.id === accountId);
+  if (!target) return;
+
+  const sameGroup = getSameGroupAccounts(data, target);
+  const fromIndex = sameGroup.findIndex(a => a.id === accountId);
+  if (fromIndex === -1 || fromIndex === 0) return; // 已经在顶部
+
+  // 从原位置移除
+  const [moved] = sameGroup.splice(fromIndex, 1);
+  // 插入到最前面
+  sameGroup.unshift(moved);
+
+  // 重新分配 sortOrder
+  sameGroup.forEach((acc, i) => {
+    const real = data.accounts.find(a => a.id === acc.id);
+    if (real) real.sortOrder = i;
+  });
+
+  saveData(data);
+}
+
 export function setMonthlyRecord(accountId: string, year: number, month: number, balance: number): MonthlyRecord {
   const data = loadData();
   const account = data.accounts.find(a => a.id === accountId);
@@ -3041,6 +3068,29 @@ export function dragReorderAccountForRecord(accountId: string, toIndex: number):
   accounts.splice(toIndex, 0, moved);
 
   // 使用独立的 localStorage 存储记账页面排序，不修改账户数据
+  const sortConfig: Record<string, number> = {};
+  accounts.forEach((acc, i) => {
+    sortConfig[acc.id] = i;
+  });
+  saveRecordSortOrder(sortConfig);
+}
+
+/**
+ * 记账页面置顶：插入到最前面
+ */
+export function moveAccountToTopForRecord(accountId: string): void {
+  const data = loadData();
+  const accounts = data.accounts.filter(a => !a.isHidden);
+  
+  const fromIndex = accounts.findIndex(a => a.id === accountId);
+  if (fromIndex === -1 || fromIndex === 0) return;
+
+  // 从原位置移除
+  const [moved] = accounts.splice(fromIndex, 1);
+  // 插入到最前面
+  accounts.unshift(moved);
+
+  // 更新排序配置
   const sortConfig: Record<string, number> = {};
   accounts.forEach((acc, i) => {
     sortConfig[acc.id] = i;

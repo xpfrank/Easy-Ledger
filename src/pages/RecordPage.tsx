@@ -30,6 +30,7 @@ import {
   getRecordSortOrder,
   saveRecordSortOrder,
   dragReorderAccountForRecord,
+  moveAccountToTopForRecord,
 } from '@/lib/storage';
 import {
   calculateNetWorth,
@@ -928,18 +929,26 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
 
   // 处理记账页面账户排序（完全独立，使用 localStorage）
   const handleRecordReorder = (accountId: string, direction: 'up' | 'down' | 'top') => {
+    if (direction === 'top') {
+      // 使用新的置顶函数，实现"插入到顶部"
+      moveAccountToTopForRecord(accountId);
+      // 重新加载账户列表
+      const sortConfig = getRecordSortOrder();
+      setAccounts(prev => [...prev].sort((a, b) => {
+        const orderA = sortConfig[a.id] ?? 999999;
+        const orderB = sortConfig[b.id] ?? 999999;
+        return orderA - orderB;
+      }));
+      return;
+    }
+    
     const currentIndex = accounts.findIndex(a => a.id === accountId);
     if (currentIndex === -1) return;
     
-    let swapIndex: number;
-    if (direction === 'top') {
-      swapIndex = 0;
-    } else {
-      swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    }
+    const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     if (swapIndex < 0 || swapIndex >= accounts.length || swapIndex === currentIndex) return;
     
-    // 使用 localStorage 存储排序配置，完全独立于账户数据
+    // 使用 localStorage 存储排序配置
     const newOrder = { ...getRecordSortOrder() };
     
     // 初始化所有账户的排序权重（如果还没有）

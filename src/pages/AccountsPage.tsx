@@ -25,6 +25,7 @@ import {
   getAllAccounts,
   reorderAccountInGroup,
   dragReorderAccountInGroup,
+  moveAccountToTopInGroup,
   batchDeleteAccountsFromMonth,
   getGroupOrderConfig,
   saveGroupOrderConfig,
@@ -75,6 +76,10 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
   const dragRef = useRef<{ startY: number; accountId: string; groupType: string; itemHeight: number; startIndex: number } | null>(null);
   const dragOverIndexRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 自动滚动配置
+  const accountsListRef = useRef<HTMLDivElement>(null);
+  const AUTO_SCROLL_MARGIN = 60;
+  const AUTO_SCROLL_SPEED = 8;
   // 分组拖拽状态
   const [draggingGroupType, setDraggingGroupType] = useState<string | null>(null);
   const [dragOverGroupIndex, setDragOverGroupIndex] = useState<number | null>(null);
@@ -209,7 +214,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
 
   const handleReorder = (accountId: string, direction: 'up' | 'down' | 'top') => {
     if (direction === 'top') {
-      dragReorderAccountInGroup(accountId, 0);
+      moveAccountToTopInGroup(accountId);
     } else {
       reorderAccountInGroup(accountId, direction);
     }
@@ -816,7 +821,7 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                 
                 {/* 账户列表 */}
                 {isExpanded && (
-                <div className="divide-y divide-gray-100">
+                <div className="divide-y divide-gray-100" ref={accountsListRef}>
                   {group.accounts.map((account) => {
                     const isDragging = draggingId === account.id;
                     const isDropTarget = isSortMode && dragOverIndex !== null && draggingId &&
@@ -951,6 +956,18 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   e.preventDefault();
                                   const touch = e.touches[0];
                                   if (ghostRef.current) ghostRef.current.style.top = (touch.clientY - 30) + 'px';
+                                  
+                                  // 自动滚动
+                                  if (accountsListRef.current) {
+                                    const rect = accountsListRef.current.getBoundingClientRect();
+                                    const scrollTop = accountsListRef.current.scrollTop;
+                                    if (touch.clientY < rect.top + AUTO_SCROLL_MARGIN) {
+                                      accountsListRef.current.scrollTop = scrollTop - AUTO_SCROLL_SPEED;
+                                    } else if (touch.clientY > rect.bottom - AUTO_SCROLL_MARGIN) {
+                                      accountsListRef.current.scrollTop = scrollTop + AUTO_SCROLL_SPEED;
+                                    }
+                                  }
+                                  
                                   if (rafRef.current) return;
                                   rafRef.current = requestAnimationFrame(() => {
                                     rafRef.current = 0;
@@ -988,6 +1005,18 @@ export function AccountsPage({ onPageChange, onBack }: AccountsPageProps) {
                                   const handleMove = (me: MouseEvent) => {
                                     if (!dragRef.current) return;
                                     if (ghostRef.current) ghostRef.current.style.top = (me.clientY - 30) + 'px';
+                                    
+                                    // 自动滚动
+                                    if (accountsListRef.current) {
+                                      const rect = accountsListRef.current.getBoundingClientRect();
+                                      const scrollTop = accountsListRef.current.scrollTop;
+                                      if (me.clientY < rect.top + AUTO_SCROLL_MARGIN) {
+                                        accountsListRef.current.scrollTop = scrollTop - AUTO_SCROLL_SPEED;
+                                      } else if (me.clientY > rect.bottom - AUTO_SCROLL_MARGIN) {
+                                        accountsListRef.current.scrollTop = scrollTop + AUTO_SCROLL_SPEED;
+                                      }
+                                    }
+                                    
                                     if (rafRef.current) return;
                                     rafRef.current = requestAnimationFrame(() => {
                                       rafRef.current = 0;
