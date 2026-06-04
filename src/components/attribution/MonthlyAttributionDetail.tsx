@@ -4,7 +4,7 @@ import { calculateNetWorth } from '@/lib/calculator';
 import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getSettings, convertToBaseCurrency, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
-import { useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { Check } from 'lucide-react';
 
 interface Props {
@@ -39,9 +39,6 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
 
   // Tab 选中分类，默认选第一个有数据的分类
   const [activeCategory, setActiveCategory] = useState<string>('income');
-  // 备注区 ref，用于键盘弹出后滚动
-  const noteRef = useRef<HTMLTextAreaElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const getTagsByCategory = () => {
     const allTags = getAllAttributionTagOptions();
@@ -58,13 +55,6 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
 
   const groupedTags = getTagsByCategory();
   const selectedTags = new Set<string>(attribution?.tags || []);
-
-  // 键盘弹出时滚动备注框到可视区
-  const handleNoteFocus = useCallback(() => {
-    setTimeout(() => {
-      noteRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 300); // 等待键盘动画完成
-  }, []);
 
   if (!attribution) {
     return null;
