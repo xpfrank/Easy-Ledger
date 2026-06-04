@@ -4,7 +4,7 @@ import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
 import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getSettings, convertToBaseCurrency, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllYearlyTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
-import { useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { Check } from 'lucide-react';
 
 interface Props {
@@ -31,7 +31,6 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
 
   // Tab 选中分类
   const [activeCategory, setActiveCategory] = useState<string>('income');
-  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   // 账户变动TOP3（年末较年初）
   const accounts = getAllAccounts().filter(a => !a.isHidden);
@@ -93,13 +92,6 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
 
   // 当前 Tab 有内容的分类
   const availableCategories = ATTRIBUTION_CATEGORIES.filter(cat => (groupedTags[cat.id] || []).length > 0);
-
-  // 键盘弹出时滚动备注框到可视区
-  const handleNoteFocus = useCallback(() => {
-    setTimeout(() => {
-      noteRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 300);
-  }, []);
 
   if (!attribution) return null;
 
@@ -340,8 +332,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
               {attribution.note && (
                 <div>
                   <span className="text-gray-500">详细备注：</span>
-                  {/* ── 备注 ref + onFocus 滚动 ── */}
-                  <p ref={noteRef} className="mt-1">{attribution.note}</p>
+                  <p className="mt-1">{attribution.note}</p>
                 </div>
               )}
             </div>

@@ -266,7 +266,6 @@ export function calculateGoalProgress(
   const isRealStart = baseMonth > 0 && !hasRecordInMonth(prevOfBaseYear, prevOfBase);
 
   let monthlyGrowthRate = 0;
-  let monthlyGrowthCount = 0;
 
   // 1) 优先使用归因记录
   const attributionsThisYear = getAllAttributions()
@@ -282,7 +281,6 @@ export function calculateGoalProgress(
     if (eligibleAttrs.length > 0) {
       const totalChange = eligibleAttrs.reduce((sum, a) => sum + a.change, 0);
       monthlyGrowthRate = totalChange / eligibleAttrs.length;
-      monthlyGrowthCount = eligibleAttrs.length;
     }
   }
 
@@ -310,7 +308,6 @@ export function calculateGoalProgress(
 
     if (changes.length > 0) {
       monthlyGrowthRate = changes.reduce((s, c) => s + c, 0) / changes.length;
-      monthlyGrowthCount = changes.length;
     }
   }
 
