@@ -802,7 +802,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
 
   return (
     <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('record')}>
             <ArrowLeft size={20} />
@@ -822,7 +822,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
         </button>
       </header>
 
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       <div className="px-4 pt-4 pb-2 space-y-3">
         <div className="bg-white rounded-2xl p-1.5 shadow-sm flex relative overflow-hidden">

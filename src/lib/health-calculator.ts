@@ -7,6 +7,7 @@ import {
   getAllAttributions,
   getCurrentYearMonth,
   getReferenceIntervals,
+  loadData,
 } from './storage';
 import {
   CATEGORY_KEYS,
@@ -212,40 +213,96 @@ export function calculateGoalProgress(
   progress: number;
   estimatedMonthsToGoal: number;
   isOnTrack: boolean;
-  monthlyGrowthRate: number;
+  monthlyGrowthRate: number;  // 本年已记录月份的实际增长均值
+  currentMonthChange: number; // 本月（currentMonth）vs 上月的实际净增
 } {
   const progress = Math.min(100, (currentNetWorth / goal.targetAmount) * 100);
 
-  // 优先使用归因记录计算月均增长
-  const attributions = getAllAttributions()
-    .sort((a, b) => a.year !== b.year ? b.year - a.year : b.month - a.month)
-    .slice(0, 12);
+  const { year: curYear, month: curMonth } = getCurrentYearMonth();
 
-  let monthlyGrowthRate = 0;
-  if (attributions.length > 0) {
-    const totalChange = attributions.reduce((sum, a) => sum + a.change, 0);
-    monthlyGrowthRate = totalChange / attributions.length;
+  // ── 通用工具：指定年-月是否有记账记录 ──
+  // 必须提前到 currentMonthChange 之前定义，否则下面 hasCurrentRecord 会触发 TDZ。
+  const hasRecordInMonth = (year: number, month: number): boolean => {
+    const data = loadData();
+    return data.records.some(r => r.year === year && r.month === month);
+  };
+
+  // ── 本月净增：当前月 vs 上一个月的净资产差值（绝对金额）──
+  // 关键修复：当前月若未记账，必须直接返回 0，不能回退到上月数据，
+  // 否则会把「上月 vs 上上月」的差值误显示为「本月净增」。
+  let currentMonthChange = 0;
+  const hasCurrentRecord = hasRecordInMonth(curYear, curMonth);
+  if (hasCurrentRecord) {
+    const prevMonth = curMonth === 1 ? 12 : curMonth - 1;
+    const prevYearOfCur = curMonth === 1 ? curYear - 1 : curYear;
+    try {
+      const curNW = calculateNetWorthForMonth(curYear, curMonth);
+      const prevNW = calculateNetWorthForMonth(prevYearOfCur, prevMonth);
+      currentMonthChange = curNW - prevNW;
+    } catch {
+      currentMonthChange = 0;
+    }
+  } else {
+    currentMonthChange = 0; // 本月未记账，不回退到上月数据
   }
 
-  // 兜底：无归因记录时，从实际净资产月度变化推算
-  if (monthlyGrowthRate === 0) {
-    const { year: curYear, month: curMonth } = getCurrentYearMonth();
-    const changes: number[] = [];
+  // ── 月均增长：跳过「真·起点月」，只算后续真实月度净增均值 ──
+  // 起点月 = 本年第一个有显式记账记录的月份。
+  //   - 真起点：上一个月（去年 12 月 / 本年上一月）无记录 → 起点月是「从 0 跳到本年起点」的跳变月，
+  //     把它算进去会把基数误识别为增长，拉高均值，必须排除。
+  //   - 假起点：上一个月也有记录 → 起点月是「连续记账中的当月首月」，本身是正常增长月，不能排除。
+  const findBaseMonth = (year: number): number => {
+    for (let m = 1; m <= 12; m++) {
+      if (hasRecordInMonth(year, m)) return m;
+    }
+    return -1; // 本年无任何记录
+  };
 
-    // 取最近 6 个月的净资产变化
-    for (let i = 0; i < 6; i++) {
-      let m = curMonth - i;
-      let y = curYear;
-      if (m <= 0) { m += 12; y--; }
+  const baseMonth = findBaseMonth(goal.year);
+
+  // 判断 baseMonth 是否为「真·起点月」
+  const prevOfBase = baseMonth === 1 ? 12 : baseMonth - 1;
+  const prevOfBaseYear = baseMonth === 1 ? goal.year - 1 : goal.year;
+  const isRealStart = baseMonth > 0 && !hasRecordInMonth(prevOfBaseYear, prevOfBase);
+
+  let monthlyGrowthRate = 0;
+  let monthlyGrowthCount = 0;
+
+  // 1) 优先使用归因记录
+  const attributionsThisYear = getAllAttributions()
+    .filter(a => a.year === goal.year)
+    .sort((a, b) => a.month - b.month);
+
+  if (attributionsThisYear.length > 0 && baseMonth > 0) {
+    // 真起点：排除 baseMonth（跳变月不能算增长）
+    // 假起点：连续记账，baseMonth 本身是有效增长月，全部纳入
+    const eligibleAttrs = isRealStart
+      ? attributionsThisYear.filter(a => a.month > baseMonth)
+      : attributionsThisYear;
+    if (eligibleAttrs.length > 0) {
+      const totalChange = eligibleAttrs.reduce((sum, a) => sum + a.change, 0);
+      monthlyGrowthRate = totalChange / eligibleAttrs.length;
+      monthlyGrowthCount = eligibleAttrs.length;
+    }
+  }
+
+  // 2) 兜底：从净资产月度变化推算
+  if (monthlyGrowthRate === 0 && baseMonth > 0) {
+    const changes: number[] = [];
+    const maxMonth = Math.min(curMonth, 12);
+    // 真起点从 baseMonth+1 起（跳过跳变月）；假起点从 baseMonth 起（首月即有效）
+    const startMonth = isRealStart ? baseMonth + 1 : baseMonth;
+    for (let m = startMonth; m <= maxMonth; m++) {
+      // 要求：当前月和上月都得有真实记录，才视为有效"增长月"
+      if (!hasRecordInMonth(goal.year, m)) continue;
       const prevM = m === 1 ? 12 : m - 1;
-      const prevY = m === 1 ? y - 1 : y;
+      const prevY = m === 1 ? goal.year - 1 : goal.year;
+      if (!hasRecordInMonth(prevY, prevM)) continue;
 
       try {
-        const nw = calculateNetWorthForMonth(y, m);
+        const nw = calculateNetWorthForMonth(goal.year, m);
         const prevNw = calculateNetWorthForMonth(prevY, prevM);
-        if (prevNw !== 0) {
-          changes.push(nw - prevNw);
-        }
+        changes.push(nw - prevNw);
       } catch {
         // 月份无数据，跳过
       }
@@ -253,6 +310,7 @@ export function calculateGoalProgress(
 
     if (changes.length > 0) {
       monthlyGrowthRate = changes.reduce((s, c) => s + c, 0) / changes.length;
+      monthlyGrowthCount = changes.length;
     }
   }
 
@@ -265,7 +323,8 @@ export function calculateGoalProgress(
     isOnTrack = true;
   } else if (monthlyGrowthRate > 0) {
     estimatedMonthsToGoal = Math.ceil(remainingAmount / monthlyGrowthRate);
-    isOnTrack = estimatedMonthsToGoal <= (12 - new Date().getMonth());
+    // 以本年剩余月份为参考判断是否可达成
+    isOnTrack = estimatedMonthsToGoal <= (12 - (curMonth - 1));
   } else if (monthlyGrowthRate < 0) {
     estimatedMonthsToGoal = -1;
     isOnTrack = false;
@@ -276,6 +335,7 @@ export function calculateGoalProgress(
     estimatedMonthsToGoal,
     isOnTrack,
     monthlyGrowthRate: Math.round(monthlyGrowthRate * 100) / 100,
+    currentMonthChange: Math.round(currentMonthChange * 100) / 100,
   };
 }
 

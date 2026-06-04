@@ -233,7 +233,7 @@ function App() {
 
       {/* 双击退出提示 */}
       {showExitHint && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[100]">
+        <div className="fixed top-[calc(4rem+env(safe-area-inset-top,0px))] left-1/2 -translate-x-1/2 z-[100]">
           <div className="bg-gray-800 text-white px-6 py-3 rounded-full shadow-lg animate-pulse">
             <span className="text-sm">再按一次返回键退出应用</span>
           </div>

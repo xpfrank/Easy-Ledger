@@ -1,9 +1,11 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
-import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getSettings, convertToBaseCurrency, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth } from '@/lib/storage';
+import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getSettings, convertToBaseCurrency, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllYearlyTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
-import { type ThemeType, THEMES, getCurrencyConfig } from '@/types';
+import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
+import { useState, useRef, useCallback } from 'react';
+import { Check } from 'lucide-react';
 
 interface Props {
   year: number;
@@ -27,7 +29,11 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
   const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
   const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
 
-  // 账户变动TOP3（年末较年初）- 按累计变动金额排序
+  // Tab 选中分类
+  const [activeCategory, setActiveCategory] = useState<string>('income');
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+
+  // 账户变动TOP3（年末较年初）
   const accounts = getAllAccounts().filter(a => !a.isHidden);
   const accountChanges = accounts.map(account => {
     const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
@@ -44,7 +50,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
     };
   }).filter(a => a.change !== 0).sort((a, b) => b.change - a.change).slice(0, 3);
 
-  // 归因排行TOP3 - 按年度累计影响金额排序，100%同步月度归因的中文名称
+  // 归因排行TOP3
   const monthlyAttributions = getMonthlyAttributionsByYear(year);
   const tagStats: Record<string, { totalChange: number; months: string[]; label: string; emoji: string }> = {};
   monthlyAttributions.forEach(attr => {
@@ -52,7 +58,6 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
       if (!tagStats[tag]) {
         tagStats[tag] = { totalChange: 0, months: [], label: getAttributionTagLabel(tag), emoji: getAttributionTagEmoji(tag) };
       }
-      // 优先使用用户自定义分配金额；无分配时按标签数均分，防止多标签重复累计
       const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
       tagStats[tag].totalChange += convertToBaseCurrency(tagAmount, attr.currency || 'CNY', attr.year, attr.month);
       if (!tagStats[tag].months.includes(`${attr.month}月`)) {
@@ -67,6 +72,35 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
   // 账户余额快照
   const snapshots = getAccountSnapshotsByMonth(year, lastMonth);
 
+  // ── 使用 getAllYearlyTagOptions() 获取完整标签（含自定义），按分类分组 ──
+  const getTagsByCategory = () => {
+    const allTags = getAllYearlyTagOptions();
+    const grouped: Record<string, TagOption[]> = {};
+    ATTRIBUTION_CATEGORIES.forEach(cat => {
+      grouped[cat.id] = allTags.filter(t => t.category === cat.id);
+    });
+    const uncategorized = allTags.filter(t => !t.category);
+    if (uncategorized.length > 0) {
+      grouped['other'] = [...(grouped['other'] || []), ...uncategorized];
+    }
+    return grouped;
+  };
+
+  const groupedTags = getTagsByCategory();
+
+  // 年度归因已选标签集合
+  const selectedTags = new Set<string>(attribution?.tags || []);
+
+  // 当前 Tab 有内容的分类
+  const availableCategories = ATTRIBUTION_CATEGORIES.filter(cat => (groupedTags[cat.id] || []).length > 0);
+
+  // 键盘弹出时滚动备注框到可视区
+  const handleNoteFocus = useCallback(() => {
+    setTimeout(() => {
+      noteRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+  }, []);
+
   if (!attribution) return null;
 
   return (
@@ -76,7 +110,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
           <DialogTitle>{year}年 年度归因</DialogTitle>
         </DialogHeader>
         <div className="py-4 space-y-4">
-          {/* 年末净资产卡片 - 使用主题色 */}
+          {/* 年末净资产卡片 */}
           <div 
             className="rounded-xl p-5 text-white"
             style={{ 
@@ -142,7 +176,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
             </div>
           </div>
 
-          {/* 账户资产变动TOP3 - 添加 hideBalance */}
+          {/* 账户资产变动TOP3 */}
           {accountChanges.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="text-sm font-medium mb-3">账户资产变动TOP3</div>
@@ -163,7 +197,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
             </div>
           )}
 
-          {/* 归因排行TOP3 - 按年度累计金额排序，使用月度归因的中文名称 */}
+          {/* 归因排行TOP3 */}
           {sortedTagStats.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="text-sm font-medium mb-3">归因排行TOP3</div>
@@ -207,6 +241,92 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
             </div>
           )}
 
+          {/* ── 归因标签选择区（与月度保持一致，Tab 分类 + 流式标签） ── */}
+          <div className="bg-gray-50 rounded-xl p-4">
+            <div className="text-sm font-medium mb-3">归因标签</div>
+
+            {/* 已选标签快捷栏 */}
+            {attribution.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {attribution.tags.map(tag => {
+                  const tagOption = findAttributionTagOption(tag);
+                  return (
+                    <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm">
+                      {tagOption?.emoji || getAttributionTagEmoji(tag as any)} {tagOption?.label || getAttributionTagLabel(tag as any)}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 横向 Tab 分类 + 流式标签 */}
+            <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+              {/* Tab 栏 */}
+              <div className="flex border-b border-gray-100 overflow-x-auto scrollbar-none">
+                {availableCategories.map(cat => {
+                  const isActive = activeCategory === cat.id;
+                  const selectedCount = (groupedTags[cat.id] || []).filter(t => selectedTags.has(t.id)).length;
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => setActiveCategory(cat.id)}
+                      className={`flex-shrink-0 flex items-center gap-1 px-3 py-2 text-xs font-medium transition-colors relative whitespace-nowrap ${
+                        isActive
+                          ? 'text-gray-800 bg-gray-50'
+                          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50/50'
+                      }`}
+                    >
+                      <span>{cat.emoji}</span>
+                      <span>{cat.label}</span>
+                      {selectedCount > 0 && (
+                        <span
+                          className="ml-0.5 w-4 h-4 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
+                          style={{ backgroundColor: themeConfig.primary }}
+                        >
+                          {selectedCount}
+                        </span>
+                      )}
+                      {isActive && (
+                        <span
+                          className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t"
+                          style={{ backgroundColor: themeConfig.primary }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 当前 Tab 的标签内容 */}
+              <div className="p-2.5">
+                {(groupedTags[activeCategory] || []).length === 0 ? (
+                  <div className="text-center text-xs text-gray-300 py-3">暂无标签</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(groupedTags[activeCategory] || []).map(tag => {
+                      const isSelected = selectedTags.has(tag.id);
+                      return (
+                        <span
+                          key={tag.id}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs transition-all ${
+                            isSelected
+                              ? 'text-white shadow-sm'
+                              : 'bg-gray-50 text-gray-500 border border-gray-100'
+                          }`}
+                          style={isSelected ? { backgroundColor: themeConfig.primary } : {}}
+                        >
+                          <span>{tag.emoji}</span>
+                          <span>{tag.label}</span>
+                          {isSelected && <Check size={10} className="ml-0.5 opacity-80" />}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* 年度总结 */}
           <div className="bg-gray-50 rounded-xl p-4">
             <div className="text-sm font-medium mb-2">年度总结</div>
@@ -220,7 +340,8 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
               {attribution.note && (
                 <div>
                   <span className="text-gray-500">详细备注：</span>
-                  <p className="mt-1">{attribution.note}</p>
+                  {/* ── 备注 ref + onFocus 滚动 ── */}
+                  <p ref={noteRef} className="mt-1">{attribution.note}</p>
                 </div>
               )}
             </div>
@@ -233,6 +354,9 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
           >
             编辑年度归因
           </Button>
+
+          {/* 键盘弹出时底部 padding */}
+          <div className="h-safe-area-inset-bottom" />
         </div>
       </DialogContent>
     </Dialog>

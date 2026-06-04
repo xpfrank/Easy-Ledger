@@ -697,7 +697,7 @@ export function TrendPage({ onPageChange, onBack }: TrendPageProps) {
   return (
     <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
@@ -707,7 +707,7 @@ export function TrendPage({ onPageChange, onBack }: TrendPageProps) {
       </header>
 
       {/* 占位元素 */}
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       <div className="p-4 space-y-4">
         {/* 趋势类型切换 + 时间范围选择 */}

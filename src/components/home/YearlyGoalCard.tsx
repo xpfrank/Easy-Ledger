@@ -20,6 +20,7 @@ interface YearlyGoalCardProps {
     estimatedMonthsToGoal: number;
     isOnTrack: boolean;
     monthlyGrowthRate: number;
+    currentMonthChange: number;
   } | null;
   currentNetWorth: number;
   primaryColor: string;
@@ -57,7 +58,7 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
     );
   }
 
-  const { progress, estimatedMonthsToGoal, isOnTrack: _isOnTrack, monthlyGrowthRate } = progressData;
+  const { progress, estimatedMonthsToGoal, isOnTrack: _isOnTrack, monthlyGrowthRate, currentMonthChange } = progressData;
 
   const fmtShort = (n: number): string => {
     if (hideBalance) return '****';
@@ -81,7 +82,8 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
 
   const estimateLabel = getEstimateLabel();
   const isNearGoal = progress >= 90;
-  const growthPrefix = monthlyGrowthRate >= 0 ? '+' : '';
+  const monthPrefix = currentMonthChange >= 0 ? '+' : '';
+  const avgPrefix = monthlyGrowthRate >= 0 ? '+' : '';
 
   return (
     <Card 
@@ -162,7 +164,7 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
               本月净增
             </div>
             <div className="text-sm font-bold text-gray-800">
-              {hideBalance ? '****' : `${growthPrefix}${fmtShort(monthlyGrowthRate || 0)}`}
+              {hideBalance ? '****' : `${monthPrefix}${fmtShort(currentMonthChange || 0)}`}
             </div>
           </div>
           <div className="rounded-lg p-2.5 text-center border border-gray-100 bg-gray-50/50">
@@ -171,7 +173,7 @@ export function YearlyGoalCard({ goal, goalProgress, currentNetWorth, primaryCol
               月均增长
             </div>
             <div className="text-sm font-bold text-gray-800">
-              {hideBalance ? '****' : `${growthPrefix}${fmtShort(monthlyGrowthRate || 0)}`}
+              {hideBalance ? '****' : `${avgPrefix}${fmtShort(monthlyGrowthRate || 0)}`}
             </div>
           </div>
         </div>

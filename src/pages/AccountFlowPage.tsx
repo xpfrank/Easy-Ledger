@@ -151,7 +151,7 @@ export function AccountFlowPage({ onPageChange, accountId, onBack }: AccountFlow
     <div className="pb-24 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 顶部栏 */}
       <header
-        className="px-4 py-3 flex items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm"
+        className="px-4 pt-safe pb-3 flex items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm"
         style={{ backgroundColor: themeConfig.primary }}
       >
         <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={() => onBack ? onBack() : onPageChange('account-detail', { accountId })}>
@@ -161,7 +161,7 @@ export function AccountFlowPage({ onPageChange, accountId, onBack }: AccountFlow
       </header>
 
       {/* 占位元素 */}
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       {/* 统计卡片 */}
       <div className="px-4 pt-4">

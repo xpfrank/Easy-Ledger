@@ -4,8 +4,8 @@ import { calculateNetWorth } from '@/lib/calculator';
 import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getSettings, convertToBaseCurrency, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
-import { useState } from 'react';
-import { ChevronRight, Check } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { Check } from 'lucide-react';
 
 interface Props {
   year: number;
@@ -36,42 +36,42 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
   const themeConfig = THEMES[theme];
   const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
   const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
-  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
+
+  // Tab 选中分类，默认选第一个有数据的分类
+  const [activeCategory, setActiveCategory] = useState<string>('income');
+  // 备注区 ref，用于键盘弹出后滚动
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const getTagsByCategory = () => {
     const allTags = getAllAttributionTagOptions();
     const grouped: Record<string, TagOption[]> = {};
-    
     ATTRIBUTION_CATEGORIES.forEach(cat => {
       grouped[cat.id] = allTags.filter(t => t.category === cat.id);
     });
-    
     const uncategorized = allTags.filter(t => !t.category);
     if (uncategorized.length > 0) {
       grouped['other'] = [...(grouped['other'] || []), ...uncategorized];
     }
-    
     return grouped;
-  };
-
-  const toggleCategory = (catId: string) => {
-    setOpenCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(catId)) {
-        next.delete(catId);
-      } else {
-        next.add(catId);
-      }
-      return next;
-    });
   };
 
   const groupedTags = getTagsByCategory();
   const selectedTags = new Set<string>(attribution?.tags || []);
 
+  // 键盘弹出时滚动备注框到可视区
+  const handleNoteFocus = useCallback(() => {
+    setTimeout(() => {
+      noteRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300); // 等待键盘动画完成
+  }, []);
+
   if (!attribution) {
     return null;
   }
+
+  // 当前 Tab 有内容的分类
+  const availableCategories = ATTRIBUTION_CATEGORIES.filter(cat => (groupedTags[cat.id] || []).length > 0);
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
@@ -79,8 +79,8 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
         <DialogHeader>
           <DialogTitle>{year}年{month}月 月度归因</DialogTitle>
         </DialogHeader>
-        <div className="py-4 space-y-4">
-          {/* 净资产变化卡片 - 使用主题色 */}
+        <div ref={scrollContainerRef} className="py-4 space-y-4">
+          {/* 净资产变化卡片 */}
           <div 
             className="rounded-xl p-5 text-white"
             style={{ 
@@ -146,7 +146,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
             </div>
           </div>
 
-          {/* 账户资产变动TOP3 - 添加 hideBalance 判断 */}
+          {/* 账户资产变动TOP3 */}
           {topChanges.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="text-sm font-medium mb-3">账户资产变动TOP3</div>
@@ -177,7 +177,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                 {attribution.tags.map(tag => {
                   const tagOption = findAttributionTagOption(tag);
                   return (
-                    <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200">
+                    <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-white border border-gray-200 shadow-sm">
                       {tagOption?.emoji || getAttributionTagEmoji(tag as any)} {tagOption?.label || getAttributionTagLabel(tag as any)}
                     </span>
                   );
@@ -185,48 +185,75 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
               </div>
             )}
             
-            {/* 分类折叠选择面板 */}
-            <div className="space-y-2">
-              {ATTRIBUTION_CATEGORIES.map(cat => {
-                const catTags = groupedTags[cat.id] || [];
-                if (catTags.length === 0) return null;
-                return (
-                  <div key={cat.id} className="border border-gray-100 rounded-lg overflow-hidden">
-                    <button 
-                      onClick={() => toggleCategory(cat.id)}
-                      className="w-full flex items-center justify-between p-2.5 bg-white hover:bg-gray-50 transition"
+            {/* ── 优化后：横向 Tab 分类 + 流式标签 ── */}
+            <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
+              {/* Tab 栏 */}
+              <div className="flex border-b border-gray-100 overflow-x-auto scrollbar-none">
+                {availableCategories.map(cat => {
+                  const isActive = activeCategory === cat.id;
+                  const selectedCount = (groupedTags[cat.id] || []).filter(t => selectedTags.has(t.id)).length;
+                  return (
+                    <button
+                      key={cat.id}
+                      onClick={() => setActiveCategory(cat.id)}
+                      className={`flex-shrink-0 flex items-center gap-1 px-3 py-2 text-xs font-medium transition-colors relative whitespace-nowrap ${
+                        isActive
+                          ? 'text-gray-800 bg-gray-50'
+                          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50/50'
+                      }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{cat.emoji}</span>
-                        <span className="text-xs font-medium text-gray-700">{cat.label}</span>
-                        <span className="text-xs text-gray-400">({catTags.length})</span>
-                      </div>
-                      <ChevronRight size={14} className={`text-gray-300 transition-transform ${openCategories.has(cat.id) ? 'rotate-90' : ''}`} />
+                      <span>{cat.emoji}</span>
+                      <span>{cat.label}</span>
+                      {selectedCount > 0 && (
+                        <span
+                          className="ml-0.5 w-4 h-4 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
+                          style={{ backgroundColor: themeConfig.primary }}
+                        >
+                          {selectedCount}
+                        </span>
+                      )}
+                      {/* 激活下划线 */}
+                      {isActive && (
+                        <span
+                          className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t"
+                          style={{ backgroundColor: themeConfig.primary }}
+                        />
+                      )}
                     </button>
-                    {openCategories.has(cat.id) && (
-                      <div className="p-2 grid grid-cols-2 gap-1.5 bg-gray-50/50">
-                        {catTags.map(tag => (
-                          <button
-                            key={tag.id}
-                            className={`flex items-center gap-1.5 p-2 rounded-lg text-xs transition-all ${
-                              selectedTags.has(tag.id)
-                                ? 'bg-sky-50 border-2 border-sky-400 text-sky-700'
-                                : 'bg-white border-2 border-transparent hover:border-gray-200 text-gray-600'
-                            }`}
-                          >
-                            <span>{tag.emoji}</span>
-                            <span>{tag.label}</span>
-                            {selectedTags.has(tag.id) && <Check size={12} className="ml-auto text-sky-500" />}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  );
+                })}
+              </div>
+
+              {/* 当前 Tab 的标签内容 */}
+              <div className="p-2.5">
+                {(groupedTags[activeCategory] || []).length === 0 ? (
+                  <div className="text-center text-xs text-gray-300 py-3">暂无标签</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(groupedTags[activeCategory] || []).map(tag => {
+                      const isSelected = selectedTags.has(tag.id);
+                      return (
+                        <span
+                          key={tag.id}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs transition-all ${
+                            isSelected
+                              ? 'text-white shadow-sm'
+                              : 'bg-gray-50 text-gray-500 border border-gray-100'
+                          }`}
+                          style={isSelected ? { backgroundColor: themeConfig.primary } : {}}
+                        >
+                          <span>{tag.emoji}</span>
+                          <span>{tag.label}</span>
+                          {isSelected && <Check size={10} className="ml-0.5 opacity-80" />}
+                        </span>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                )}
+              </div>
             </div>
             
-            {/* 影响金额：有自定义分配时展示明细，否则显示总额 */}
+            {/* 影响金额 */}
             <div className="mt-3 pt-3 border-t border-gray-100">
               {attribution.tagAmounts && Object.keys(attribution.tagAmounts).length > 0 ? (
                 <div>
@@ -269,9 +296,11 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
                   </span>
                 </div>
               )}
+
+              {/* ── 备注框：onFocus 时自动滚到可视区 ── */}
               {attribution.note && (
                 <div className="mt-2">
-                  <span className="text-gray-500">详细备注：</span>
+                  <span className="text-gray-500 text-sm">详细备注：</span>
                   <p className="text-sm mt-1">{attribution.note}</p>
                 </div>
               )}
@@ -305,6 +334,9 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
           >
             编辑此月归因
           </Button>
+
+          {/* 键盘弹出时的底部 padding，防止按钮被遮挡 */}
+          <div className="h-safe-area-inset-bottom" />
         </div>
       </DialogContent>
     </Dialog>

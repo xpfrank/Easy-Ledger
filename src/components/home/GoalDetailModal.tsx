@@ -19,6 +19,7 @@ interface GoalDetailModalProps {
     estimatedMonthsToGoal: number;
     isOnTrack: boolean;
     monthlyGrowthRate: number;
+    currentMonthChange: number;
   };
   currentNetWorth: number;
   hideBalance: boolean;
@@ -39,7 +40,7 @@ export function GoalDetailModal({
   onEdit,
 }: GoalDetailModalProps) {
   const remaining = goal.targetAmount - currentNetWorth;
-  const { progress, estimatedMonthsToGoal, isOnTrack, monthlyGrowthRate } = goalProgress;
+  const { progress, estimatedMonthsToGoal, isOnTrack, monthlyGrowthRate, currentMonthChange } = goalProgress;
   const sym = baseCurrencySymbol;
 
   const displayProgress = progress.toFixed(1);
@@ -118,7 +119,7 @@ export function GoalDetailModal({
   })();
 
   const isNearGoal = progress >= 80;
-  const isFastGrowth = monthlyGrowthRate > 0 && avgGrowth > 0 && monthlyGrowthRate > avgGrowth * 0.8;
+  const isFastGrowth = currentMonthChange > 0 && avgGrowth > 0 && currentMonthChange > avgGrowth * 0.8;
   const isOverdue = estimatedMonthsToGoal > 6 && !isOnTrack;
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -265,7 +266,7 @@ export function GoalDetailModal({
       return `当前已达 ${displayProgress}%，即将达成目标！`;
     }
     if (isFastGrowth) {
-      return `本月净增 ${sym}${hideBalance ? '***' : fmtShort(monthlyGrowthRate)}，高于月均 ${sym}${hideBalance ? '***' : fmtShort(avgGrowth)}，继续保持！`;
+      return `本月净增 ${sym}${hideBalance ? '***' : fmtShort(currentMonthChange)}，高于月均 ${sym}${hideBalance ? '***' : fmtShort(avgGrowth)}，继续保持！`;
     }
     if (isOverdue) {
       return `距离目标还差 ${sym}${hideBalance ? '***' : fmtWan(remaining)}，建议审视支出结构，适当加速储蓄。`;
@@ -347,7 +348,7 @@ export function GoalDetailModal({
                 本月净增
               </div>
               <div className="text-sm font-bold text-gray-800">
-                {hideBalance ? '****' : `${monthlyGrowthRate >= 0 ? '+' : ''}${fmtShort(monthlyGrowthRate || 0)}`}
+                {hideBalance ? '****' : `${currentMonthChange >= 0 ? '+' : ''}${fmtShort(currentMonthChange || 0)}`}
               </div>
             </div>
             <div className="rounded-lg p-2.5 text-center border border-gray-100 bg-gray-50/50">

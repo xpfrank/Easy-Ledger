@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3, ArrowUp, ArrowDown, GripVertical, ListOrdered, ArrowUpToLine } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3, ArrowUp, ArrowDown, GripVertical, ListOrdered, ArrowUpToLine, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +42,38 @@ import {
 } from '@/lib/calculator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import MonthlyAttributionDetail from '@/components/attribution/MonthlyAttributionDetail';
+
+/**
+ * 监听虚拟键盘高度（移动端）。
+ * 返回值 keyboardHeight = window.innerHeight - visualViewport.height。
+ * 适用于 iOS Safari / Android Chrome / 微信内置浏览器。
+ * 桌面端（无 visualViewport）下恒为 0。
+ */
+function useKeyboardHeight(): number {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const handleResize = () => {
+      // 高度变化量即为键盘高度。Android 上 visualViewport.height 会
+      // 减去键盘高度；iOS 上则保持原 viewport 不变（只缩放页面），
+      // 所以为了兼肤两者，用 window.innerHeight - vv.height 作估计值。
+      const estimated = window.innerHeight - vv.height;
+      // 阈值 60px 以避免 URL 栏隐藏/显示造成误判
+      setKeyboardHeight(estimated > 60 ? estimated : 0);
+    };
+
+    vv.addEventListener('resize', handleResize);
+    // 初始测一次（避免首次打开时获取了错误的初始值）
+    handleResize();
+    return () => vv.removeEventListener('resize', handleResize);
+  }, []);
+
+  return keyboardHeight;
+}
 
 interface RecordPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -675,6 +707,9 @@ function YearlyDashboard({
 }
 
 export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalance, params }: RecordPageProps) {
+  // 全局键盘高度感知：所有 Dialog 都拿这个值
+  const keyboardHeight = useKeyboardHeight();
+
   const now = new Date();
   const [recordMode, setRecordMode] = useState<RecordMode>(params?.mode || 'monthly');
   const [year, setYear] = useState(params?.year || now.getFullYear());
@@ -739,12 +774,16 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
   const [tagAmounts, setTagAmounts] = useState<Record<string, string>>({});
   // 记录用户已手动确认（失焦）的标签，锁定后不参与自动均分
   const [lockedTags, setLockedTags] = useState<Set<string>>(new Set());
+  // 月度归因弹窗：当前激活的分类 Tab
+  const [monthlyActiveCategory, setMonthlyActiveCategory] = useState<string>('income');
 
   // 年度归因弹窗状态
   const [showYearlyAttributionDialog, setShowYearlyAttributionDialog] = useState(false);
   const [yearlySelectedTags, setYearlySelectedTags] = useState<YearlyAttributionTag[]>([]);
   const [yearlyAttributionNote, setYearlyAttributionNote] = useState('');
   const [yearlyKeyMonths, setYearlyKeyMonths] = useState<string[]>([]);
+  // 年度归因弹窗：当前激活的分类 Tab
+  const [yearlyActiveCategory, setYearlyActiveCategory] = useState<string>('income');
 
   // 月度归因弹窗
   const [monthAttrDialog, setMonthAttrDialog] = useState<{
@@ -1373,7 +1412,7 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
   return (
     <div className="pb-24 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 - fixed 定位，与其他页面保持一致，不受父级 overflow 影响 */}
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
@@ -1450,7 +1489,7 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
       </header>
 
       {/* 占位元素，防止内容被固定标题栏遮挡 */}
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       <div className="p-3 space-y-3">
 {/* 净资产汇总 - 月度模式：月份选择器融入顶部 */}
@@ -1973,15 +2012,28 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
           setAttributionNote('');
           setTagAmounts({});
           setLockedTags(new Set());
+          setMonthlyActiveCategory('income');
         }
       }}>
-        <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
-          <DialogHeader>
-            <DialogTitle className="text-xl">{formatMonth(year, month)} 记账预览</DialogTitle>
+        <DialogContent
+          className="max-w-md overflow-y-auto p-0 [&>button]:hidden"
+          style={{ maxHeight: `calc(min(90dvh, 90vh) - ${keyboardHeight}px)` }}
+        >
+          <DialogHeader className="sticky top-0 z-20 bg-white px-5 pt-4 pb-3 border-b border-gray-100">
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle className="text-xl flex-1 pt-0.5">{formatMonth(year, month)} 记账预览</DialogTitle>
+              <button
+                onClick={() => setShowPreviewDialog(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 -mr-1 -mt-1 rounded-full hover:bg-gray-100 flex-shrink-0 transition-colors"
+                aria-label="关闭"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </DialogHeader>
 
           {previewData && (
-            <div className="py-4 space-y-5">
+            <div className="px-5 pt-4 pb-4 space-y-5">
               {/* 变化摘要卡片 - 使用主题色 */}
               <div
                 className="rounded-xl p-5 text-white"
@@ -2267,67 +2319,69 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                     </div>
                   )}
 
-                {/* 分类折叠面板 */}
-                <div className="space-y-2">
-                  {(() => {
-                    const allTags = getAllAttributionTagOptions();
-                    const categories = [
-                      { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
-                      { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
-                      { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
-                      { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
-                    ] as const;
+                {/* 分类 Tab + 流式标签选择区 */}
+                {(() => {
+                  const allTags = getAllAttributionTagOptions();
+                  const categories = [
+                    { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
+                    { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
+                    { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
+                    { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
+                  ] as const;
 
-                    return categories.map(cat => {
-                      const catTags = allTags.filter(t => t.category === cat.id);
-                      if (catTags.length === 0) return null;
+                  // 只保留有标签的分类，并确保 active 分类在可见列表里
+                  const availableCategories = categories.filter(cat =>
+                    allTags.some(t => t.category === cat.id)
+                  );
+                  const activeCat = availableCategories.find(c => c.id === monthlyActiveCategory)
+                    || availableCategories[0];
+                  const activeCatTags = activeCat ? allTags.filter(t => t.category === activeCat.id) : [];
 
-                      const selectedCount = catTags.filter(t => selectedTags.includes(t.id as AttributionTag)).length;
-
-                      return (
-                        <div key={cat.id} className="border border-gray-100 rounded-xl overflow-hidden">
-                          <button
-                            onClick={() => {
-                              const key = `monthly-cat-${cat.id}`;
-                              const el = document.getElementById(key);
-                              const icon = document.getElementById(`monthly-icon-${cat.id}`);
-                              if (el) {
-                                const isOpen = el.style.maxHeight !== '0px' && el.style.maxHeight !== '';
-                                el.style.maxHeight = isOpen ? '0px' : `${el.scrollHeight}px`;
-                                el.style.opacity = isOpen ? '0' : '1';
-                                if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
-                              }
-                            }}
-                            className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{ backgroundColor: cat.bgColor }}>
-                                {cat.emoji}
-                              </span>
-                              <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                  return (
+                    <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+                      {/* 横向 Tab 栏 — 主导航样式：加粗下划线 + 浅灰底 */}
+                      <div className="flex border-b border-gray-100 overflow-x-auto scrollbar-none bg-gray-50/40">
+                        {availableCategories.map(cat => {
+                          const isActive = cat.id === activeCat?.id;
+                          const selectedCount = allTags.filter(t =>
+                            t.category === cat.id && selectedTags.includes(t.id as AttributionTag)
+                          ).length;
+                          return (
+                            <button
+                              key={cat.id}
+                              onClick={() => setMonthlyActiveCategory(cat.id)}
+                              className={`flex-1 min-w-fit flex items-center justify-center gap-1.5 px-3 py-3 text-sm font-semibold whitespace-nowrap transition-all relative ${
+                                isActive ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'
+                              }`}
+                            >
+                              <span className="text-base">{cat.emoji}</span>
+                              <span>{cat.label}</span>
                               {selectedCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium" style={{ backgroundColor: cat.color }}>
+                                <span
+                                  className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium"
+                                  style={{ backgroundColor: cat.color }}
+                                >
                                   {selectedCount}
                                 </span>
                               )}
-                            </div>
-                            <svg
-                              id={`monthly-icon-${cat.id}`}
-                              className="w-4 h-4 text-gray-400 transition-transform duration-300"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                          <div
-                            id={`monthly-cat-${cat.id}`}
-                            className="overflow-hidden transition-all duration-300"
-                            style={{ maxHeight: cat.id === 'income' ? `${catTags.length * 48 + 16}px` : '0px', opacity: cat.id === 'income' ? 1 : 0 }}
-                          >
-                            <div className="p-2 grid grid-cols-2 gap-1.5">
-                              {catTags.map(tag => {
+                              {isActive && (
+                                <span
+                                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-1 rounded-full"
+                                  style={{ backgroundColor: cat.color }}
+                                />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* 流式标签区 — 次级选择样式：描边 ghost */}
+                      {activeCat && (
+                        <div className="p-3">
+                          {activeCatTags.length === 0 ? (
+                            <div className="text-xs text-gray-400 text-center py-4">该分类暂无标签</div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {activeCatTags.map(tag => {
                                 const isSelected = selectedTags.includes(tag.id as AttributionTag);
                                 return (
                                   <button
@@ -2338,7 +2392,6 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                                           ? prev.filter(t => t !== tag.id)
                                           : [...prev, tag.id as AttributionTag]
                                       );
-                                      // 取消选中时同步解锁，下次重新选中该标签应从空白开始
                                       if (isSelected) {
                                         setLockedTags(prev => {
                                           const next = new Set(prev);
@@ -2347,30 +2400,34 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                                         });
                                       }
                                     }}
-                                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
+                                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all duration-200 ${
                                       isSelected
-                                        ? 'shadow-sm'
-                                        : 'bg-white border-gray-100 hover:border-gray-200'
+                                        ? 'border-2 -m-px shadow-sm'
+                                        : 'bg-white border border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
                                     }`}
-                                    style={{
-                                      backgroundColor: isSelected ? cat.bgColor : undefined,
-                                      borderColor: isSelected ? cat.borderColor : undefined,
-                                      color: isSelected ? cat.color : '#4b5563',
-                                    }}
+                                    style={
+                                      isSelected
+                                        ? {
+                                            borderColor: activeCat.color,
+                                            color: activeCat.color,
+                                            backgroundColor: 'white',
+                                          }
+                                        : undefined
+                                    }
                                   >
-                                    <span className="text-sm flex-shrink-0">{tag.emoji}</span>
-                                    <span className="truncate flex-1">{tag.label}</span>
-                                    {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: cat.color }} />}
+                                    <span className="flex-shrink-0">{tag.emoji}</span>
+                                    <span>{tag.label}</span>
+                                    {isSelected && <Check size={11} className="flex-shrink-0" style={{ color: activeCat.color }} />}
                                   </button>
                                 );
                               })}
                             </div>
-                          </div>
+                          )}
                         </div>
-                      );
-                    });
-                  })()}
-                </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* 备注输入 */}
@@ -2380,24 +2437,13 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                   value={attributionNote}
                   onChange={(e) => setAttributionNote(e.target.value)}
                   onFocus={(e) => {
-                    // 使用 visualViewport 感知键盘弹出，滚动弹窗至备注区域可见
+                    // 键盘弹出后将 textarea 滚动到可视区中心，避免被键盘遮挡。
+                    // 依赖父级 DialogContent 根据 keyboardHeight 动态收缩 maxHeight。
                     const el = e.currentTarget;
-                    const scroll = () => {
-                      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    };
-                    if (window.visualViewport) {
-                      // 等待键盘动画完成后再滚动（iOS ≈ 300ms，Android ≈ 200ms）
-                      const vv = window.visualViewport;
-                      const onResize = () => {
-                        scroll();
-                        vv.removeEventListener('resize', onResize);
-                      };
-                      vv.addEventListener('resize', onResize);
-                      // 兜底：若 visualViewport 不触发 resize，300ms 后直接滚动
-                      setTimeout(scroll, 350);
-                    } else {
-                      setTimeout(scroll, 350);
-                    }
+                    // iOS/Android 键盘动画时长 200-350ms，延迟 400ms 较保险
+                    setTimeout(() => {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 400);
                   }}
                   placeholder="添加备注说明，如工资到账、投资收益等..."
                   className="w-full p-4 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-opacity-50 focus:border-transparent transition-all"
@@ -2407,7 +2453,7 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
             </div>
           )}
 
-          <DialogFooter className="flex-row gap-3 pt-4 border-t">
+          <DialogFooter className="flex-row gap-3 px-5 pt-4 pb-5 border-t border-gray-100">
             {previewData?.fluctuationLevel !== 'abnormal' && (
               <Button
                 variant="outline"
@@ -2474,13 +2520,30 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
       </Dialog>
 
       {/* 年度归因对话框 */}
-      <Dialog open={showYearlyAttributionDialog} onOpenChange={setShowYearlyAttributionDialog}>
-        <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
-          <DialogHeader>
-            <DialogTitle className="text-xl">{year}年年度归因</DialogTitle>
+      <Dialog open={showYearlyAttributionDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowYearlyAttributionDialog(false);
+          setYearlyActiveCategory('income');
+        }
+      }}>
+        <DialogContent
+          className="max-w-md overflow-y-auto p-0 [&>button]:hidden"
+          style={{ maxHeight: `calc(min(90dvh, 90vh) - ${keyboardHeight}px)` }}
+        >
+          <DialogHeader className="sticky top-0 z-20 bg-white px-5 pt-4 pb-3 border-b border-gray-100">
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle className="text-xl flex-1 pt-0.5">{year}年年度归因</DialogTitle>
+              <button
+                onClick={() => setShowYearlyAttributionDialog(false)}
+                className="text-gray-400 hover:text-gray-600 p-1.5 -mr-1 -mt-1 rounded-full hover:bg-gray-100 flex-shrink-0 transition-colors"
+                aria-label="关闭"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </DialogHeader>
 
-          <div className="py-4 space-y-5">
+          <div className="px-5 pt-4 pb-4 space-y-5">
             {/* 年度变化摘要 */}
             <div
               className="rounded-xl p-5 text-white"
@@ -2680,96 +2743,102 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                 </div>
               )}
 
-              {/* 分类折叠面板 */}
-              <div className="space-y-2">
-                {(() => {
-                  const allTags = getAllYearlyTagOptions();
-                  const categories = [
-                    { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
-                    { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
-                    { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
-                    { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
-                  ] as const;
+              {/* 分类 Tab + 流式标签选择区 */}
+              {(() => {
+                const allTags = getAllYearlyTagOptions();
+                const categories = [
+                  { id: 'income', label: '收入类', emoji: '📥', color: '#22c55e', bgColor: '#f0fdf4', borderColor: '#bbf7d0' },
+                  { id: 'expense', label: '支出/流出类', emoji: '📤', color: '#ef4444', bgColor: '#fef2f2', borderColor: '#fecaca' },
+                  { id: 'adjust', label: '调整类', emoji: '🔄', color: '#3b82f6', bgColor: '#eff6ff', borderColor: '#bfdbfe' },
+                  { id: 'other', label: '其他', emoji: '📋', color: '#6b7280', bgColor: '#f9fafb', borderColor: '#e5e7eb' },
+                ] as const;
 
-                  return categories.map(cat => {
-                    const catTags = allTags.filter(t => t.category === cat.id);
-                    if (catTags.length === 0) return null;
+                // 只保留有标签的分类，并确保 active 分类在可见列表里
+                const availableCategories = categories.filter(cat =>
+                  allTags.some(t => t.category === cat.id)
+                );
+                const activeCat = availableCategories.find(c => c.id === yearlyActiveCategory)
+                  || availableCategories[0];
+                const activeCatTags = activeCat ? allTags.filter(t => t.category === activeCat.id) : [];
 
-                    const selectedCount = catTags.filter(t => yearlySelectedTags.includes(t.id as YearlyAttributionTag)).length;
-
-                    return (
-                      <div key={cat.id} className="border border-gray-100 rounded-xl overflow-hidden">
-                        <button
-                          onClick={() => {
-                            const key = `yearly-cat-${cat.id}`;
-                            const el = document.getElementById(key);
-                            const icon = document.getElementById(`yearly-icon-${cat.id}`);
-                            if (el) {
-                              const isOpen = el.style.maxHeight !== '0px' && el.style.maxHeight !== '';
-                              el.style.maxHeight = isOpen ? '0px' : `${el.scrollHeight}px`;
-                              el.style.opacity = isOpen ? '0' : '1';
-                              if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
-                            }
-                          }}
-                          className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{ backgroundColor: cat.bgColor }}>
-                              {cat.emoji}
-                            </span>
-                            <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                return (
+                  <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+                    {/* 横向 Tab 栏 — 主导航样式：加粗下划线 + 浅灰底 */}
+                    <div className="flex border-b border-gray-100 overflow-x-auto scrollbar-none bg-gray-50/40">
+                      {availableCategories.map(cat => {
+                        const isActive = cat.id === activeCat?.id;
+                        const selectedCount = allTags.filter(t =>
+                          t.category === cat.id && yearlySelectedTags.includes(t.id as YearlyAttributionTag)
+                        ).length;
+                        return (
+                          <button
+                            key={cat.id}
+                            onClick={() => setYearlyActiveCategory(cat.id)}
+                            className={`flex-1 min-w-fit flex items-center justify-center gap-1.5 px-3 py-3 text-sm font-semibold whitespace-nowrap transition-all relative ${
+                              isActive ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'
+                            }`}
+                          >
+                            <span className="text-base">{cat.emoji}</span>
+                            <span>{cat.label}</span>
                             {selectedCount > 0 && (
-                              <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium" style={{ backgroundColor: cat.color }}>
+                              <span
+                                className="px-1.5 py-0.5 rounded-full text-[10px] text-white font-medium"
+                                style={{ backgroundColor: cat.color }}
+                              >
                                 {selectedCount}
                               </span>
                             )}
-                          </div>
-                          <svg
-                            id={`yearly-icon-${cat.id}`}
-                            className="w-4 h-4 text-gray-400 transition-transform duration-300"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-                        <div
-                          id={`yearly-cat-${cat.id}`}
-                          className="overflow-hidden transition-all duration-300"
-                          style={{ maxHeight: cat.id === 'income' ? `${catTags.length * 48 + 16}px` : '0px', opacity: cat.id === 'income' ? 1 : 0 }}
-                        >
-                          <div className="p-2 grid grid-cols-2 gap-1.5">
-                            {catTags.map(tag => {
+                            {isActive && (
+                              <span
+                                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-1 rounded-full"
+                                style={{ backgroundColor: cat.color }}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* 流式标签区 — 次级选择样式：描边 ghost */}
+                    {activeCat && (
+                      <div className="p-3">
+                        {activeCatTags.length === 0 ? (
+                          <div className="text-xs text-gray-400 text-center py-4">该分类暂无标签</div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {activeCatTags.map(tag => {
                               const isSelected = yearlySelectedTags.includes(tag.id as YearlyAttributionTag);
                               return (
                                 <button
                                   key={tag.id}
                                   onClick={() => handleYearlyTagToggle(tag.id as YearlyAttributionTag)}
-                                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-200 border-2 text-left ${
+                                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all duration-200 ${
                                     isSelected
-                                      ? 'shadow-sm'
-                                      : 'bg-white border-gray-100 hover:border-gray-200'
+                                      ? 'border-2 -m-px shadow-sm'
+                                      : 'bg-white border border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'
                                   }`}
-                                  style={{
-                                    backgroundColor: isSelected ? cat.bgColor : undefined,
-                                    borderColor: isSelected ? cat.borderColor : undefined,
-                                    color: isSelected ? cat.color : '#4b5563',
-                                  }}
+                                  style={
+                                    isSelected
+                                      ? {
+                                          borderColor: activeCat.color,
+                                          color: activeCat.color,
+                                          backgroundColor: 'white',
+                                        }
+                                      : undefined
+                                  }
                                 >
-                                  <span className="text-sm flex-shrink-0">{tag.emoji}</span>
-                                  <span className="truncate flex-1">{tag.label}</span>
-                                  {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: cat.color }} />}
+                                  <span className="flex-shrink-0">{tag.emoji}</span>
+                                  <span>{tag.label}</span>
+                                  {isSelected && <Check size={11} className="flex-shrink-0" style={{ color: activeCat.color }} />}
                                 </button>
                               );
                             })}
                           </div>
-                        </div>
+                        )}
                       </div>
-                    );
-                  });
-                })()}
-              </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* 备注输入 */}
@@ -2778,6 +2847,13 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
               <textarea
                 value={yearlyAttributionNote}
                 onChange={(e) => setYearlyAttributionNote(e.target.value)}
+                onFocus={(e) => {
+                  // 键盘弹出后滚动 textarea 到可视区中心
+                  const el = e.currentTarget;
+                  setTimeout(() => {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }, 400);
+                }}
                 placeholder="添加年度总结说明..."
                 className="w-full p-4 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-opacity-50 focus:border-transparent transition-all"
                 rows={3}
@@ -2794,7 +2870,7 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
             </Button>
           </div>
 
-          <DialogFooter className="flex-row gap-3 pt-4 border-t">
+          <DialogFooter className="flex-row gap-3 px-5 pt-4 pb-5 border-t border-gray-100">
             <Button
               variant="outline"
               onClick={() => setShowYearlyAttributionDialog(false)}

@@ -491,7 +491,7 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
   return (
     <div className="min-h-screen flex flex-col overflow-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* Header - 与 RecordPage/TrendPage 风格一致 */}
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
@@ -509,7 +509,7 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
       </header>
 
       {/* 占位元素，避免内容被 fixed header 遮挡 */}
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       {/* Stats bar — one line */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 text-xs" style={{
