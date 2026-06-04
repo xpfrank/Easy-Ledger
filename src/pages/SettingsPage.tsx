@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Download, Upload, Trash2, Info, FileText, Palette, Check, Copy, FileSpreadsheet, FileJson, ChevronRight, Tag, Wrench, RefreshCw, X, BarChart3 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { PageRoute, ThemeType, CustomAttributionTag } from '@/types';
+import type { ReportDimension } from '@/components/home/AssetHealthReport';
 import type { ExcelImportRow } from '@/lib/storage';
 import { ATTRIBUTION_CATEGORIES } from '@/types';
 import { exportDataByRange, fullExport, importData, clearAllData, getSettings, updateSettings, parseExcelCSV, batchImportFromExcel, exportExcelTemplate, hasGarbledText, exportToCSV, exportMonthlyAttributionCSV, exportYearlyAttributionCSV, importMonthlyAttributionCSV, importYearlyAttributionCSV, validateData, dedupeRecords, getCustomAttributionTags, saveCustomAttributionTag, deleteCustomAttributionTag, getAllAttributionTagOptions,
@@ -10,6 +11,7 @@ import { exportDataByRange, fullExport, importData, clearAllData, getSettings, u
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { THEMES, CURRENCIES, getCurrencyConfig, DEFAULT_EXCHANGE_RATES } from '@/types';
 import { saveFileToDevice } from '@/lib/platform';
+import { AssetHealthReport } from '@/components/home/AssetHealthReport';
 
 interface SettingsPageProps {
   onPageChange: (page: PageRoute, params?: any) => void;
@@ -125,6 +127,15 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
   const [importError, setImportError] = useState('');
   const [theme, setTheme] = useState<ThemeType>('blue');
   const [baseCurrency, setBaseCurrency] = useState<string>('CNY');
+
+  // 资产健康报告
+  const [showReportDimensionSheet, setShowReportDimensionSheet] = useState(false);
+  const [showReportPeriodSheet, setShowReportPeriodSheet] = useState(false);
+  const [reportDimension, setReportDimension] = useState<ReportDimension | null>(null);
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [reportMonth, setReportMonth] = useState(new Date().getMonth() + 1);
+  const [reportQuarter, setReportQuarter] = useState(Math.ceil((new Date().getMonth() + 1) / 3));
+  const [showReportPreview, setShowReportPreview] = useState(false);
 
   // Excel 导入相关状态
   const [importMode, setImportMode] = useState<'json' | 'excel'>('json');
@@ -438,7 +449,7 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
   return (
     <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('home')}>
             <ArrowLeft size={20} />
@@ -448,7 +459,7 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
       </header>
 
       {/* 占位元素，防止内容被固定标题栏遮挡 */}
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       <div className="p-4 space-y-5">
         {/* ── 个性化 ──────────────────────────────────────────── */}
@@ -613,6 +624,13 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
                   alert(`去重完成，删除了 ${removed} 条重复记录`);
                 }
               }}
+            />
+            <SettingRow
+              icon={<BarChart3 size={18} />}
+              iconBg="bg-blue-50" iconColor="text-blue-500"
+              title="资产健康报告"
+              subtitle="按月/季/年生成健康状态报告"
+              onClick={() => setShowReportDimensionSheet(true)}
             />
           </Card>
         </section>
@@ -818,6 +836,144 @@ export function SettingsPage({ onPageChange, onBack }: SettingsPageProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── 资产健康报告：维度选择 ── */}
+      {showReportDimensionSheet && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center" onClick={() => setShowReportDimensionSheet(false)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative bg-white rounded-t-2xl shadow-2xl w-full max-w-md p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+            <h3 className="text-[15px] font-bold text-gray-800 mb-4 text-center">选择报告维度</h3>
+            <div className="space-y-2.5">
+              {([
+                { dim: 'monthly' as ReportDimension, label: '月度报告', desc: '单月资产健康快照', icon: '📅' },
+                { dim: 'quarterly' as ReportDimension, label: '季度报告', desc: '三个月综合分析', icon: '📊' },
+                { dim: 'yearly' as ReportDimension, label: '年度报告', desc: '全年资产健康总结', icon: '📋' },
+              ]).map(item => (
+                <button
+                  key={item.dim}
+                  onClick={() => {
+                    setReportDimension(item.dim);
+                    setShowReportDimensionSheet(false);
+                    setShowReportPeriodSheet(true);
+                  }}
+                  className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all active:scale-[0.98] text-left"
+                >
+                  <span className="text-xl">{item.icon}</span>
+                  <div>
+                    <div className="text-[13px] font-bold text-gray-800">{item.label}</div>
+                    <div className="text-[11px] text-gray-400">{item.desc}</div>
+                  </div>
+                  <ChevronRight size={16} className="text-gray-300 ml-auto" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 资产健康报告：周期选择 ── */}
+      {showReportPeriodSheet && reportDimension && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center" onClick={() => setShowReportPeriodSheet(false)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative bg-white rounded-t-2xl shadow-2xl w-full max-w-md p-5 pb-8" onClick={e => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+            <h3 className="text-[15px] font-bold text-gray-800 mb-1 text-center">
+              选择{reportDimension === 'monthly' ? '月份' : reportDimension === 'quarterly' ? '季度' : '年份'}
+            </h3>
+            <p className="text-[11px] text-gray-400 text-center mb-4">
+              {reportDimension === 'monthly' ? '选择要查看的月份' : reportDimension === 'quarterly' ? '选择年份和季度' : '选择要查看的年份'}
+            </p>
+
+            {/* 年份选择 */}
+            <div className="mb-4">
+              <div className="text-[11px] text-gray-400 mb-2">年份</div>
+              <div className="flex gap-2">
+                {[0, -1, -2].map(offset => {
+                  const y = new Date().getFullYear() + offset;
+                  return (
+                    <button
+                      key={y}
+                      onClick={() => setReportYear(y)}
+                      className={`flex-1 py-2.5 rounded-xl text-[13px] font-bold border-2 transition-all ${
+                        reportYear === y ? 'text-white' : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                      }`}
+                      style={reportYear === y ? { backgroundColor: themeConfig.primary, borderColor: themeConfig.primary } : {}}
+                    >
+                      {y}年
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 月度：月份选择 */}
+            {reportDimension === 'monthly' && (
+              <div className="mb-4">
+                <div className="text-[11px] text-gray-400 mb-2">月份</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setReportMonth(m)}
+                      className={`py-2.5 rounded-xl text-[13px] font-bold border-2 transition-all ${
+                        reportMonth === m ? 'text-white' : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                      }`}
+                      style={reportMonth === m ? { backgroundColor: themeConfig.primary, borderColor: themeConfig.primary } : {}}
+                    >
+                      {m}月
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 季度：季度选择 */}
+            {reportDimension === 'quarterly' && (
+              <div className="mb-4">
+                <div className="text-[11px] text-gray-400 mb-2">季度</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 2, 3, 4].map(q => (
+                    <button
+                      key={q}
+                      onClick={() => setReportQuarter(q)}
+                      className={`py-2.5 rounded-xl text-[13px] font-bold border-2 transition-all ${
+                        reportQuarter === q ? 'text-white' : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                      }`}
+                      style={reportQuarter === q ? { backgroundColor: themeConfig.primary, borderColor: themeConfig.primary } : {}}
+                    >
+                      Q{q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setShowReportPeriodSheet(false);
+                setShowReportPreview(true);
+              }}
+              className="w-full py-3 rounded-xl text-[14px] font-bold text-white transition-all active:scale-[0.98]"
+              style={{ backgroundColor: themeConfig.primary }}
+            >
+              生成报告
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 资产健康报告：全屏预览 ── */}
+      {showReportPreview && reportDimension && (
+        <AssetHealthReport
+          dimension={reportDimension}
+          year={reportYear}
+          month={reportDimension === 'monthly' ? reportMonth : undefined}
+          quarter={reportDimension === 'quarterly' ? reportQuarter : undefined}
+          theme={theme}
+          onClose={() => setShowReportPreview(false)}
+        />
+      )}
 
       {/* 导出对话框 */}
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>

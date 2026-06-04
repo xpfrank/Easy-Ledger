@@ -304,7 +304,7 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
     <div className="pb-28 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* Header */}
       <header
-        className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl"
+        className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl"
         style={{ backgroundColor: themeConfig.primary }}
       >
         <div className="flex items-center gap-2">
@@ -318,7 +318,7 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
         </Button>
       </header>
 
-      <div className="h-14" />
+      <div className="h-safe-top" />
 
       <div className="p-4 space-y-4">
 

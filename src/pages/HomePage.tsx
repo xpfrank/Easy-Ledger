@@ -85,6 +85,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
     estimatedMonthsToGoal: number;
     isOnTrack: boolean;
     monthlyGrowthRate: number;
+    currentMonthChange: number;
   } | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
   const [scoreChange, setScoreChange] = useState(0);
@@ -272,8 +273,8 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
   return (
     <div className="pb-20 min-h-screen" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 - fixed 定位，与记账页/趋势页保持一致 */}
-      <header 
-        className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl"
+      <header
+        className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 max-w-md mx-auto z-50 shadow-sm rounded-b-2xl"
         style={{ backgroundColor: themeConfig.primary }}
       >
         <h1 className="text-xl font-bold tracking-wide text-white">Easy-Ledger</h1>
@@ -289,7 +290,7 @@ export function HomePage({ onPageChange, params, hideBalance, toggleHideBalance 
       </header>
 
       {/* 固定标题栏占位 */}
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       <div className="p-4 space-y-3">
         {/* 净资产总览卡片 */}

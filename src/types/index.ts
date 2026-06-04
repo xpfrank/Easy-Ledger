@@ -339,32 +339,10 @@ export interface AccountSnapshot {
 }
 
 // 年度归因标签类型
-export type YearlyAttributionTag =
-  | 'salary_growth'
-  | 'bonus_丰厚'
-  | 'investment_return'
-  | 'asset_change'
-  | 'large_expense'
-  | 'account_integration'
-  | 'yearly_other';
-
-// 年度标签配置
-export interface YearlyTagConfig {
-  value: YearlyAttributionTag;
-  label: string;
-  emoji: string;
-}
-
-// 年度归因标签
-export const YEARLY_TAGS: YearlyTagConfig[] = [
-  { value: 'salary_growth', label: '工资增长', emoji: '💰' },
-  { value: 'bonus_丰厚', label: '奖金丰厚', emoji: '🎁' },
-  { value: 'investment_return', label: '投资丰收', emoji: '📈' },
-  { value: 'asset_change', label: '资产变动', emoji: '🏠' },
-  { value: 'large_expense', label: '大额支出', emoji: '💸' },
-  { value: 'account_integration', label: '账户整合', emoji: '🔄' },
-  { value: 'yearly_other', label: '其他', emoji: '📝' },
-];
+// 注意：标签池已统一为复用月度标签池（见 storage.ts 的 getAllAttributionTagOptions）。
+// 此处保留 YearlyAttributionTag 作为 string 字面量并集以兼容历史数据。
+// 实际可选标签 ID 在运行时从 getAllAttributionTagOptions() 动态获取。
+export type YearlyAttributionTag = string;
 
 // 年度归因记录
 export interface YearlyAttribution {
@@ -377,39 +355,6 @@ export interface YearlyAttribution {
   note?: string;
   keyMonths: string[];
   timestamp: number;
-}
-
-// 获取年度归因标签的中文显示
-export function getYearlyAttributionTagLabel(tag: YearlyAttributionTag): string {
-  const tagLabels: Record<string, string> = {
-    salary_growth: '工资增长',
-    'bonus_丰厚': '奖金丰厚',
-    investment_return: '投资丰收',
-    asset_change: '资产变动',
-    large_expense: '大额支出',
-    account_integration: '账户整合',
-    yearly_other: '其他',
-  };
-  if (tagLabels[tag]) return tagLabels[tag];
-  // 自定义标签：直接返回 tag id
-  if (tag.startsWith('custom_')) {
-    return tag;
-  }
-  return tag;
-}
-
-// 获取年度归因标签的 emoji
-export function getYearlyAttributionTagEmoji(tag: YearlyAttributionTag): string {
-  const tagEmojis: Record<string, string> = {
-    salary_growth: '💰',
-    'bonus_丰厚': '🎁',
-    investment_return: '📈',
-    asset_change: '🏠',
-    large_expense: '💸',
-    account_integration: '🔄',
-    yearly_other: '📝',
-  };
-  return tagEmojis[tag] || '';
 }
 
 export const PRESET_ICONS: IconConfig[] = [

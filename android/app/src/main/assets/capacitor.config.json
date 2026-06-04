@@ -1,6 +1,6 @@
 {
 	"appId": "com.ledger.app",
-	"appName": "记账本",
+	"appName": "余额快照",
 	"webDir": "dist",
 	"server": {
 		"androidScheme": "https"
@@ -12,6 +12,11 @@
 	"plugins": {
 		"SplashScreen": {
 			"launchShowDuration": 0
+		},
+		"StatusBar": {
+			"overlaysWebView": false,
+			"style": "DEFAULT",
+			"backgroundColor": "#0ea5e9"
 		}
 	}
 }

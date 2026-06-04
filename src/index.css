@@ -84,19 +84,30 @@
 
 /* 移动端特定工具类 */
 @layer utilities {
-  /* 安全区域适配 */
+  /* 安全区域适配：
+     - 网页版（env=0）：与原始 py-3 一致（顶部 0.75rem = 12px）
+     - Capacitor APK（env>0）：顶部 = 状态栏高度 + 0.75rem，正常 padding 仍在
+     这样同一个 class 在浏览器里看上去和原来一模一样，只在 APK 里多出状态栏空间 */
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
   }
   .pt-safe {
-    padding-top: env(safe-area-inset-top);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
   }
-  
+  /* 状态栏占位：固定头部下方的占位区高度（3.5rem = 56px = 原本 h-14） */
+  .h-safe-top {
+    height: calc(3.5rem + env(safe-area-inset-top, 0px));
+  }
+  /* 底部导航占位（h-14 + safe-area-inset-bottom） */
+  .h-safe-bottom {
+    height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
   /* 防止内容被底部导航栏遮挡 */
   .pb-safe-bottom {
     padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
   }
-  
+
   /* 全屏高度适配 */
   .h-screen-safe {
     height: 100vh;

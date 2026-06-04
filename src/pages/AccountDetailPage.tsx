@@ -565,13 +565,13 @@ export function AccountDetailPage({ onPageChange, accountId, onBack }: AccountDe
   if (!account) {
     return (
       <div className="pb-24 bg-gray-50 min-h-screen">
-        <header className="bg-white px-4 py-3 flex items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
+        <header className="bg-white px-4 pt-safe pb-3 flex items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm">
           <Button variant="ghost" size="icon" onClick={() => onBack ? onBack() : onPageChange('accounts')}>
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-lg font-semibold ml-2">账户详情</h1>
         </header>
-        <div className="h-14"></div>
+        <div className="h-safe-top"></div>
         <div className="p-4 text-center text-gray-500">账户不存在</div>
       </div>
     );
@@ -584,7 +584,7 @@ export function AccountDetailPage({ onPageChange, accountId, onBack }: AccountDe
     <div className="pb-4 bg-gray-50 min-h-screen overflow-x-hidden">
       {/* 顶部栏 - 压缩高度 */}
       <header
-        className="px-4 py-2.5 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm"
+        className="px-4 pt-safe pb-2.5 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm"
         style={{ backgroundColor: themeConfig.primary }}
       >
         <div className="flex items-center gap-2">

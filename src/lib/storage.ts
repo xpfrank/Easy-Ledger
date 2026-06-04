@@ -1068,6 +1068,33 @@ export function dragReorderAccountInGroup(
   saveData(data);
 }
 
+/**
+ * 将账户置顶：插入到组内第一位，其余账户顺延
+ * 与 dragReorderAccountInGroup 的区别：dragReorder 是"移动到指定位置"，置顶是"插入到最前"
+ */
+export function moveAccountToTopInGroup(accountId: string): void {
+  const data = loadData();
+  const target = data.accounts.find(a => a.id === accountId);
+  if (!target) return;
+
+  const sameGroup = getSameGroupAccounts(data, target);
+  const fromIndex = sameGroup.findIndex(a => a.id === accountId);
+  if (fromIndex === -1 || fromIndex === 0) return; // 已经在顶部
+
+  // 从原位置移除
+  const [moved] = sameGroup.splice(fromIndex, 1);
+  // 插入到最前面
+  sameGroup.unshift(moved);
+
+  // 重新分配 sortOrder
+  sameGroup.forEach((acc, i) => {
+    const real = data.accounts.find(a => a.id === acc.id);
+    if (real) real.sortOrder = i;
+  });
+
+  saveData(data);
+}
+
 export function setMonthlyRecord(accountId: string, year: number, month: number, balance: number): MonthlyRecord {
   const data = loadData();
   const account = data.accounts.find(a => a.id === accountId);
@@ -2056,14 +2083,20 @@ export function importMonthlyAttributionCSV(
 }
 
 function parseYearlyAttributionTagFromLabel(label: string): YearlyAttributionTag | null {
+  // 标签池已统一：年度 CSV 导入沿用月度标签 ID
   const labelToTag: Record<string, YearlyAttributionTag> = {
-    '工资增长': 'salary_growth',
-    '奖金丰厚': 'bonus_丰厚',
-    '投资丰收': 'investment_return',
-    '资产变动': 'asset_change',
+    '工资增长': 'salary',
+    '工资积累': 'salary',
+    '工资收入': 'salary_income',
+    '奖金丰厚': 'bonus',
+    '奖金': 'bonus',
+    '投资丰收': 'investment',
+    '投资收益': 'investment',
+    '资产变动': 'transfer',
+    '账户整合': 'transfer',
+    '转账调整': 'transfer',
     '大额支出': 'large_expense',
-    '账户整合': 'account_integration',
-    '其他': 'yearly_other',
+    '其他': 'other',
   };
   return labelToTag[label] || null;
 }
@@ -2287,10 +2320,9 @@ export function getAttributionTagEmoji(tag: AttributionTag): string {
 }
 
 export function getYearlyAttributionTagLabel(tag: string): string {
-  const yearlyOption = PRESET_YEARLY_TAGS.find(t => t.id === tag);
-  if (yearlyOption) return yearlyOption.label;
-  const monthlyOption = PRESET_MONTHLY_TAGS.find(t => t.id === tag);
-  if (monthlyOption) return monthlyOption.label;
+  // 标签池已统一：年度归因复用月度标签池
+  const option = getAllAttributionTagOptions().find(t => t.id === tag);
+  if (option) return option.label;
   if (tag.startsWith('custom_')) {
     const customTag = getCustomAttributionTags().find(t => t.id === tag);
     return customTag ? customTag.label : tag;
@@ -2299,10 +2331,9 @@ export function getYearlyAttributionTagLabel(tag: string): string {
 }
 
 export function getYearlyAttributionTagEmoji(tag: string): string {
-  const yearlyOption = PRESET_YEARLY_TAGS.find(t => t.id === tag);
-  if (yearlyOption) return yearlyOption.emoji;
-  const monthlyOption = PRESET_MONTHLY_TAGS.find(t => t.id === tag);
-  if (monthlyOption) return monthlyOption.emoji;
+  // 标签池已统一：年度归因复用月度标签池
+  const option = getAllAttributionTagOptions().find(t => t.id === tag);
+  if (option) return option.emoji;
   if (tag.startsWith('custom_')) {
     const customTag = getCustomAttributionTags().find(t => t.id === tag);
     return customTag ? customTag.emoji : '📝';
@@ -2364,25 +2395,15 @@ export function getAllAttributionTagOptions(): TagOption[] {
   return [...PRESET_MONTHLY_TAGS, ...customTags];
 }
 
-const PRESET_YEARLY_TAGS: TagOption[] = [
-  { id: 'salary_growth', label: '工资增长', emoji: '💰', editable: false, category: 'income' },
-  { id: 'bonus_丰厚', label: '奖金丰厚', emoji: '🎁', editable: false, category: 'income' },
-  { id: 'investment_return', label: '投资丰收', emoji: '📈', editable: false, category: 'income' },
-  { id: 'asset_change', label: '资产变动', emoji: '🏠', editable: false, category: 'adjust' },
-  { id: 'large_expense', label: '大额支出', emoji: '💸', editable: false, category: 'expense' },
-  { id: 'account_integration', label: '账户整合', emoji: '🔄', editable: false, category: 'adjust' },
-  { id: 'yearly_other', label: '其他', emoji: '📝', editable: false, category: 'other' },
-];
-
+/**
+ * 年度归因标签池：已统一为复用月度标签池。
+ * 历史数据兼容说明：旧的年度标签 ID（如 salary_growth / bonus_丰厚 等），
+ * 由于类型上都是 string，getYearlyAttributionTagLabel/Emoji 会按月度池查找，
+ * 找不到则降级到 custom_ 前缀查自定义，再找不到返回原值，不会崩。
+ */
 export function getAllYearlyTagOptions(): TagOption[] {
-  const customTags = getCustomAttributionTags().map(t => ({
-    id: t.id,
-    label: t.label,
-    emoji: t.emoji,
-    editable: true,
-    category: t.category || 'other',
-  }));
-  return [...PRESET_YEARLY_TAGS, ...customTags];
+  // 完全复用月度标签池
+  return getAllAttributionTagOptions();
 }
 
 export function findAttributionTagOption(tagId: string): TagOption | undefined {
@@ -3030,8 +3051,13 @@ export function getAccountsForRecordPage(year: number, month: number): Account[]
  */
 export function dragReorderAccountForRecord(accountId: string, toIndex: number): void {
   const data = loadData();
-  const accounts = data.accounts.filter(a => !a.isHidden);
-  
+  const sortConfig = getRecordSortOrder();
+
+  // 按当前 recordSortOrder 排序（与 UI 展示顺序保持一致）
+  const accounts = data.accounts
+    .filter(a => !a.isHidden)
+    .sort((a, b) => (sortConfig[a.id] ?? 999999) - (sortConfig[b.id] ?? 999999));
+
   const fromIndex = accounts.findIndex(a => a.id === accountId);
   if (fromIndex === -1 || fromIndex === toIndex) return;
   if (toIndex < 0 || toIndex >= accounts.length) return;
@@ -3041,11 +3067,39 @@ export function dragReorderAccountForRecord(accountId: string, toIndex: number):
   accounts.splice(toIndex, 0, moved);
 
   // 使用独立的 localStorage 存储记账页面排序，不修改账户数据
-  const sortConfig: Record<string, number> = {};
+  const newSortConfig: Record<string, number> = {};
   accounts.forEach((acc, i) => {
-    sortConfig[acc.id] = i;
+    newSortConfig[acc.id] = i;
   });
-  saveRecordSortOrder(sortConfig);
+  saveRecordSortOrder(newSortConfig);
+}
+
+/**
+ * 记账页面置顶：插入到最前面
+ */
+export function moveAccountToTopForRecord(accountId: string): void {
+  const data = loadData();
+  const sortConfig = getRecordSortOrder();
+
+  // 按当前 recordSortOrder 排序（与 UI 展示顺序保持一致）
+  const accounts = data.accounts
+    .filter(a => !a.isHidden)
+    .sort((a, b) => (sortConfig[a.id] ?? 999999) - (sortConfig[b.id] ?? 999999));
+
+  const fromIndex = accounts.findIndex(a => a.id === accountId);
+  if (fromIndex === -1 || fromIndex === 0) return; // 已经在顶部
+
+  // 从原位置移除
+  const [moved] = accounts.splice(fromIndex, 1);
+  // 插入到最前面
+  accounts.unshift(moved);
+
+  // 更新排序配置
+  const newSortConfig: Record<string, number> = {};
+  accounts.forEach((acc, i) => {
+    newSortConfig[acc.id] = i;
+  });
+  saveRecordSortOrder(newSortConfig);
 }
 
 /**

@@ -237,21 +237,24 @@ export function AssetCockpitCard({
       if (m > 12) { m = 1; y++; }
     }
 
-    // 连续归因月数（从当前月往前）
+    // 连续归因月数：从当前月往前倒推
+    // - 如果当前月已记录，streak 从当前月开始
+    // - 如果当前月未记录，跨过当前月，从上一个月开始统计历史连续月数
+    //   （即"如果今天补完能凑成多长的连续记录"，避免因当前月未填就显示 0）
     let streak = 0;
     for (let i = dots.length - 1; i >= 0; i--) {
       const d = dots[i];
       if (d.isFuture) continue;
-      if (d.isCurrent && !d.done) break;
+      if (d.isCurrent && !d.done) continue; // 跨过未完成的当前月
       if (d.done) streak++;
       else break;
     }
 
-    // 本年已过月份中漏记数
-    const pastMonthsThisYear = dots.filter(
-      (d) => d.year === currentYear && !d.isFuture && !d.isCurrent
+    // 本年漏记数：本年 1月 ~ 当前月（含当前月）中未记录的月份数
+    const monthsThisYear = dots.filter(
+      (d) => d.year === currentYear && !d.isFuture
     );
-    const missed = pastMonthsThisYear.filter((d) => !d.done).length;
+    const missed = monthsThisYear.filter((d) => !d.done).length;
 
     const hasAnyData = all.length > 0;
 
@@ -574,7 +577,7 @@ export function AssetCockpitCard({
 
         {/* ── 归因记录（月度·年度 Tab） ── */}
         <div className="px-[18px] mb-3.5">
-          <div className="bg-[#f8fbfe] border border-[#e4ecf3] rounded-[10px] px-[13px] py-2.5">
+          <div className="bg-[#f8fbfe] border border-[#e4ecf3] rounded-[10px] px-[13px] pt-3.5 pb-2.5">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <FileText size={12} className="text-sky-500" />
@@ -603,7 +606,7 @@ export function AssetCockpitCard({
             {attrTab === 'monthly' ? (
               monthlyDots.hasAnyData || monthlyDots.streak > 0 ? (
                 <>
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 scrollbar-none -mx-1 px-1">
                     {monthlyDots.dots.map((dot, i) => {
                       const key = `${dot.year}-${dot.month}`;
                       const prevDot = i > 0 ? monthlyDots.dots[i - 1] : null;

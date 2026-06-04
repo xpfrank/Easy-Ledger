@@ -68,7 +68,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
   const [viewMode, setViewMode] = useState<ViewMode>(initialMode === 'yearly' ? 'yearly' : 'monthly');
   const [monthlySubView, setMonthlySubView] = useState<MonthlySubView>('balance');
   const [yearlySubView, setYearlySubView] = useState<YearlySubView>('timeline');
-  
+
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all');
   const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth || new Date().getMonth() + 1);
 
@@ -169,11 +169,20 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
     setSelectedAttributionYear(year);
   };
 
+  // ==================== 修复1：月度归因卡片实时计算环比 ====================
   const renderMonthlyAttributionCard = (attr: MonthlyAttribution) => {
     const key = `${attr.year}-${attr.month}`;
     const accountsForMonth = getAccountsForMonth(attr.year, attr.month).filter(a => !a.isHidden);
     const netWorth = calculateNetWorth(accountsForMonth, attr.year, attr.month);
-    const isPositive = attr.change >= 0;
+
+    // 实时计算环比（与弹窗详情保持一致）
+    let lastYear = attr.year, lastMonth = attr.month - 1;
+    if (lastMonth === 0) { lastYear--; lastMonth = 12; }
+    const lastMonthAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
+    const lastNW = calculateNetWorth(lastMonthAccounts, lastYear, lastMonth);
+    const change = netWorth - lastNW;
+    const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
+    const isPositive = change >= 0;
 
     return (
       <div
@@ -208,13 +217,22 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
           )}
         </div>
 
-        {/* 右侧：变化金额 + 净资产 */}
+        {/* 右侧：变化金额 + 环比 + 净资产 */}
         <div className="text-right flex-shrink-0 py-0.5">
           <div
             className="text-sm font-bold"
             style={{ color: isPositive ? '#16a34a' : '#dc2626' }}
           >
-            {isPositive ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(attr.change, hideBalance)}
+            {isPositive ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(change, hideBalance)}
+          </div>
+          <div
+            className="text-xs font-medium mt-0.5 px-1.5 py-0.5 rounded-lg inline-block"
+            style={{
+              backgroundColor: isPositive ? '#f0fdf4' : '#fef2f2',
+              color: isPositive ? '#16a34a' : '#dc2626',
+            }}
+          >
+            {changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%
           </div>
           <div className="text-xs text-gray-400 mt-0.5">
             净资产 {baseCurrencySymbol}{formatHiddenAmount(netWorth, hideBalance)}
@@ -224,14 +242,22 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
     );
   };
 
+  // ==================== 修复2：年度归因卡片实时计算同比 ====================
   const renderYearlyAttributionCard = (attr: YearlyAttribution) => {
     const key = `yearly-${attr.year}`;
 
-    // 与详情弹窗保持完全一致：用 calculateNetWorth 计算年末净资产，自动处理货币换算
+    // 与详情弹窗保持完全一致：用 calculateNetWorth 计算年末净资产
     const lastMonth = getLastRecordedMonth(attr.year) || 12;
     const currentAccounts = getAccountsForMonth(attr.year, lastMonth).filter(a => !a.isHidden);
     const currentNW = calculateNetWorth(currentAccounts, attr.year, lastMonth);
-    const isPositive = attr.changePercent >= 0;
+
+    // 实时计算年度同比（与弹窗逻辑保持一致）
+    const prevYearLastMonth = getLastRecordedMonth(attr.year - 1) || 12;
+    const prevYearAccounts = getAccountsForMonth(attr.year - 1, prevYearLastMonth).filter(a => !a.isHidden);
+    const prevYearNW = calculateNetWorth(prevYearAccounts, attr.year - 1, prevYearLastMonth);
+    const change = currentNW - prevYearNW;
+    const changePercent = prevYearNW !== 0 ? (change / Math.abs(prevYearNW)) * 100 : 0;
+    const isPositive = change >= 0;
 
     return (
       <div
@@ -278,13 +304,14 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
               color: isPositive ? '#16a34a' : '#dc2626',
             }}
           >
-            {attr.changePercent >= 0 ? '+' : ''}{attr.changePercent.toFixed(1)}%
+            {changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%
           </div>
         </div>
       </div>
     );
   };
 
+  // ==================== 修复3：月度时间轴实时计算环比（含1月跨年逻辑） ====================
   const renderYearlyTimeline = () => {
     let y: number;
     if (selectedYear === 'all') {
@@ -298,20 +325,25 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
     }
 
     const monthlyAttrs = getMonthlyAttributionsForYear(y);
-    
+
     const yearMonths = Array.from({ length: 12 }, (_, i) => {
       const month = i + 1;
       const attr = monthlyAttrs.find(a => a.month === month);
       const monthLogs = getRecordLogs(y, month);
       const accounts = getAccountsForMonth(y, month).filter(a => !a.isHidden);
       const netWorth = calculateNetWorth(accounts, y, month);
+
+      // 修复：1月环比取上年12月，不再丢失年初数据
       const prevMonthNetWorth = month > 1 
         ? calculateNetWorth(getAccountsForMonth(y, month - 1).filter(a => !a.isHidden), y, month - 1)
-        : null;
+        : calculateNetWorth(getAccountsForMonth(y - 1, 12).filter(a => !a.isHidden), y - 1, 12);
+
       const change = prevMonthNetWorth !== null ? netWorth - prevMonthNetWorth : (attr?.change || 0);
-      
-      // 修复：以是否有实际记录日志为准，避免无数据月份显示余额
-      return { month, attr, netWorth, change, hasData: monthLogs.length > 0 || !!attr };
+      const changePercent = prevMonthNetWorth !== null && prevMonthNetWorth !== 0
+        ? (change / Math.abs(prevMonthNetWorth)) * 100
+        : 0;
+
+      return { month, attr, netWorth, change, changePercent, hasData: monthLogs.length > 0 || !!attr };
     });
 
     const recordedCount = yearMonths.filter(m => m.attr).length;
@@ -341,9 +373,9 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
           />
 
           <div className="space-y-2">
-            {yearMonths.map(({ month, attr, netWorth, change, hasData }) => {
+            {yearMonths.map(({ month, attr, netWorth, change, changePercent, hasData }) => {
               const hasAttribution = !!attr;
-              const isIncrease = (attr?.change ?? change) >= 0;
+              const isIncrease = change >= 0;
               const isFuture = y === nowYear && month > nowMonth;
 
               // 未来且无数据：极简显示
@@ -428,7 +460,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                                className={`text-xs font-medium flex items-center gap-0.5 mt-0.5 ${isIncrease ? 'text-green-600' : 'text-red-600'}`}
                              >
                                <span>{isIncrease ? '▲' : '▼'}</span>
-                               <span>{isIncrease ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(Math.abs(attr!.change), hideBalance)}</span>
+                               <span>{isIncrease ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(Math.abs(change), hideBalance)}</span>
                              </div>
                             {attr!.note && (
                               <p className="text-xs text-gray-400 mt-1 break-words leading-relaxed">{attr!.note}</p>
@@ -441,16 +473,23 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                               color: isIncrease ? '#16a34a' : '#dc2626',
                             }}
                           >
-                            {attr!.changePercent >= 0 ? '+' : ''}{attr!.changePercent.toFixed(1)}%
+                            {changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%
                           </div>
                         </div>
                       </>
                     ) : hasData ? (
-                      /* 有数据但无归因 */
+                      /* 有数据但无归因：也显示实时计算的波动 */
                        <>
                          <div className="text-xs text-gray-400 mb-1">未添加归因</div>
                          <div className="text-base font-bold text-gray-300">
                            {baseCurrencySymbol}{formatHiddenAmount(netWorth, hideBalance)}
+                         </div>
+                         <div
+                           className={`text-xs font-medium flex items-center gap-0.5 mt-1 ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                         >
+                           <span>{change >= 0 ? '▲' : '▼'}</span>
+                           <span>{change >= 0 ? '+' : ''}{baseCurrencySymbol}{formatHiddenAmount(Math.abs(change), hideBalance)}</span>
+                           <span className="ml-1">({changePercent >= 0 ? '+' : ''}{changePercent.toFixed(1)}%)</span>
                          </div>
                         <div className="w-6 h-px bg-gray-200 mt-1.5" />
                       </>
@@ -480,7 +519,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
   // ==================== 核心修复：月度视图按日期分组，保留可视化图标 ====================
   const renderBalanceRecords = () => {
     const year = typeof selectedYear === 'number' ? selectedYear : initialYear;
-    
+
     if (viewMode === 'monthly') {
       const month = selectedMonth as number;
       const monthLogs = getRecordLogs(year, month).filter(
@@ -521,7 +560,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
           {sortedDates.map(([dateStr, logs]) => {
             const key = `${year}-${selectedMonth}-${dateStr}`;
             const isExpanded = expandedGroups.has(key);
-            
+
             return (
               <div key={key} className="bg-white rounded-2xl overflow-hidden shadow-sm">
                 <div
@@ -535,7 +574,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                   </div>
                   {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
                 </div>
-                
+
                 {isExpanded && (
                   <div className="divide-y divide-gray-50">
                      {logs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
@@ -543,13 +582,13 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                         if (!account) return null;
                         const change = log.newBalance - log.oldBalance;
                         const isIncrease = change >= 0;
-                        
+
                         // 转换余额为主货币，月度模式使用当前选中的 year 和 month
                         const targetYear = typeof year === 'number' ? year : initialYear;
                         const targetMonth = typeof month === 'number' ? month : initialMonth;
                         const convertedOld = convertToBaseCurrency(log.oldBalance, account.currency || 'CNY', targetYear, targetMonth);
                         const convertedNew = convertToBaseCurrency(log.newBalance, account.currency || 'CNY', targetYear, targetMonth);
-                       
+
                        return (
                          <div key={log.id} className="p-3">
                            <div className="flex items-center justify-between">
@@ -595,12 +634,12 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
               log => selectedAccount === 'all' || log.accountId === selectedAccount
             );
             if (monthLogs.length === 0) return null;
-            
+
             const lastLog = monthLogs.sort((a, b) => b.timestamp - a.timestamp)[0];
             const lastRecordDate = formatDate(lastLog.timestamp);
             const monthAccounts = getAccountsForMonth(y, month).filter(a => !a.isHidden);
             const monthNetWorth = calculateNetWorth(monthAccounts, y, month);
-            
+
             const key = `${y}-${month.toString().padStart(2, '0')}`;
             const isExpanded = expandedGroups.has(key);
 
@@ -629,7 +668,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                    <div className="text-xs text-gray-400">{monthLogs.length}条记录</div>
                  </div>
                 </div>
-                
+
                 {isExpanded && (
                   <div className="divide-y divide-gray-50">
                     <div className="p-3 bg-gray-50/50">
@@ -640,9 +679,9 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                          const convertedBalance = convertToBaseCurrency(balance, account.currency || 'CNY', y, month);
                          const isCredit = account.type === 'credit';
                          const isDebt = account.type === 'debt';
-                         
+
                          if (selectedAccount !== 'all' && selectedAccount !== account.id) return null;
-                         
+
                          return (
                            <div key={account.id} className="flex items-center justify-between py-1.5">
                              <div className="flex items-center gap-2">
@@ -656,7 +695,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                          );
                        })}
                     </div>
-                    
+
                     <div className="p-3">
                      <div className="text-xs font-medium text-gray-500 mb-2">变动记录</div>
                        {monthLogs.sort((a, b) => b.timestamp - a.timestamp).map(log => {
@@ -665,7 +704,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
                          const convertedChange = convertToBaseCurrency(log.newBalance, account.currency || 'CNY', y, month) - 
                                                convertToBaseCurrency(log.oldBalance, account.currency || 'CNY', y, month);
                          const isIncrease = convertedChange >= 0;
-                         
+
                          return (
                            <div key={log.id} className="flex items-center justify-between py-2">
                              <div className="flex items-center gap-2">
@@ -704,7 +743,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
   const renderMonthlyAttributionTab = () => {
     const y = typeof selectedYear === 'number' ? selectedYear : initialYear;
     const m = selectedMonth;
-    
+
     const attr = getAttributionForMonth(y, m);
     if (!attr) {
       return (
@@ -763,7 +802,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
 
   return (
     <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
-      <header className="px-4 py-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
+      <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('record')}>
             <ArrowLeft size={20} />
@@ -783,7 +822,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
         </button>
       </header>
 
-      <div className="h-14"></div>
+      <div className="h-safe-top"></div>
 
       <div className="px-4 pt-4 pb-2 space-y-3">
         <div className="bg-white rounded-2xl p-1.5 shadow-sm flex relative overflow-hidden">
@@ -818,7 +857,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
           <div className="flex items-stretch">
             <div className="w-1.5 flex-shrink-0" style={{ backgroundColor: themeConfig.primary }} />
-            
+
             <div className="flex-1 p-3.5 space-y-2">
               {viewMode === 'monthly' ? (
                 <div className="flex gap-3">
