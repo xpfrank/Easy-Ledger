@@ -695,7 +695,7 @@ export function TrendPage({ onPageChange, onBack }: TrendPageProps) {
   const abnormalLegend = getAbnormalLegend();
 
   return (
-    <div className="pb-6 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
+    <div className="pb-24 min-h-screen overflow-x-hidden" style={{ backgroundColor: themeConfig.bgLight }}>
       {/* 标题栏 */}
       <header className="px-4 pt-safe pb-3 flex justify-between items-center fixed top-0 left-0 right-0 z-50 max-w-md mx-auto shadow-sm rounded-b-2xl" style={{ backgroundColor: themeConfig.primary }}>
         <div className="flex items-center gap-2">

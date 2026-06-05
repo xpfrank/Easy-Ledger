@@ -242,11 +242,13 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
       effectiveData.customTypeLabel = label;
       effectiveData.type = customBehavior === 'liability' ? 'debt' : 'debit';
       // Register or update custom type globally
+      // 注意：只在新创建自定义分类时才设置图标，编辑已有子账户时不修改父级分类图标
       const existing = getCustomAccountTypes().find(ct => ct.label === label);
       if (!existing) {
         addCustomAccountType({ label, icon: customIcon, behavior: customBehavior });
-      } else if (existing.icon !== customIcon || existing.behavior !== customBehavior) {
-        updateCustomAccountType(existing.id, { icon: customIcon, behavior: customBehavior });
+      } else if (existing.behavior !== customBehavior) {
+        // 仅当行为类型变化时才更新，不修改图标
+        updateCustomAccountType(existing.id, { behavior: customBehavior });
       }
     } else {
       effectiveData.customTypeLabel = undefined;
@@ -258,13 +260,17 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
       const now = new Date();
       addAccountToMonth(effectiveData as Omit<Account, 'id'>, now.getFullYear(), now.getMonth() + 1);
     }
-    onPageChange('home', { refresh: true });
+    // 保存后统一通过 onBack() 返回上一页
+    // AccountEditPage 永远不直接 onPageChange('accounts')，避免与 AccountsPage.onBack() 形成死循环
+    // 入口补栈逻辑在 App.tsx 的 handlePageChange 中处理（首页直接进 → 自动补 accounts）
+    onBack?.();
   };
 
   const handleDelete = () => {
     if (accountId) {
       deleteAccountGlobally(accountId);
-      onPageChange('accounts');
+      // 删除后统一通过 onBack() 返回上一页，避免与 AccountsPage.onBack() 形成死循环
+      onBack?.();
     }
   };
 
@@ -308,7 +314,7 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
         style={{ backgroundColor: themeConfig.primary }}
       >
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack ? onBack() : onPageChange('accounts')}>
+          <Button variant="ghost" size="icon" className="text-white" onClick={() => onBack?.()}>
             <ArrowLeft size={20} />
           </Button>
           <h1 className="text-lg font-semibold text-white">{isEdit ? '编辑账户' : '添加账户'}</h1>
@@ -656,8 +662,6 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
               <Switch
                 checked={formData.includeInTotal}
                 onCheckedChange={(checked) => setFormData((p) => ({ ...p, includeInTotal: checked }))}
-                style={{ '--tw-bg-opacity': '1' } as React.CSSProperties}
-                className="data-[state=checked]:bg-theme"
               />
             </div>
             <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
@@ -668,7 +672,6 @@ export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEdit
               <Switch
                 checked={formData.isHidden}
                 onCheckedChange={(checked) => setFormData((p) => ({ ...p, isHidden: checked }))}
-                className="data-[state=checked]:bg-gray-400"
               />
             </div>
           </CardContent>

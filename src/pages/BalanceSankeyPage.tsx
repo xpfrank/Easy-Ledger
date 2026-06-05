@@ -512,9 +512,8 @@ export function BalanceSankeyPage({ onPageChange, hideBalance = false, onBack }:
       <div className="h-safe-top"></div>
 
       {/* Stats bar — one line */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 text-xs" style={{
-        background: `linear-gradient(135deg, ${themeConfig.gradientFrom}18 0%, ${themeConfig.gradientTo}0c 100%)`,
-        borderBottom: `1px solid ${themeConfig.primary}12`,
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 text-xs bg-white/95 backdrop-blur-sm" style={{
+        borderBottom: `1px solid ${themeConfig.primary}20`,
       }}>
         <span className="flex items-center gap-1">
           <TrendingUp size={12} className="text-emerald-500" />

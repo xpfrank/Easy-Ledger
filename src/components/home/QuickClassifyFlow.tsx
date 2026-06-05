@@ -73,6 +73,14 @@ function ReclassifyMode({
     return convertToBaseCurrency(raw, acc.currency || 'CNY', year, month);
   };
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [accountList, setAccountList] = useState<Account[]>(accounts);
+
+  const handleUpdateCategory = (accountId: string, category: Account['assetCategory']) => {
+    saveAccountAssetCategory(accountId, category);
+    setAccountList(prev => prev.map(acc =>
+      acc.id === accountId ? { ...acc, assetCategory: category } : acc
+    ));
+  };
 
   if (editingAccount) {
     return (
@@ -81,10 +89,8 @@ function ReclassifyMode({
         primaryColor={primaryColor}
         hideBalance={hideBalance}
         onBack={() => setEditingAccount(null)}
-        onDone={() => {
-          setEditingAccount(null);
-          onComplete();
-        }}
+        onDone={() => setEditingAccount(null)}
+        onUpdate={handleUpdateCategory}
       />
     );
   }
@@ -114,7 +120,7 @@ function ReclassifyMode({
         <div className="flex-1 overflow-y-auto px-5 pb-3" style={{ paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}>
           <p className="text-[12px] text-gray-400 mb-3">点击账户可修改其分类</p>
           <div className="space-y-2">
-            {accounts.map(acc => {
+            {accountList.map(acc => {
               const cat = acc.assetCategory ? CATEGORY_MAP[acc.assetCategory] : null;
               return (
                 <button
@@ -165,23 +171,25 @@ function SingleAccountEditor({
   primaryColor,
   onBack,
   onDone,
+  onUpdate,
   hideBalance = false,
 }: {
   account: Account;
   primaryColor: string;
   onBack: () => void;
   onDone: () => void;
+  onUpdate: (accountId: string, category: Account['assetCategory']) => void;
   hideBalance?: boolean;
 }) {
   const currentCat = account.assetCategory && account.assetCategory !== 'skipped' ? account.assetCategory : null;
 
   const handleSelect = (category: 'cash' | 'stable' | 'invest' | 'insure') => {
-    saveAccountAssetCategory(account.id, category);
+    onUpdate(account.id, category);
     onDone();
   };
 
   const handleRemoveClassification = () => {
-    saveAccountAssetCategory(account.id, 'skipped');
+    onUpdate(account.id, 'skipped');
     onDone();
   };
 
