@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, Copy, RotateCcw, History, ChevronDown, Check, AlertTriangle, Eye, EyeOff, Edit3, ArrowUp, ArrowDown, GripVertical, ListOrdered, ArrowUpToLine, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -501,7 +502,7 @@ function YearlyDashboard({
             已记录
           </div>
         </div>
-        <p className="text-[11px] text-gray-400 mb-3">未记录月份不参与计算，绝不回填</p>
+        <p className="text-[11px] text-gray-400 mb-3">仅统计已记录月份，未记录月份留空</p>
 
         <div className="grid grid-cols-4 gap-2">
           {monthSnapshots.map(({ month: m, hasRecord, nw, changePercent }) => {
@@ -535,10 +536,16 @@ function YearlyDashboard({
                   onClick={() => onMonthClick(m, nw, changePercent)}
                 >
                 <div
-                  className="text-[11px] font-semibold mb-1"
+                  className="text-[11px] font-semibold mb-1 flex items-center justify-center gap-1"
                   style={{ color: isCurrent ? themeConfig.primary : '#15803d' }}
                 >
-                  {m}月{isCurrent ? ' ·' : ''}
+                  <span>{m}月</span>
+                  {isCurrent && (
+                    <span
+                      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: themeConfig.primary }}
+                    />
+                  )}
                 </div>
 
                 <div className="text-xs font-semibold text-gray-800">
@@ -1494,11 +1501,11 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
       <div className="p-3 space-y-3">
 {/* 净资产汇总 - 月度模式：月份选择器融入顶部 */}
         {recordMode === 'monthly' && (
-          <Card
-            className="text-white shadow-lg overflow-hidden"
+          <div
+            className="rounded-2xl overflow-hidden text-white shadow-lg"
             style={{ background: `linear-gradient(135deg, ${themeConfig.gradientFrom} 0%, ${themeConfig.gradientTo} 100%)` }}
           >
-            <CardContent className="p-0">
+            <div className="p-0">
               {/* 顶部：月份导航（融入卡片） */}
               <div className="flex items-center justify-between px-5 pt-4 pb-4">
                 <button
@@ -1553,8 +1560,8 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {/* 悬浮预览按钮 - 固定在底部导航栏上方 */}
@@ -1627,7 +1634,7 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
         ) : (
           <div className="space-y-3">
             {/* 账户余额标题：通栏+绿色竖线+账户数量+管理按钮 */}
-            <div className="flex items-center justify-between px-1 py-1">
+            <div className="flex items-center justify-between px-3 py-2 bg-white rounded-xl shadow-sm">
               <div className="flex items-center gap-2">
                 <div className="w-1 h-5 rounded-full" style={{ background: `linear-gradient(180deg, ${themeConfig.primary} 0%, ${themeConfig.gradientTo} 100%)` }}></div>
                 <span className="font-bold text-gray-800">账户余额</span>
@@ -2005,32 +2012,31 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
       </Dialog>
 
       {/* 预览确认对话框 */}
-      <Dialog open={showPreviewDialog} onOpenChange={(open) => {
-        if (!open) {
-          setShowPreviewDialog(false);
-          setSelectedTags([]);
-          setAttributionNote('');
-          setTagAmounts({});
-          setLockedTags(new Set());
-          setMonthlyActiveCategory('income');
-        }
-      }}>
-        <DialogContent
-          className="!fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 !w-[92vw] !max-w-sm flex flex-col overflow-hidden p-0 [&>button]:hidden"
-          style={{ maxHeight: `calc(min(85dvh, 85vh) - ${keyboardHeight}px)` }}
-        >
-          <DialogHeader className="flex-shrink-0 bg-white px-4 pt-3 pb-2.5 border-b border-gray-100">
-            <div className="relative flex items-center justify-center">
-              <DialogTitle className="text-lg font-bold text-center w-full">{formatMonth(year, month)} 记账预览</DialogTitle>
-              <button
-                onClick={() => setShowPreviewDialog(false)}
-                className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5 -mr-1 rounded-full hover:bg-gray-100 transition-colors"
-                aria-label="关闭"
-              >
-                <X size={20} />
-              </button>
+      {showPreviewDialog && createPortal(
+        <>
+          <div
+            className="fixed inset-0 bg-black/50"
+            style={{ zIndex: 9998 }}
+            onPointerDown={(e) => { e.stopPropagation(); setShowPreviewDialog(false); setSelectedTags([]); setAttributionNote(''); setTagAmounts({}); setLockedTags(new Set()); setMonthlyActiveCategory('income'); }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
+            style={{ zIndex: 9999, maxHeight: `calc(min(85dvh, 85vh) - ${keyboardHeight}px)` }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-gray-100">
+              <div className="relative flex items-center justify-center">
+                <span className="text-base font-bold">{formatMonth(year, month)} 记账预览</span>
+                <button
+                  type="button"
+                  onPointerDown={(e) => { e.stopPropagation(); setShowPreviewDialog(false); setSelectedTags([]); setAttributionNote(''); setTagAmounts({}); setLockedTags(new Set()); setMonthlyActiveCategory('income'); }}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
+                  aria-label="关闭"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
-          </DialogHeader>
 
           {previewData && (
             <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4">
@@ -2453,7 +2459,7 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
             </div>
           )}
 
-          <DialogFooter className="flex-row gap-3 px-4 pt-3 pb-4 border-t border-gray-100">
+          <div className="flex-row flex gap-3 px-4 pt-3 pb-4 border-t border-gray-100">
             {previewData?.fluctuationLevel !== 'abnormal' && (
               <Button
                 variant="outline"
@@ -2476,9 +2482,11 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                 ? '请选择原因'
                 : '确认保存'}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      </>,
+      document.body
+      )}
 
       {/* 年度记账年份选择器 */}
       <Dialog open={showYearPicker} onOpenChange={setShowYearPicker}>
@@ -2520,28 +2528,31 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
       </Dialog>
 
       {/* 年度归因对话框 */}
-      <Dialog open={showYearlyAttributionDialog} onOpenChange={(open) => {
-        if (!open) {
-          setShowYearlyAttributionDialog(false);
-          setYearlyActiveCategory('income');
-        }
-      }}>
-        <DialogContent
-          className="!fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 !w-[92vw] !max-w-sm flex flex-col overflow-hidden p-0 [&>button]:hidden"
-          style={{ maxHeight: `calc(min(85dvh, 85vh) - ${keyboardHeight}px)` }}
-        >
-          <DialogHeader className="flex-shrink-0 bg-white px-4 pt-3 pb-2.5 border-b border-gray-100">
-            <div className="relative flex items-center justify-center">
-              <DialogTitle className="text-lg font-bold text-center w-full">{year}年年度归因</DialogTitle>
-              <button
-                onClick={() => setShowYearlyAttributionDialog(false)}
-                className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5 -mr-1 rounded-full hover:bg-gray-100 transition-colors"
-                aria-label="关闭"
-              >
-                <X size={20} />
-              </button>
+      {showYearlyAttributionDialog && createPortal(
+        <>
+          <div
+            className="fixed inset-0 bg-black/50"
+            style={{ zIndex: 9998 }}
+            onPointerDown={(e) => { e.stopPropagation(); setShowYearlyAttributionDialog(false); setYearlyActiveCategory('income'); }}
+          />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
+            style={{ zIndex: 9999, maxHeight: `calc(min(85dvh, 85vh) - ${keyboardHeight}px)` }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-gray-100">
+              <div className="relative flex items-center justify-center">
+                <span className="text-base font-bold">{year}年年度归因</span>
+                <button
+                  type="button"
+                  onPointerDown={(e) => { e.stopPropagation(); setShowYearlyAttributionDialog(false); setYearlyActiveCategory('income'); }}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
+                  aria-label="关闭"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
-          </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4">
             {/* 年度变化摘要 */}
@@ -2870,10 +2881,10 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
             </Button>
           </div>
 
-          <DialogFooter className="flex-row gap-3 px-4 pt-3 pb-4 border-t border-gray-100">
+          <div className="flex flex-row gap-3 px-4 pt-3 pb-4 border-t border-gray-100">
             <Button
               variant="outline"
-              onClick={() => setShowYearlyAttributionDialog(false)}
+              onPointerDown={(e) => { e.stopPropagation(); setShowYearlyAttributionDialog(false); setYearlyActiveCategory('income'); }}
               className="flex-1 h-10 bg-white hover:bg-gray-50"
             >
               取消
@@ -2885,9 +2896,11 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
             >
               保存年度归因
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      </>,
+      document.body
+      )}
 
       {/* CSS 动画样式 */}
       <style>{`
@@ -2932,21 +2945,31 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
         }
 
         // 无归因记录 → 展示简单快照 + 引导填写
-        return (
-          <Dialog open={true} onOpenChange={() => setMonthAttrDialog(null)}>
-            <DialogContent className="!fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 !w-[92vw] !max-w-sm flex flex-col overflow-hidden p-0 [&>button]:hidden" style={{ maxHeight: 'calc(min(85dvh, 85vh))' }}>
-              <DialogHeader className="flex-shrink-0 bg-white px-4 pt-3 pb-2.5 border-b border-gray-100">
+        return createPortal(
+          <>
+            <div
+              className="fixed inset-0 bg-black/50"
+              style={{ zIndex: 9998 }}
+              onPointerDown={(e) => { e.stopPropagation(); setMonthAttrDialog(null); }}
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
+              style={{ zIndex: 9999, maxHeight: 'min(85dvh, 85vh)' }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-gray-100">
                 <div className="relative flex items-center justify-center">
-                  <DialogTitle className="text-lg font-bold text-center w-full">{year}年{monthAttrDialog.month}月 · 资产快照</DialogTitle>
+                  <span className="text-base font-bold">{year}年{monthAttrDialog.month}月 · 资产快照</span>
                   <button
-                    onClick={() => setMonthAttrDialog(null)}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5 -mr-1 rounded-full hover:bg-gray-100 transition-colors"
+                    type="button"
+                    onPointerDown={(e) => { e.stopPropagation(); setMonthAttrDialog(null); }}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
                     aria-label="关闭"
                   >
                     <X size={20} />
                   </button>
                 </div>
-              </DialogHeader>
+              </div>
               <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4">
                 <div className="text-center pt-2">
                   <span className="text-gray-500">净资产 </span>
@@ -2958,27 +2981,28 @@ export function RecordPage({ onPageChange, onBack, hideBalance, toggleHideBalanc
                   </span>
                 </div>
                 <div className="py-6 text-center space-y-4">
-                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto text-2xl">
-                  📝
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto text-2xl">
+                    📝
+                  </div>
+                  <p className="text-sm text-gray-400">该月暂无归因记录</p>
+                  <Button
+                    className="w-full text-white"
+                    style={{ backgroundColor: themeConfig.primary }}
+                    onClick={() => {
+                      const targetMonth = monthAttrDialog.month;
+                      setMonthAttrDialog(null);
+                      setRecordMode('monthly');
+                      setMonth(targetMonth);
+                      pendingAttributionOpenRef.current = true;
+                    }}
+                  >
+                    前往该月填写归因
+                  </Button>
                 </div>
-                <p className="text-sm text-gray-400">该月暂无归因记录</p>
-                <Button
-                  className="w-full text-white"
-                  style={{ backgroundColor: themeConfig.primary }}
-                  onClick={() => {
-                    const targetMonth = monthAttrDialog.month;
-                    setMonthAttrDialog(null);
-                    setRecordMode('monthly');
-                    setMonth(targetMonth);
-                    pendingAttributionOpenRef.current = true;
-                  }}
-                >
-                  前往该月填写归因
-                </Button>
               </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+            </div>
+          </>,
+          document.body
         );
       })()}
 

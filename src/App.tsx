@@ -57,7 +57,19 @@ function App() {
   const handlePageChange = useCallback((page: PageRoute, params?: any) => {
     setCurrentPage(page);
     setPageParams(params);
-    setPageHistory(prev => [...prev, { page, params }]);
+    setPageHistory(prev => {
+      const newEntry = { page, params };
+      // 特殊处理：从首页直接进入"添加账户"（无 accountId）时，
+      // 自动在 history 栈中先 push 一个 accounts，确保 AccountEditPage.onBack() 能正确回到账户管理页
+      // 避免 AccountEditPage 写死 onPageChange('accounts') 导致 history 栈无限增长形成死循环
+      if (page === 'account-edit' && !params?.accountId) {
+        const last = prev[prev.length - 1];
+        if (last && last.page === 'home') {
+          return [...prev, { page: 'accounts' as PageRoute, params: null }, newEntry];
+        }
+      }
+      return [...prev, newEntry];
+    });
     window.scrollTo(0, 0);
   }, []);
 

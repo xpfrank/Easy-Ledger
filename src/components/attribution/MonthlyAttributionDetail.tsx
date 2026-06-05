@@ -1,10 +1,10 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { calculateNetWorth } from '@/lib/calculator';
 import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getSettings, convertToBaseCurrency, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
 import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 
 interface Props {
@@ -17,12 +17,6 @@ interface Props {
 }
 
 export default function MonthlyAttributionDetail({ year, month, hideBalance, theme = 'blue', onClose, onEdit }: Props) {
-  const [open, setOpen] = useState(true);
-  const handleClose = () => {
-    setOpen(false);
-    setTimeout(() => onClose(), 150);
-  };
-
   const attribution = getMonthlyAttribution(year, month);
   const currentAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
   const currentNW = calculateNetWorth(currentAccounts, year, month);
@@ -70,22 +64,31 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
   // 当前 Tab 有内容的分类
   const availableCategories = ATTRIBUTION_CATEGORIES.filter(cat => (groupedTags[cat.id] || []).length > 0);
 
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
-      <DialogContent className="!fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 !w-[92vw] !max-w-sm flex flex-col overflow-hidden p-0 [&>button]:hidden" style={{ maxHeight: 'calc(min(85dvh, 85vh))' }}>
-        <DialogHeader className="flex-shrink-0 bg-white px-4 pt-3 pb-2.5 border-b border-gray-100">
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 bg-black/50"
+        style={{ zIndex: 9998 }}
+        onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+      />
+      <div
+        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
+        style={{ zIndex: 9999, maxHeight: 'min(85dvh, 85vh)' }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-gray-100">
           <div className="relative flex items-center justify-center">
-            <DialogTitle className="text-lg font-bold text-center w-full">{year}年{month}月 月度归因</DialogTitle>
+            <span className="text-base font-bold">{year}年{month}月 月度归因</span>
             <button
               type="button"
-              onClick={handleClose}
-              className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5 -mr-1 rounded-full hover:bg-gray-100 transition-colors"
+              onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+              className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
               aria-label="关闭"
             >
               <X size={20} />
             </button>
           </div>
-        </DialogHeader>
+        </div>
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4">
           {/* 净资产变化卡片 */}
           <div 
@@ -345,7 +348,8 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
           {/* 键盘弹出时的底部 padding，防止按钮被遮挡 */}
           <div className="h-safe-area-inset-bottom" />
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </>,
+    document.body
   );
 }
