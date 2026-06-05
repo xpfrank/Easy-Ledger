@@ -192,7 +192,7 @@ function App() {
       case 'accounts':
         return <AccountsPage onPageChange={handlePageChange} onBack={handleBack} />;
       case 'account-edit':
-        return <AccountEditPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
+        return <AccountEditPage accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'account-detail':
         return <AccountDetailPage onPageChange={handlePageChange} accountId={pageParams?.accountId} onBack={handleBack} />;
       case 'account-flow':
