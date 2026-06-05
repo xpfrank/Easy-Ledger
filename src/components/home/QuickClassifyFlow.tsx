@@ -34,7 +34,6 @@ export function QuickClassifyFlow({ unclassifiedAccounts, primaryColor, onComple
         accounts={allAccounts}
         primaryColor={primaryColor}
         onDismiss={onDismiss}
-        onComplete={onComplete}
         hideBalance={hideBalance}
       />
     );
@@ -56,13 +55,11 @@ function ReclassifyMode({
   accounts,
   primaryColor,
   onDismiss,
-  onComplete,
   hideBalance = false,
 }: {
   accounts: Account[];
   primaryColor: string;
   onDismiss: () => void;
-  onComplete: () => void;
   hideBalance?: boolean;
 }) {
   const { year, month } = getCurrentYearMonth();

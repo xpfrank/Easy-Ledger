@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Icon } from '@/components/Icon';
-import type { Account, AccountType, PageRoute, IconCategory, CustomAccountType, } from '@/types';
+import type { Account, AccountType, IconCategory, CustomAccountType, } from '@/types';
 import {
   addAccountToMonth,
   updateAccount,
@@ -28,7 +28,6 @@ import { getSettings } from '@/lib/storage';
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AccountEditPageProps {
-  onPageChange: (page: PageRoute, params?: any) => void;
   onBack?: () => void;
   accountId?: string;
 }
@@ -147,7 +146,7 @@ function guessIconGroup(iconName: string): IconCategory {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function AccountEditPage({ onPageChange, accountId, onBack }: AccountEditPageProps) {
+export function AccountEditPage({ accountId, onBack }: AccountEditPageProps) {
   const isEdit = !!accountId;
 
   const [theme, setTheme] = useState<string>('blue');
