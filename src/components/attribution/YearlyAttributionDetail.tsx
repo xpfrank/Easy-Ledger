@@ -16,6 +16,12 @@ interface Props {
 }
 
 export default function YearlyAttributionDetail({ year, hideBalance, theme = 'purple', onClose, onEdit }: Props) {
+  const [open, setOpen] = useState(true);
+  const handleClose = () => {
+    setOpen(false);
+    setTimeout(() => onClose(), 150);
+  };
+
   const attribution = getYearlyAttribution(year);
   const lastMonth = getLastRecordedMonth(year) || 12;
   const currentAccounts = getAccountsForMonth(year, lastMonth).filter(a => !a.isHidden);
@@ -96,13 +102,14 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
   if (!attribution) return null;
 
   return (
-    <Dialog open={true} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent className="!fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 !w-[92vw] !max-w-sm flex flex-col overflow-hidden p-0 [&>button]:hidden" style={{ maxHeight: 'calc(min(85dvh, 85vh))' }}>
         <DialogHeader className="flex-shrink-0 bg-white px-4 pt-3 pb-2.5 border-b border-gray-100">
           <div className="relative flex items-center justify-center">
             <DialogTitle className="text-lg font-bold text-center w-full">{year}年 年度归因</DialogTitle>
             <button
-              onClick={onClose}
+              type="button"
+              onClick={handleClose}
               className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5 -mr-1 rounded-full hover:bg-gray-100 transition-colors"
               aria-label="关闭"
             >

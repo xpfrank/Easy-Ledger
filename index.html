@@ -9,6 +9,31 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="description" content="极简记账 - 一款简洁好用的个人记账工具" />
     <meta name="theme-color" content="#0ea5e9" />
+    <script>
+      // 页面加载最早期同步主题色到状态栏，避免刷新后闪烁
+      (function() {
+        try {
+          const raw = localStorage.getItem('simple-ledger-data');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const theme = parsed.settings?.theme;
+            const colors = {
+              blue: '#0ea5e9',
+              green: '#22c55e',
+              orange: '#f97316',
+              dark: '#6366f1',
+              purple: '#a855f7'
+            };
+            if (theme && colors[theme]) {
+              const meta = document.querySelector('meta[name="theme-color"]');
+              if (meta) meta.setAttribute('content', colors[theme]);
+            }
+          }
+        } catch (e) {
+          // 忽略解析异常
+        }
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/logo.svg" />
     <title>极简记账</title>
