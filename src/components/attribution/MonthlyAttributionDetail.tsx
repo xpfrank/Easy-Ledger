@@ -5,7 +5,7 @@ import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
 import { useState, useRef } from 'react';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 
 interface Props {
   year: number;
@@ -66,11 +66,20 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-md overflow-y-auto" style={{ maxHeight: 'min(90dvh, 90vh)' }}>
-        <DialogHeader>
-          <DialogTitle>{year}年{month}月 月度归因</DialogTitle>
+      <DialogContent className="!fixed !left-1/2 !top-1/2 !-translate-x-1/2 !-translate-y-1/2 !w-[92vw] !max-w-sm flex flex-col overflow-hidden p-0 [&>button]:hidden" style={{ maxHeight: 'calc(min(85dvh, 85vh))' }}>
+        <DialogHeader className="flex-shrink-0 bg-white px-4 pt-3 pb-2.5 border-b border-gray-100">
+          <div className="relative flex items-center justify-center">
+            <DialogTitle className="text-lg font-bold text-center w-full">{year}年{month}月 月度归因</DialogTitle>
+            <button
+              onClick={onClose}
+              className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5 -mr-1 rounded-full hover:bg-gray-100 transition-colors"
+              aria-label="关闭"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </DialogHeader>
-        <div ref={scrollContainerRef} className="py-4 space-y-4">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4">
           {/* 净资产变化卡片 */}
           <div 
             className="rounded-xl p-5 text-white"
