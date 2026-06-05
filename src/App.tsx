@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { PageRoute } from '@/types';
+import type { PageRoute, ThemeType } from '@/types';
 import { BottomNav } from '@/components/BottomNav';
 import { HomePage } from '@/pages/HomePage';
 import { AccountsPage } from '@/pages/AccountsPage';
@@ -13,6 +13,7 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { BalanceSankeyPage } from '@/pages/BalanceSankeyPage';
 import { getSettings, updateSettings, migrateToMonthlyAccountConfigs } from '@/lib/storage';
 import { THEMES } from '@/types';
+import { syncStatusBar } from '@/lib/status-bar';
 import './App.css';
 
 function App() {
@@ -24,9 +25,15 @@ function App() {
   useEffect(() => {
     const settings = getSettings();
     setHideBalanceState(settings.hideBalance);
-    setTheme(settings.theme || 'blue');
+    const initialTheme = settings.theme || 'blue';
+    setTheme(initialTheme);
     migrateToMonthlyAccountConfigs();
   }, []);
+
+  // 主题变化时同步状态栏颜色（覆盖所有页面）
+  useEffect(() => {
+    syncStatusBar(theme as ThemeType);
+  }, [theme]);
 
   const themeConfig = THEMES[theme as keyof typeof THEMES] || THEMES.blue;
 
