@@ -36,7 +36,7 @@ jobs:
       uses: android-actions/setup-android@v3
       
     - name: Sync Capacitor Android
-      run: npx cap android
+      run: npx cap sync android
         
     - name: Fix Android SDK versions
       run: |
