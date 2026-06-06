@@ -43,20 +43,10 @@ jobs:
         sed -i 's/compileSdkVersion = .*/compileSdkVersion = 35/' android/variables.gradle
         sed -i 's/targetSdkVersion = .*/targetSdkVersion = 35/' android/variables.gradle
         
-    - name: Generate Keystore
-      run: |
-        keytool -genkeypair \
-          -v \
-          -keystore release.keystore \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000 \
-          -alias easyledger \
-          -storepass ${{ secrets.KEYSTORE_PASSWORD || 'easyledger123' }} \
-          -keypass ${{ secrets.KEY_PASSWORD || 'easyledger123' }} \
-          -dname "CN=EasyLedger, OU=Dev, O=EasyLedger, L=Beijing, ST=Beijing, C=CN"
+    - name: Decode Keystore
+      run: echo "${{ secrets.SIGNING_KEY }}" | base64 -d > release.keystore
         
-    - name: Build Unsigned Release APK
+    - name: Build Release APK
       run: |
         cd android
         chmod +x gradlew
@@ -74,9 +64,9 @@ jobs:
         BUILD_TOOLS=${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools/ | sort -V | tail -1)
         ${BUILD_TOOLS}/apksigner sign \
           --ks release.keystore \
-          --ks-key-alias easyledger \
-          --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD || 'easyledger123' }} \
-          --key-pass pass:${{ secrets.KEY_PASSWORD || 'easyledger123' }} \
+          --ks-key-alias ${{ secrets.KEY_ALIAS }} \
+          --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+          --key-pass pass:${{ secrets.KEY_PASSWORD }} \
           --out android/app/build/outputs/apk/release/app-release-signed.apk \
           android/app/build/outputs/apk/release/app-release-aligned.apk
         
