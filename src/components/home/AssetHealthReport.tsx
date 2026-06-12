@@ -436,7 +436,6 @@ export function AssetHealthReport({
 
   const score = d.healthScore.score;
   const grade = getGrade(score);
-  const gradeMeta = GRADE_META[grade];
 
   // Volatility
   const sdLabel = d.sd <= 2 ? '极稳健' : d.sd <= 5 ? '较平稳' : d.sd <= 10 ? '正常波动' : '波动偏大';
@@ -560,12 +559,6 @@ export function AssetHealthReport({
     }
     return result;
   }, [d.trendChartData, dimension, year, month]);
-
-  // Heatmap gradient legend ticks
-  const maxAbsPct = Math.max(
-    ...d.monthlySnapshots.map(s => Math.abs(s.changePercent)),
-    0.1,
-  );
 
   return (
     <div className="fixed inset-0 z-[70] bg-background flex flex-col overflow-hidden">
@@ -717,7 +710,7 @@ export function AssetHealthReport({
                       width={50}
                     />
                     <Tooltip
-                      formatter={(v: number | null) => [v !== null ? fmtAmountRaw(v) : '无记录', '净资产']}
+                      formatter={(v) => [v != null ? fmtAmountRaw(Number(v)) : '无记录', '净资产' as const]}
                       contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid var(--border)' }}
                     />
                     <Area
