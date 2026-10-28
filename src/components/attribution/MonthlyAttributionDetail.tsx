@@ -66,22 +66,27 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
 
   return createPortal(
     <>
+      {/* BUG FIX: 关闭动作改用 onClick 而非 onPointerDown。
+          原实现 pointerdown 时立即卸载弹窗，手指抬起后浏览器随后派发的
+          click 事件会落在弹窗下方正对关闭按钮的元素（如月份行）上，
+          造成"关闭弹窗后误触打开下层弹窗"的点击穿透。 */}
       <div
         className="fixed inset-0 bg-black/50"
         style={{ zIndex: 9998 }}
-        onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
       <div
         className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
         style={{ zIndex: 9999, maxHeight: 'min(85dvh, 85vh)' }}
         onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex-shrink-0 px-4 pt-3 pb-2.5 border-b border-gray-100">
           <div className="relative flex items-center justify-center">
             <span className="text-base font-bold">{year}年{month}月 月度归因</span>
             <button
               type="button"
-              onPointerDown={(e) => { e.stopPropagation(); onClose(); }}
+              onClick={(e) => { e.stopPropagation(); onClose(); }}
               className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
               aria-label="关闭"
             >
