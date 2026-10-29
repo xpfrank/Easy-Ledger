@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ArrowLeft, Filter, ChevronDown, ChevronUp, AlertTriangle, BarChart3, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/Icon';
@@ -79,6 +79,16 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
 
   const [selectedAttributionMonth, setSelectedAttributionMonth] = useState<{ year: number; month: number } | null>(null);
   const [selectedAttributionYear, setSelectedAttributionYear] = useState<number | null>(null);
+  // 关闭弹窗后的短暂保护窗口：快速连续点击时，第二次点击可能落在底层月份卡片上，
+  // 如果没有这个保护，就会立即重新打开弹窗，表现为“关不掉”或卡顿。
+  const attributionCloseGuardRef = useRef(0);
+  const ATTRIBUTION_REOPEN_GUARD_MS = 350;
+
+  const closeAttributionDetail = () => {
+    attributionCloseGuardRef.current = Date.now();
+    setSelectedAttributionMonth(null);
+    setSelectedAttributionYear(null);
+  };
 
   const themeConfig = themesConfig[theme];
   const baseCurrencyCode = getBaseCurrency();
@@ -162,10 +172,12 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
   };
 
   const handleViewMonthlyAttribution = (year: number, month: number) => {
+    if (Date.now() - attributionCloseGuardRef.current < ATTRIBUTION_REOPEN_GUARD_MS) return;
     setSelectedAttributionMonth({ year, month });
   };
 
   const handleViewYearlyAttribution = (year: number) => {
+    if (Date.now() - attributionCloseGuardRef.current < ATTRIBUTION_REOPEN_GUARD_MS) return;
     setSelectedAttributionYear(year);
   };
 
@@ -311,21 +323,21 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
     );
   };
 
-  // ==================== 修复3：月度时间轴实时计算环比（含1月跨年逻辑） ====================
-  const renderYearlyTimeline = () => {
+  // 年度时间轴的计算结果与弹窗开关状态无关，缓存后避免每次打开/关闭弹窗都
+  // 重新遍历 12 个月的账户、记录和净资产（这是关闭卡顿的主要来源之一）。
+  const yearlyTimelineData = useMemo(() => {
     let y: number;
     if (selectedYear === 'all') {
       const allMonthly = getAllMonthlyAttributionsSorted();
       const allYearly = getAllYearlyAttributionsSorted();
-      y = allMonthly.length > 0 ? allMonthly[0].year : 
-          allYearly.length > 0 ? allYearly[0].year : 
+      y = allMonthly.length > 0 ? allMonthly[0].year :
+          allYearly.length > 0 ? allYearly[0].year :
           initialYear;
     } else {
       y = selectedYear as number;
     }
 
     const monthlyAttrs = getMonthlyAttributionsForYear(y);
-
     const yearMonths = Array.from({ length: 12 }, (_, i) => {
       const month = i + 1;
       const attr = monthlyAttrs.find(a => a.month === month);
@@ -334,7 +346,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
       const netWorth = calculateNetWorth(accounts, y, month);
 
       // 修复：1月环比取上年12月，不再丢失年初数据
-      const prevMonthNetWorth = month > 1 
+      const prevMonthNetWorth = month > 1
         ? calculateNetWorth(getAccountsForMonth(y, month - 1).filter(a => !a.isHidden), y, month - 1)
         : calculateNetWorth(getAccountsForMonth(y - 1, 12).filter(a => !a.isHidden), y - 1, 12);
 
@@ -346,7 +358,12 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
       return { month, attr, netWorth, change, changePercent, hasData: monthLogs.length > 0 || !!attr };
     });
 
-    const recordedCount = yearMonths.filter(m => m.attr).length;
+    return { y, yearMonths, recordedCount: yearMonths.filter(m => m.attr).length };
+  }, [selectedYear, initialYear, monthlyAttributions, yearlyAttributions]);
+
+  // ==================== 修复3：月度时间轴实时计算环比（含1月跨年逻辑） ====================
+  const renderYearlyTimeline = () => {
+    const { y, yearMonths, recordedCount } = yearlyTimelineData;
     const nowYear = new Date().getFullYear();
     const nowMonth = new Date().getMonth() + 1;
 
@@ -1035,7 +1052,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
           month={selectedAttributionMonth.month}
           hideBalance={hideBalance}
           theme={theme}
-          onClose={() => setSelectedAttributionMonth(null)}
+          onClose={closeAttributionDetail}
           onEdit={() => {
             goToRecordForAttribution(selectedAttributionMonth.year, selectedAttributionMonth.month);
             setSelectedAttributionMonth(null);
@@ -1049,7 +1066,7 @@ export function RecordLogsPage({ onPageChange, onBack, year: initialYear, month:
           year={selectedAttributionYear}
           hideBalance={hideBalance}
           theme={theme}
-          onClose={() => setSelectedAttributionYear(null)}
+          onClose={closeAttributionDetail}
           onEdit={() => {
             goToRecordForAttribution(selectedAttributionYear);
             setSelectedAttributionYear(null);
