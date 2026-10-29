@@ -3,7 +3,7 @@ import { calculateNetWorth } from '@/lib/calculator';
 import { getMonthlyAttribution, getAccountSnapshotsByMonth, formatAmountNoSymbol, getSettings, convertToBaseCurrency, getAttributionTagEmoji, getAttributionTagLabel, getAccountsForMonth, getAllAttributionTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 
@@ -17,22 +17,31 @@ interface Props {
 }
 
 export default function MonthlyAttributionDetail({ year, month, hideBalance, theme = 'blue', onClose, onEdit }: Props) {
-  const attribution = getMonthlyAttribution(year, month);
-  const currentAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
-  const currentNW = calculateNetWorth(currentAccounts, year, month);
-  let lastYear = year, lastMonth = month - 1;
-  if (lastMonth === 0) { lastYear--; lastMonth = 12; }
-  const lastMonthAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
-  const lastNW = calculateNetWorth(lastMonthAccounts, lastYear, lastMonth);
-  const change = currentNW - lastNW;
-  const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
+  // 弹窗内的 Tab 切换、点击事件等不应反复扫描 localStorage 和重算净资产。
+  // 只有月份变化时才重新读取和计算，避免连续操作时主线程阻塞。
+  const detailData = useMemo(() => {
+    const currentAccounts = getAccountsForMonth(year, month).filter(a => !a.isHidden);
+    const currentNW = calculateNetWorth(currentAccounts, year, month);
+    let lastYear = year, lastMonth = month - 1;
+    if (lastMonth === 0) { lastYear--; lastMonth = 12; }
+    const lastMonthAccounts = getAccountsForMonth(lastYear, lastMonth).filter(a => !a.isHidden);
+    const lastNW = calculateNetWorth(lastMonthAccounts, lastYear, lastMonth);
+    const snapshots = getAccountSnapshotsByMonth(year, month);
+    return {
+      attribution: getMonthlyAttribution(year, month),
+      currentNW,
+      lastNW,
+      change: currentNW - lastNW,
+      changePercent: lastNW !== 0 ? ((currentNW - lastNW) / Math.abs(lastNW)) * 100 : 0,
+      snapshots,
+      topChanges: snapshots
+        .filter(s => s.change !== 0)
+        .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+        .slice(0, 3),
+    };
+  }, [year, month]);
 
-  const snapshots = getAccountSnapshotsByMonth(year, month);
-  const topChanges = snapshots
-    .filter(s => s.change !== 0)
-    .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
-    .slice(0, 3);
-
+  const { attribution, currentNW, lastNW, change, changePercent, snapshots, topChanges } = detailData;
   const themeConfig = THEMES[theme];
   const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
   const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
@@ -41,7 +50,7 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
   const [activeCategory, setActiveCategory] = useState<string>('income');
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const getTagsByCategory = () => {
+  const groupedTags = useMemo(() => {
     const allTags = getAllAttributionTagOptions();
     const grouped: Record<string, TagOption[]> = {};
     ATTRIBUTION_CATEGORIES.forEach(cat => {
@@ -52,10 +61,9 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
       grouped['other'] = [...(grouped['other'] || []), ...uncategorized];
     }
     return grouped;
-  };
+  }, []);
 
-  const groupedTags = getTagsByCategory();
-  const selectedTags = new Set<string>(attribution?.tags || []);
+  const selectedTags = useMemo(() => new Set<string>(attribution?.tags || []), [attribution]);
 
   if (!attribution) {
     return null;
@@ -63,6 +71,12 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
 
   // 当前 Tab 有内容的分类
   const availableCategories = ATTRIBUTION_CATEGORIES.filter(cat => (groupedTags[cat.id] || []).length > 0);
+
+  const handleClose = (e: SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClose();
+  };
 
   return createPortal(
     <>
@@ -72,8 +86,8 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
           造成"关闭弹窗后误触打开下层弹窗"的点击穿透。 */}
       <div
         className="fixed inset-0 bg-black/50"
-        style={{ zIndex: 9998 }}
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        onClick={handleClose}
+        style={{ zIndex: 9998, touchAction: 'manipulation' }}
       />
       <div
         className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
@@ -86,8 +100,9 @@ export default function MonthlyAttributionDetail({ year, month, hideBalance, the
             <span className="text-base font-bold">{year}年{month}月 月度归因</span>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onClose(); }}
-              className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
+              onClick={handleClose}
+              className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 active:bg-gray-200 [&_svg]:pointer-events-none"
+              style={{ touchAction: 'manipulation' }}
               aria-label="关闭"
             >
               <X size={20} />

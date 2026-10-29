@@ -3,7 +3,7 @@ import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
 import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getSettings, convertToBaseCurrency, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllYearlyTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
-import { useState } from 'react';
+import { useState, useMemo, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 
@@ -16,15 +16,60 @@ interface Props {
 }
 
 export default function YearlyAttributionDetail({ year, hideBalance, theme = 'purple', onClose, onEdit }: Props) {
-  const attribution = getYearlyAttribution(year);
-  const lastMonth = getLastRecordedMonth(year) || 12;
-  const currentAccounts = getAccountsForMonth(year, lastMonth).filter(a => !a.isHidden);
-  const lastYearAccounts = getAccountsForMonth(year - 1, 12).filter(a => !a.isHidden);
-  const currentNW = calculateNetWorth(currentAccounts, year, lastMonth);
-  const lastNW = calculateNetWorth(lastYearAccounts, year - 1, 12);
-  const change = currentNW - lastNW;
-  const changePercent = lastNW !== 0 ? (change / Math.abs(lastNW)) * 100 : 0;
+  // 只在年份变化时重算，Tab 切换和重复点击不再重复扫描全部账目。
+  const detailData = useMemo(() => {
+    const attribution = getYearlyAttribution(year);
+    const lastMonth = getLastRecordedMonth(year) || 12;
+    const currentAccounts = getAccountsForMonth(year, lastMonth).filter(a => !a.isHidden);
+    const lastYearAccounts = getAccountsForMonth(year - 1, 12).filter(a => !a.isHidden);
+    const currentNW = calculateNetWorth(currentAccounts, year, lastMonth);
+    const lastNW = calculateNetWorth(lastYearAccounts, year - 1, 12);
 
+    const accounts = getAllAccounts().filter(a => !a.isHidden);
+    const accountChanges = accounts.map(account => {
+      const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
+      const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
+      const currentBalance = currentRecord ? currentRecord.balance : account.balance;
+      const lastBalance = lastRecord ? lastRecord.balance : account.balance;
+      const currentConverted = convertToBaseCurrency(currentBalance, account.currency || 'CNY', year, lastMonth);
+      const lastConverted = convertToBaseCurrency(lastBalance, account.currency || 'CNY', year - 1, 12);
+      return {
+        accountId: account.id,
+        accountName: account.name,
+        accountIcon: account.icon,
+        change: currentConverted - lastConverted,
+      };
+    }).filter(a => a.change !== 0).sort((a, b) => b.change - a.change).slice(0, 3);
+
+    const monthlyAttributions = getMonthlyAttributionsByYear(year);
+    const tagStats: Record<string, { totalChange: number; months: string[]; label: string; emoji: string }> = {};
+    monthlyAttributions.forEach(attr => {
+      attr.tags.forEach(tag => {
+        if (!tagStats[tag]) {
+          tagStats[tag] = { totalChange: 0, months: [], label: getAttributionTagLabel(tag), emoji: getAttributionTagEmoji(tag) };
+        }
+        const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
+        tagStats[tag].totalChange += convertToBaseCurrency(tagAmount, attr.currency || 'CNY', attr.year, attr.month);
+        if (!tagStats[tag].months.includes(`${attr.month}月`)) {
+          tagStats[tag].months.push(`${attr.month}月`);
+        }
+      });
+    });
+
+    return {
+      attribution,
+      lastMonth,
+      currentNW,
+      lastNW,
+      change: currentNW - lastNW,
+      changePercent: lastNW !== 0 ? ((currentNW - lastNW) / Math.abs(lastNW)) * 100 : 0,
+      accountChanges,
+      sortedTagStats: Object.entries(tagStats).sort((a, b) => b[1].totalChange - a[1].totalChange).slice(0, 3),
+      snapshots: getAccountSnapshotsByMonth(year, lastMonth),
+    };
+  }, [year]);
+
+  const { attribution, lastMonth, currentNW, lastNW, change, changePercent, accountChanges, sortedTagStats, snapshots } = detailData;
   const themeConfig = THEMES[theme];
   const baseCurrencyCode = getSettings().baseCurrency || 'CNY';
   const baseCurrencySymbol = getCurrencyConfig(baseCurrencyCode).symbol;
@@ -32,47 +77,8 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
   // Tab 选中分类
   const [activeCategory, setActiveCategory] = useState<string>('income');
 
-  // 账户变动TOP3（年末较年初）
-  const accounts = getAllAccounts().filter(a => !a.isHidden);
-  const accountChanges = accounts.map(account => {
-    const currentRecord = getMonthlyRecord(account.id, year, lastMonth);
-    const lastRecord = getMonthlyRecord(account.id, year - 1, 12);
-    const currentBalance = currentRecord ? currentRecord.balance : account.balance;
-    const lastBalance = lastRecord ? lastRecord.balance : account.balance;
-    const currentConverted = convertToBaseCurrency(currentBalance, account.currency || 'CNY', year, lastMonth);
-    const lastConverted = convertToBaseCurrency(lastBalance, account.currency || 'CNY', year - 1, 12);
-    return {
-      accountId: account.id,
-      accountName: account.name,
-      accountIcon: account.icon,
-      change: currentConverted - lastConverted,
-    };
-  }).filter(a => a.change !== 0).sort((a, b) => b.change - a.change).slice(0, 3);
-
-  // 归因排行TOP3
-  const monthlyAttributions = getMonthlyAttributionsByYear(year);
-  const tagStats: Record<string, { totalChange: number; months: string[]; label: string; emoji: string }> = {};
-  monthlyAttributions.forEach(attr => {
-    attr.tags.forEach(tag => {
-      if (!tagStats[tag]) {
-        tagStats[tag] = { totalChange: 0, months: [], label: getAttributionTagLabel(tag), emoji: getAttributionTagEmoji(tag) };
-      }
-      const tagAmount = attr.tagAmounts?.[tag] ?? (attr.change / Math.max(attr.tags.length, 1));
-      tagStats[tag].totalChange += convertToBaseCurrency(tagAmount, attr.currency || 'CNY', attr.year, attr.month);
-      if (!tagStats[tag].months.includes(`${attr.month}月`)) {
-        tagStats[tag].months.push(`${attr.month}月`);
-      }
-    });
-  });
-  const sortedTagStats = Object.entries(tagStats)
-    .sort((a, b) => b[1].totalChange - a[1].totalChange)
-    .slice(0, 3);
-
-  // 账户余额快照
-  const snapshots = getAccountSnapshotsByMonth(year, lastMonth);
-
   // ── 使用 getAllYearlyTagOptions() 获取完整标签（含自定义），按分类分组 ──
-  const getTagsByCategory = () => {
+  const groupedTags = useMemo(() => {
     const allTags = getAllYearlyTagOptions();
     const grouped: Record<string, TagOption[]> = {};
     ATTRIBUTION_CATEGORIES.forEach(cat => {
@@ -83,17 +89,21 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
       grouped['other'] = [...(grouped['other'] || []), ...uncategorized];
     }
     return grouped;
-  };
-
-  const groupedTags = getTagsByCategory();
+  }, []);
 
   // 年度归因已选标签集合
-  const selectedTags = new Set<string>(attribution?.tags || []);
+  const selectedTags = useMemo(() => new Set<string>(attribution?.tags || []), [attribution]);
 
   // 当前 Tab 有内容的分类
   const availableCategories = ATTRIBUTION_CATEGORIES.filter(cat => (groupedTags[cat.id] || []).length > 0);
 
   if (!attribution) return null;
+
+  const handleClose = (e: SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClose();
+  };
 
   return createPortal(
     <>
@@ -101,8 +111,8 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
           避免弹窗在 pointerdown 阶段卸载后，click 事件穿透到下层元素。 */}
       <div
         className="fixed inset-0 bg-black/50"
-        style={{ zIndex: 9998 }}
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        onClick={handleClose}
+        style={{ zIndex: 9998, touchAction: 'manipulation' }}
       />
       <div
         className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-sm flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden"
@@ -115,8 +125,9 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
             <span className="text-base font-bold">{year}年 年度归因</span>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onClose(); }}
-              className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 active:bg-gray-200"
+              onClick={handleClose}
+              className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 active:bg-gray-200 [&_svg]:pointer-events-none"
+              style={{ touchAction: 'manipulation' }}
               aria-label="关闭"
             >
               <X size={20} />
