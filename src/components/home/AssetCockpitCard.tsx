@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Settings2, Droplets, Landmark, TrendingUp, Shield, Activity, BarChart2, FileText, Plus, Lock, Info, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { calculateNetWorth } from '@/lib/calculator';
@@ -294,6 +294,15 @@ export function AssetCockpitCard({
 
     return { badges, totalDone, startYear, rate, hasAnyData };
   }, []);
+
+  // 月份从最早记录开始排列，全年数据在小屏上会溢出。默认将当前月份
+  // 滚入可视区，让驾驶舱打开时优先展示用户正在记账的进度；历史月份仍可手动横滑查看。
+  const currentMonthDotRef = useRef<HTMLDivElement>(null);
+  const currentYearBadgeRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const target = attrTab === 'monthly' ? currentMonthDotRef.current : currentYearBadgeRef.current;
+    target?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
+  }, [attrTab, monthlyDots, yearlyBadges]);
 
   const handleViewDetail = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -617,7 +626,10 @@ export function AssetCockpitCard({
                           {showYearSep && (
                             <span className="text-[9px] text-gray-300 font-bold px-1">{dot.year}</span>
                           )}
-                          <div className="flex flex-col items-center gap-[3px]">
+                          <div
+                            ref={dot.isCurrent ? currentMonthDotRef : undefined}
+                            className="flex flex-col items-center gap-[3px]"
+                          >
                             {dot.isFuture ? (
                               /* 待记录：主题色圆形 + 锁 */
                               <span
@@ -669,6 +681,7 @@ export function AssetCockpitCard({
                     {yearlyBadges.badges.map((badge) => (
                       <div
                         key={badge.year}
+                        ref={badge.isCurrent ? currentYearBadgeRef : undefined}
                         className="shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-xl transition-all"
                         style={{
                           border: badge.done
