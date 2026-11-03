@@ -3,7 +3,7 @@ import { calculateNetWorth, getLastRecordedMonth } from '@/lib/calculator';
 import { getYearlyAttribution, getAllAccounts, getMonthlyRecord, formatAmountNoSymbol, getAccountSnapshotsByMonth, getSettings, convertToBaseCurrency, getMonthlyAttributionsByYear, getAttributionTagLabel, getAttributionTagEmoji, getAccountsForMonth, getAllYearlyTagOptions, findAttributionTagOption } from '@/lib/storage';
 import { Icon } from '@/components/Icon';
 import { type ThemeType, THEMES, ATTRIBUTION_CATEGORIES, type TagOption, getCurrencyConfig } from '@/types';
-import { useState, useMemo, type SyntheticEvent } from 'react';
+import { useState, useRef, useMemo, type PointerEvent, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 
@@ -76,6 +76,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
 
   // Tab 选中分类
   const [activeCategory, setActiveCategory] = useState<string>('income');
+  const isClosingRef = useRef(false);
 
   // ── 使用 getAllYearlyTagOptions() 获取完整标签（含自定义），按分类分组 ──
   const groupedTags = useMemo(() => {
@@ -102,16 +103,40 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
   const handleClose = (e: SyntheticEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    onClose();
+  };
+
+  // 在 pointerdown 阶段关闭并捕获吞掉同一次轻触的 click，避免卸载后
+  // 该 click 落到年度归因列表中的下层卡片上。
+  const handleClosePointerDown = (e: PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    if (isClosingRef.current) return;
+
+    const { clientX, clientY } = e;
+    const swallowFollowingClick = (clickEvent: MouseEvent) => {
+      // 未派发兼容 click 的 WebView 中，不能影响用户在其他位置的下一次点击。
+      if (Math.abs(clickEvent.clientX - clientX) > 2 || Math.abs(clickEvent.clientY - clientY) > 2) return;
+      clickEvent.preventDefault();
+      clickEvent.stopImmediatePropagation();
+      document.removeEventListener('click', swallowFollowingClick, true);
+    };
+    document.addEventListener('click', swallowFollowingClick, { capture: true, once: true });
+    window.setTimeout(() => {
+      document.removeEventListener('click', swallowFollowingClick, true);
+    }, 800);
+
+    isClosingRef.current = true;
     onClose();
   };
 
   return createPortal(
     <>
-      {/* BUG FIX: 关闭动作改用 onClick 而非 onPointerDown，
-          避免弹窗在 pointerdown 阶段卸载后，click 事件穿透到下层元素。 */}
       <div
         className="fixed inset-0 bg-black/50"
         onClick={handleClose}
+        onPointerDown={handleClosePointerDown}
         style={{ zIndex: 9998, touchAction: 'manipulation' }}
       />
       <div
@@ -126,6 +151,7 @@ export default function YearlyAttributionDetail({ year, hideBalance, theme = 'pu
             <button
               type="button"
               onClick={handleClose}
+              onPointerDown={handleClosePointerDown}
               className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 active:bg-gray-200 [&_svg]:pointer-events-none"
               style={{ touchAction: 'manipulation' }}
               aria-label="关闭"
